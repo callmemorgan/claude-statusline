@@ -39,6 +39,30 @@ echo '{"model":{"display_name":"Claude"},"workspace":{"current_dir":"~"}}' | ./c
 claude config set statusline.command "/path/to/claude-statusline"
 ```
 
+## Configuration
+
+Each segment can be toggled on or off. Run the interactive setup:
+
+```bash
+claude-statusline --configure
+```
+
+Or edit `~/.config/claude-statusline/config.json` directly:
+
+```json
+{
+  "show": {
+    "directory": true,
+    "git_branch": true,
+    "model": true,
+    "cost": false,
+    "rate_limits": false
+  }
+}
+```
+
+All segments default to `on` when the config file is missing.
+
 ## Why Go?
 
 - **Zero dependencies** — standard library only

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -18,6 +19,86 @@ const (
 	minObject = `{"model":{"display_name":"Claude"},"workspace":{"current_dir":"~"}}`
 )
 
+// ─── Config ──────────────────────────────────────────────────────────
+
+type showConfig struct {
+	VimMode       bool `json:"vim_mode"`
+	SessionName   bool `json:"session_name"`
+	AgentName     bool `json:"agent_name"`
+	Directory     bool `json:"directory"`
+	GitBranch     bool `json:"git_branch"`
+	LinesChanged  bool `json:"lines_changed"`
+	CachePercent  bool `json:"cache_percent"`
+	Cost          bool `json:"cost"`
+	Model         bool `json:"model"`
+	Version       bool `json:"version"`
+	Duration      bool `json:"duration"`
+	APIEfficiency bool `json:"api_efficiency"`
+	Tokens        bool `json:"tokens"`
+	ContextWindow bool `json:"context_window"`
+	Exceeds200K   bool `json:"exceeds_200k"`
+	RateLimits    bool `json:"rate_limits"`
+}
+
+type config struct {
+	Show showConfig `json:"show"`
+}
+
+func defaultConfig() config {
+	return config{
+		Show: showConfig{
+			VimMode:       true,
+			SessionName:   true,
+			AgentName:     true,
+			Directory:     true,
+			GitBranch:     true,
+			LinesChanged:  true,
+			CachePercent:  true,
+			Cost:          true,
+			Model:         true,
+			Version:       true,
+			Duration:      true,
+			APIEfficiency: true,
+			Tokens:        true,
+			ContextWindow: true,
+			Exceeds200K:   true,
+			RateLimits:    true,
+		},
+	}
+}
+
+func configPath() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		home = "~"
+	}
+	return filepath.Join(home, ".config", "claude-statusline", "config.json")
+}
+
+func loadConfig() config {
+	cfg := defaultConfig()
+	data, err := os.ReadFile(configPath())
+	if err != nil {
+		return cfg
+	}
+	_ = json.Unmarshal(data, &cfg)
+	return cfg
+}
+
+func saveConfig(cfg config) error {
+	path := configPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0644)
+}
+
+// ─── Payload ─────────────────────────────────────────────────────────
+
 type payload struct {
 	SessionID      string     `json:"session_id"`
 	SessionName    string     `json:"session_name"`
@@ -29,11 +110,11 @@ type payload struct {
 	Workspace      workspace  `json:"workspace"`
 	Cost           cost       `json:"cost"`
 	ContextWindow  contextWin `json:"context_window"`
-	RateLimits rateLimits `json:"rate_limits"`
-	Agent      agent      `json:"agent"`
-	Worktree   worktree   `json:"worktree"`
-	Vim        vim        `json:"vim"`
-	Effort     effort     `json:"effort"`
+	RateLimits     rateLimits `json:"rate_limits"`
+	Agent          agent      `json:"agent"`
+	Worktree       worktree   `json:"worktree"`
+	Vim            vim        `json:"vim"`
+	Effort         effort     `json:"effort"`
 }
 
 type model struct {
@@ -115,17 +196,166 @@ type palette struct {
 	Session string
 }
 
+// ─── Main ────────────────────────────────────────────────────────────
+
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "--configure" {
+		runConfigure()
+		return
+	}
+
 	start := time.Now()
 
 	input := readInput()
 	p := parsePayload(input)
 	colors := currentPalette()
-	lines := buildStatusline(p, colors)
+	cfg := loadConfig()
+	lines := buildStatusline(p, colors, cfg)
 
 	elapsedMS := float64(time.Since(start).Microseconds()) / 1000.0
 	fmt.Printf("%s │ %s%.1fms\n%s\n%s\n", safeLine(lines, 0), colors.Dim, elapsedMS, safeLine(lines, 1), safeLine(lines, 2))
 }
+
+// ─── Configure Mode ──────────────────────────────────────────────────
+
+func runConfigure() {
+	cfg := loadConfig()
+	scanner := bufio.NewScanner(os.Stdin)
+
+	// Define the segments in order: field pointer, label, description.
+	segments := []struct {
+		ptr  *bool
+		key  string
+		desc string
+	}{
+		{&cfg.Show.VimMode, "vim_mode", "Vim mode indicator (e.g. [normal])"},
+		{&cfg.Show.SessionName, "session_name", "Session name label"},
+		{&cfg.Show.AgentName, "agent_name", "Agent name"},
+		{&cfg.Show.Directory, "directory", "Current / project directory"},
+		{&cfg.Show.GitBranch, "git_branch", "Git branch and worktree name"},
+		{&cfg.Show.LinesChanged, "lines_changed", "Lines added / removed"},
+		{&cfg.Show.CachePercent, "cache_percent", "Cache read percentage"},
+		{&cfg.Show.Cost, "cost", "Total session cost"},
+		{&cfg.Show.Model, "model", "Model name and effort badge"},
+		{&cfg.Show.Version, "version", "Claude Code version"},
+		{&cfg.Show.Duration, "duration", "Elapsed session duration"},
+		{&cfg.Show.APIEfficiency, "api_efficiency", "API efficiency percentage"},
+		{&cfg.Show.Tokens, "tokens", "Input / output token counts"},
+		{&cfg.Show.ContextWindow, "context_window", "Context window usage bar"},
+		{&cfg.Show.Exceeds200K, "exceeds_200k", ">200k tokens warning"},
+		{&cfg.Show.RateLimits, "rate_limits", "5-hour and 7-day rate limit bars"},
+	}
+
+	answers := make([]bool, len(segments))
+	for i, s := range segments {
+		answers[i] = *s.ptr
+	}
+
+	for i := range segments {
+		clearScreen()
+		printHeader()
+		printPreview(cfg)
+		fmt.Println()
+		fmt.Println("Toggle segments (Y/n, Enter = yes):")
+		for j := 0; j < i; j++ {
+			mark := "[ ]"
+			if answers[j] {
+				mark = "[✓]"
+			}
+			fmt.Printf("  %s %s — %s\n", mark, segments[j].key, segments[j].desc)
+		}
+		fmt.Printf("> %s — %s [Y/n]: ", segments[i].key, segments[i].desc)
+		fmt.Print("")
+
+		if !scanner.Scan() {
+			break
+		}
+		line := strings.TrimSpace(strings.ToLower(scanner.Text()))
+		answers[i] = line != "n" && line != "no"
+		*segments[i].ptr = answers[i]
+	}
+
+	clearScreen()
+	printHeader()
+	printPreview(cfg)
+	fmt.Println()
+	fmt.Println("All segments configured.")
+
+	if err := saveConfig(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving config: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Saved to %s\n", configPath())
+}
+
+func clearScreen() {
+	fmt.Print("\x1b[2J\x1b[H")
+}
+
+func printHeader() {
+	fmt.Println("══════════════════════════════════════════════════════════")
+	fmt.Println("          claude-statusline — configuration")
+	fmt.Println("══════════════════════════════════════════════════════════")
+	fmt.Println()
+}
+
+func printPreview(cfg config) {
+	colors := currentPalette()
+	p := samplePayload()
+	lines := buildStatusline(p, colors, cfg)
+	fmt.Println("Preview:")
+	fmt.Println()
+	fmt.Println(lines[0])
+	fmt.Println(lines[1])
+	fmt.Println(lines[2])
+}
+
+func samplePayload() payload {
+	trueVal := true
+	now := time.Now().Unix()
+	reset5h := now + 3600*2 + 1800
+	reset7d := now + 86400*3 + 3600*4
+	pct50 := 50.0
+	pct30 := 30.0
+	pct65 := 65.0
+	return payload{
+		SessionName: "my-project",
+		Cwd:         "/Users/me/code/my-project",
+		Version:     "0.1.0",
+		Exceeds200K: &trueVal,
+		Model:       model{DisplayName: "Claude 3.7 Sonnet"},
+		Workspace:   workspace{CurrentDir: "/Users/me/code/my-project", ProjectDir: "/Users/me/code/my-project", GitWorktree: "my-project"},
+		Cost: cost{
+			TotalCostUSD:      0.42,
+			TotalLinesAdded:   128,
+			TotalLinesRemoved: 45,
+			TotalDurationMS:   1234567,
+			TotalAPIDuration:  890123,
+		},
+		ContextWindow: contextWin{
+			TotalInputTokens:  45678,
+			TotalOutputTokens: 1234,
+			ContextWindowSize: 200000,
+			UsedPercentage:    &pct65,
+			CurrentUsage: currentUsage{
+				InputTokens:              40000,
+				OutputTokens:             1234,
+				CacheCreationInputTokens: 2000,
+				CacheReadInputTokens:     3000,
+			},
+		},
+		RateLimits: rateLimits{
+			FiveHour: limitWindow{UsedPercentage: &pct50, ResetsAt: &reset5h},
+			SevenDay: limitWindow{UsedPercentage: &pct30, ResetsAt: &reset7d},
+		},
+		Agent:    agent{Name: "CodeReview"},
+		Worktree: worktree{Name: "my-project", Branch: "feature/config"},
+		Vim:      vim{Mode: "normal"},
+		Effort:   effort{Level: "high"},
+	}
+}
+
+// ─── Input ───────────────────────────────────────────────────────────
 
 func readInput() []byte {
 	data, err := io.ReadAll(io.LimitReader(os.Stdin, maxInput))
@@ -147,22 +377,24 @@ func parsePayload(data []byte) payload {
 	return p
 }
 
+// ─── Palette ─────────────────────────────────────────────────────────
+
 func currentPalette() palette {
 	if os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
 		return palette{}
 	}
 	return palette{
-		Model:  "\x1b[35m",
-		Dir:    "\x1b[36m",
-		Git:    "\x1b[32m",
-		Chg:    "\x1b[33m",
-		Dur:    "\x1b[34m",
-		Cost:   "\x1b[33m",
-		Dim:    "\x1b[90m",
-		Rst:    "\x1b[0m",
-		ROK:    "\x1b[32m",
-		RWarn:  "\x1b[33m",
-		RCrit:  "\x1b[91m",
+		Model:   "\x1b[35m",
+		Dir:     "\x1b[36m",
+		Git:     "\x1b[32m",
+		Chg:     "\x1b[33m",
+		Dur:     "\x1b[34m",
+		Cost:    "\x1b[33m",
+		Dim:     "\x1b[90m",
+		Rst:     "\x1b[0m",
+		ROK:     "\x1b[32m",
+		RWarn:   "\x1b[33m",
+		RCrit:   "\x1b[91m",
 		Agent:   "\x1b[95m",
 		Vim:     "\x1b[97m",
 		Purple:  "\x1b[35m",
@@ -170,22 +402,26 @@ func currentPalette() palette {
 	}
 }
 
-func buildStatusline(p payload, c palette) []string {
+// ─── Statusline Builder ──────────────────────────────────────────────
+
+func buildStatusline(p payload, c palette, cfg config) []string {
 	modelName := firstNonEmpty(p.Model.DisplayName, p.Model.ID, "Claude")
 	currentDir := firstNonEmpty(p.Workspace.CurrentDir, p.Cwd, "~")
 	projectDir := p.Workspace.ProjectDir
 
 	line1 := ""
-	if p.Vim.Mode != "" {
+	if cfg.Show.VimMode && p.Vim.Mode != "" {
 		line1 = " " + component(c.Vim, "["+p.Vim.Mode+"]", "", true, c)
 	}
-	if p.SessionName != "" {
+	if cfg.Show.SessionName && p.SessionName != "" {
 		line1 = appendSegment(line1, component(c.Session, p.SessionName, "", true, c), c)
 	}
-	if p.Agent.Name != "" {
+	if cfg.Show.AgentName && p.Agent.Name != "" {
 		line1 = appendSegment(line1, component(c.Agent, p.Agent.Name, "", true, c), c)
 	}
-	line1 = appendSegment(line1, c.Dir+formatPath(currentDir, projectDir)+c.Rst, c)
+	if cfg.Show.Directory {
+		line1 = appendSegment(line1, c.Dir+formatPath(currentDir, projectDir)+c.Rst, c)
+	}
 
 	branch := p.Worktree.Branch
 	if branch == "" {
@@ -195,39 +431,63 @@ func buildStatusline(p payload, c palette) []string {
 	if worktreeName == "" {
 		worktreeName = p.Workspace.GitWorktree
 	}
-	if branch != "" {
+	if cfg.Show.GitBranch && branch != "" {
 		display := branch
 		if worktreeName != "" && worktreeName != branch {
 			display = branch + " " + c.Dim + "(" + worktreeName + ")" + c.Rst
 		}
 		line1 = appendSegment(line1, component(c.Git, display, "", true, c), c)
 	}
-	if p.Cost.TotalLinesAdded != 0 || p.Cost.TotalLinesRemoved != 0 {
+	if cfg.Show.LinesChanged && (p.Cost.TotalLinesAdded != 0 || p.Cost.TotalLinesRemoved != 0) {
 		line1 = appendSegment(line1, component(c.Chg, fmt.Sprintf("+%d/-%d", p.Cost.TotalLinesAdded, p.Cost.TotalLinesRemoved), "", true, c), c)
 	}
 
-	cacheTotal := p.ContextWindow.CurrentUsage.InputTokens + p.ContextWindow.CurrentUsage.CacheCreationInputTokens + p.ContextWindow.CurrentUsage.CacheReadInputTokens
-	if cacheTotal > 0 && p.ContextWindow.CurrentUsage.CacheReadInputTokens > 0 {
-		cacheBP := p.ContextWindow.CurrentUsage.CacheReadInputTokens * 10000 / cacheTotal
-		line1 = appendSegment(line1, c.Dim+fmt.Sprintf("cache:%d.%02d%%", cacheBP/100, cacheBP%100)+c.Rst, c)
+	if cfg.Show.CachePercent {
+		cacheTotal := p.ContextWindow.CurrentUsage.InputTokens + p.ContextWindow.CurrentUsage.CacheCreationInputTokens + p.ContextWindow.CurrentUsage.CacheReadInputTokens
+		if cacheTotal > 0 && p.ContextWindow.CurrentUsage.CacheReadInputTokens > 0 {
+			cacheBP := p.ContextWindow.CurrentUsage.CacheReadInputTokens * 10000 / cacheTotal
+			line1 = appendSegment(line1, c.Dim+fmt.Sprintf("cache:%d.%02d%%", cacheBP/100, cacheBP%100)+c.Rst, c)
+		}
 	}
-	line1 = appendSegment(line1, component(c.Cost, "$"+formatCost(p.Cost.TotalCostUSD), "", true, c), c)
+	if cfg.Show.Cost {
+		line1 = appendSegment(line1, component(c.Cost, "$"+formatCost(p.Cost.TotalCostUSD), "", true, c), c)
+	}
 
-	effort := firstNonEmpty(p.Effort.Level, readEffortLevel())
-	modelLabel := modelName
-	badge := effortBadge(effort)
-	if badge != "" {
-		modelLabel += " " + badge
+	line2 := ""
+	if cfg.Show.Model {
+		effort := firstNonEmpty(p.Effort.Level, readEffortLevel())
+		modelLabel := modelName
+		badge := effortBadge(effort)
+		if badge != "" {
+			modelLabel += " " + badge
+		}
+		line2 = " " + component(c.Model, "["+modelLabel+"]", "", true, c)
 	}
-	line2 := " " + component(c.Model, "["+modelLabel+"]", "", true, c)
-	if p.Version != "" {
-		line2 += " │ " + c.Dim + "v" + p.Version + c.Rst
+	if cfg.Show.Version && p.Version != "" {
+		sep := " │ "
+		if line2 == "" {
+			sep = " "
+		}
+		line2 += sep + c.Dim + "v" + p.Version + c.Rst
 	}
-	elapsed := formatHHMMSS(p.Cost.TotalDurationMS)
-	apiSuffix := apiEfficiency(p.Cost.TotalAPIDuration, p.Cost.TotalDurationMS, c)
-	inStr := formatTokens(p.ContextWindow.TotalInputTokens)
-	outStr := formatTokens(p.ContextWindow.TotalOutputTokens)
-	line2 += " │ " + component(c.Dur, elapsed, apiSuffix+c.Dim+" │ ↑"+inStr+" ↓"+outStr+c.Rst, true, c)
+	if cfg.Show.Duration || cfg.Show.Tokens || cfg.Show.APIEfficiency {
+		elapsed := formatHHMMSS(p.Cost.TotalDurationMS)
+		apiSuffix := ""
+		if cfg.Show.APIEfficiency {
+			apiSuffix = apiEfficiency(p.Cost.TotalAPIDuration, p.Cost.TotalDurationMS, c)
+		}
+		tokenSuffix := ""
+		if cfg.Show.Tokens {
+			inStr := formatTokens(p.ContextWindow.TotalInputTokens)
+			outStr := formatTokens(p.ContextWindow.TotalOutputTokens)
+			tokenSuffix = c.Dim + " │ ↑" + inStr + " ↓" + outStr + c.Rst
+		}
+		sep := " │ "
+		if line2 == "" {
+			sep = " "
+		}
+		line2 += sep + component(c.Dur, elapsed, apiSuffix+tokenSuffix, true, c)
+	}
 
 	ctxPct := 0
 	if p.ContextWindow.UsedPercentage != nil {
@@ -235,7 +495,7 @@ func buildStatusline(p payload, c palette) []string {
 	} else {
 		usageTokens := p.ContextWindow.CurrentUsage.InputTokens + p.ContextWindow.CurrentUsage.CacheCreationInputTokens + p.ContextWindow.CurrentUsage.CacheReadInputTokens
 		if usageTokens == 0 {
-			usageTokens = p.ContextWindow.TotalInputTokens // already includes cache reads+writes
+			usageTokens = p.ContextWindow.TotalInputTokens
 		}
 		if p.ContextWindow.ContextWindowSize > 0 && usageTokens > 0 {
 			ctxPct = int(usageTokens * 100 / p.ContextWindow.ContextWindowSize)
@@ -243,16 +503,21 @@ func buildStatusline(p payload, c palette) []string {
 	}
 	ctxColor := pctColor(ctxPct, c)
 	ctxEntry := c.Dim + "ctx " + progressBar(ctxPct, ctxColor, c.Dim, c) + " " + ctxColor + strconv.Itoa(ctxPct) + "%" + c.Rst
-	if p.Exceeds200K != nil && *p.Exceeds200K {
+	if cfg.Show.Exceeds200K && p.Exceeds200K != nil && *p.Exceeds200K {
 		ctxEntry += " " + c.RCrit + ">200k" + c.Rst
 	}
 
-	line3Parts := []string{ctxEntry}
-	if seg, ok := rateLimitSegment("5h", p.RateLimits.FiveHour, 5*3600, c); ok {
-		line3Parts = append(line3Parts, seg)
+	line3Parts := []string{}
+	if cfg.Show.ContextWindow {
+		line3Parts = append(line3Parts, ctxEntry)
 	}
-	if seg, ok := rateLimitSegment("7d", p.RateLimits.SevenDay, 7*24*3600, c); ok {
-		line3Parts = append(line3Parts, seg)
+	if cfg.Show.RateLimits {
+		if seg, ok := rateLimitSegment("5h", p.RateLimits.FiveHour, 5*3600, c); ok {
+			line3Parts = append(line3Parts, seg)
+		}
+		if seg, ok := rateLimitSegment("7d", p.RateLimits.SevenDay, 7*24*3600, c); ok {
+			line3Parts = append(line3Parts, seg)
+		}
 	}
 
 	line3 := ""

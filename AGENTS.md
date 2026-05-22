@@ -68,6 +68,37 @@ Fields are optional; missing values are replaced with sensible defaults.
 
 Detects the git branch by walking up the directory tree, reading `.git/HEAD` directly, and parsing `ref: refs/heads/<branch>` or returning `detached`. Also handles git worktrees (`.git` as a file pointing to an external `gitdir`).
 
+### Configuration
+
+Each statusline segment can be toggled on or off via a JSON config file at `~/.config/claude-statusline/config.json`:
+
+```json
+{
+  "show": {
+    "vim_mode": true,
+    "session_name": true,
+    "agent_name": true,
+    "directory": true,
+    "git_branch": true,
+    "lines_changed": true,
+    "cache_percent": true,
+    "cost": true,
+    "model": true,
+    "version": true,
+    "duration": true,
+    "api_efficiency": true,
+    "tokens": true,
+    "context_window": true,
+    "exceeds_200k": true,
+    "rate_limits": true
+  }
+}
+```
+
+- All segments default to `true` when the config file is missing.
+- Partial configs are supported — unspecified fields retain their default (`true`).
+- An interactive setup mode is available: `claude-statusline --configure`
+
 ### Color Palette
 
 Colors are ANSI escape codes gated by `NO_COLOR` and `TERM=dumb`. When disabled, all color strings are empty.
