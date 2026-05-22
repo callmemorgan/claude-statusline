@@ -70,34 +70,57 @@ Detects the git branch by walking up the directory tree, reading `.git/HEAD` dir
 
 ### Configuration
 
-Each statusline segment can be toggled on or off via a JSON config file at `~/.config/claude-statusline/config.json`:
+Statusline segments are controlled by an **ordered array** of segment IDs in `~/.config/claude-statusline/config.json`. The array determines both *which* segments appear and *in what order*:
 
 ```json
 {
-  "show": {
-    "vim_mode": true,
-    "session_name": true,
-    "agent_name": true,
-    "directory": true,
-    "git_branch": true,
-    "lines_changed": true,
-    "cache_percent": true,
-    "cost": true,
-    "model": true,
-    "version": true,
-    "duration": true,
-    "api_efficiency": true,
-    "tokens": true,
-    "context_window": true,
-    "exceeds_200k": true,
-    "rate_limits": true
-  }
+  "segments": [
+    "vim-mode",
+    "session-name",
+    "agent-name",
+    "directory",
+    "git-branch",
+    "lines-changed",
+    "cache-percent",
+    "cost",
+    "model",
+    "version",
+    "duration",
+    "api-efficiency",
+    "tokens",
+    "context-window",
+    "rate-limits"
+  ]
 }
 ```
 
-- All segments default to `true` when the config file is missing.
-- Partial configs are supported — unspecified fields retain their default (`true`).
-- An interactive setup mode is available: `claude-statusline --configure`
+**Behavior:**
+- Segments render on their natural line (line 1 = workspace meta, line 2 = model/duration, line 3 = progress bars).
+- Missing config file = all segments in default order.
+- Empty array `"segments": []` = hide the statusline entirely.
+- Omitted segments = hidden.
+
+**Available segments:**
+
+| ID | Line | Description |
+|----|------|-------------|
+| `vim-mode` | 1 | Vim mode indicator (e.g. `[normal]`) |
+| `session-name` | 1 | Session name label |
+| `agent-name` | 1 | Agent name |
+| `directory` | 1 | Current / project directory |
+| `git-branch` | 1 | Git branch and worktree name |
+| `lines-changed` | 1 | Lines added / removed |
+| `cache-percent` | 1 | Cache read percentage |
+| `cost` | 1 | Total session cost |
+| `model` | 2 | Model name and effort badge |
+| `version` | 2 | Claude Code version |
+| `duration` | 2 | Elapsed session duration |
+| `api-efficiency` | 2 | API efficiency percentage |
+| `tokens` | 2 | Input / output token counts |
+| `context-window` | 3 | Context window usage bar |
+| `rate-limits` | 3 | 5-hour and 7-day quota bars |
+
+**Interactive setup:** `claude-statusline --configure` opens a live-preview editor where you can set the segment order by typing numbers or IDs.
 
 ### Color Palette
 

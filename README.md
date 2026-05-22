@@ -41,7 +41,7 @@ claude config set statusline.command "/path/to/claude-statusline"
 
 ## Configuration
 
-Each segment can be toggled on or off. Run the interactive setup:
+Segments are controlled by an **ordered array** — both visibility and display order:
 
 ```bash
 claude-statusline --configure
@@ -51,17 +51,20 @@ Or edit `~/.config/claude-statusline/config.json` directly:
 
 ```json
 {
-  "show": {
-    "directory": true,
-    "git_branch": true,
-    "model": true,
-    "cost": false,
-    "rate_limits": false
-  }
+  "segments": [
+    "model",
+    "directory",
+    "git-branch",
+    "cost",
+    "context-window",
+    "rate-limits"
+  ]
 }
 ```
 
-All segments default to `on` when the config file is missing.
+- Segments render on their natural line (line 1 = workspace meta, line 2 = model/duration, line 3 = progress bars).
+- Missing config = all segments in default order.
+- Empty array `[]` = hide the statusline entirely.
 
 ## Why Go?
 
