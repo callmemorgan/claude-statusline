@@ -35,7 +35,7 @@ func defaultConfig() config {
 			"vim-mode", "sandbox", "session-name", "agent-state", "directory",
 			"git-branch", "artifact-count", "lines-changed", "cache-percent", "cost",
 			"model", "version", "duration", "api-efficiency", "tokens",
-			"context-window", "rate-limits", "plan-tier",
+			"context-window", "rate-limit-5h", "rate-limit-7d", "plan-tier",
 		},
 		Lines: nil,
 	}
@@ -766,6 +766,14 @@ func renderRateLimits(p payload, c palette) (string, bool) {
 	return strings.Join(parts, " "+c.Dim+"│"+c.Rst+" "), true
 }
 
+func renderRateLimit5h(p payload, c palette) (string, bool) {
+	return rateLimitSegment("5h", p.RateLimits.FiveHour, 5*3600, c)
+}
+
+func renderRateLimit7d(p payload, c palette) (string, bool) {
+	return rateLimitSegment("7d", p.RateLimits.SevenDay, 7*24*3600, c)
+}
+
 func renderAgentState(p payload, c palette) (string, bool) {
 	if p.AgentState == "" {
 		return "", false
@@ -827,7 +835,9 @@ func allSegmentInfos() []segmentInfo {
 		{id: "api-efficiency", line: 2, desc: "API efficiency percentage", render: renderAPIEfficiency},
 		{id: "tokens", line: 2, desc: "Input / output token counts", render: renderTokens},
 		{id: "context-window", line: 3, desc: "Context window usage bar", render: renderContextWindow},
-		{id: "rate-limits", line: 3, desc: "5-hour and 7-day quota bars", render: renderRateLimits},
+		{id: "rate-limits", line: 3, desc: "5-hour and 7-day quota bars (combined)", render: renderRateLimits},
+		{id: "rate-limit-5h", line: 3, desc: "5-hour quota bar", render: renderRateLimit5h},
+		{id: "rate-limit-7d", line: 3, desc: "7-day quota bar", render: renderRateLimit7d},
 	}
 }
 
