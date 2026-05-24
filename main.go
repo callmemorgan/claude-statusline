@@ -507,7 +507,7 @@ func markdownToTview(md string) string {
 		esc := tview.Escape(line)
 		switch {
 		case strings.HasPrefix(line, "# "):
-			b.WriteString("\n[yellow::bu]" + tview.Escape(strings.TrimPrefix(line, "# ")) + "[-::-]\n")
+			b.WriteString("\n[yellow::b]" + tview.Escape(strings.TrimPrefix(line, "# ")) + "[-::-]\n")
 		case strings.HasPrefix(line, "## "):
 			b.WriteString("\n[cyan::b]  " + tview.Escape(strings.TrimPrefix(line, "## ")) + "[-::-]\n")
 		case strings.HasPrefix(line, "### "):
