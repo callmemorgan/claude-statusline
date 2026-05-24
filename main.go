@@ -217,7 +217,14 @@ func main() {
 	lines := buildStatusline(p, colors, cfg)
 
 	elapsedMS := float64(time.Since(start).Microseconds()) / 1000.0
-	fmt.Printf("%s │ %s%.1fms\n%s\n%s\n", safeLine(lines, 0), colors.Dim, elapsedMS, safeLine(lines, 1), safeLine(lines, 2))
+	if len(lines) > 0 {
+		fmt.Printf("%s │ %s%.1fms\n", lines[0], colors.Dim, elapsedMS)
+		for _, l := range lines[1:] {
+			fmt.Println(l)
+		}
+	} else {
+		fmt.Printf("%s%.1fms\n", colors.Dim, elapsedMS)
+	}
 }
 
 // ─── Debug Schema ────────────────────────────────────────────────────
@@ -300,6 +307,16 @@ func printDebugSchema(raw []byte, p payload) {
 
 // ─── Configure Mode ──────────────────────────────────────────────────
 
+func effectiveLine(id string, cfg config) int {
+	if override, ok := cfg.Lines[id]; ok && override >= 1 {
+		return override
+	}
+	if s, ok := segmentByID(id); ok {
+		return s.line
+	}
+	return 1
+}
+
 func runConfigure() {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		fmt.Fprintln(os.Stderr, "claude-statusline --configure requires an interactive terminal.")
@@ -330,7 +347,7 @@ func runConfigure() {
 	// Fixed-height help bar.
 	help := tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
-		SetText(" space toggle • 1/2/3 line • ↑/↓ nav • r reset • s save • q quit ")
+		SetText(" space toggle • 1-9 line • ←/→ reorder • ↑/↓ nav • r reset • s save • q quit ")
 
 	// Update list items and preview from current cfg.
 	updateUI := func() {
@@ -351,7 +368,7 @@ func runConfigure() {
 			}
 
 			line := s.line
-			if override, ok := cfg.Lines[s.id]; ok && override >= 1 && override <= 3 {
+			if override, ok := cfg.Lines[s.id]; ok && override >= 1 {
 				line = override
 			}
 			lineStr := ""
@@ -406,34 +423,37 @@ func runConfigure() {
 				}
 				updateUI()
 				return nil
-			case '1', '2', '3':
-				idx := list.GetCurrentItem()
-				if idx < 0 || idx >= len(segments) {
+			default:
+				r := event.Rune()
+				if r >= '1' && r <= '9' {
+					idx := list.GetCurrentItem()
+					if idx < 0 || idx >= len(segments) {
+						return nil
+					}
+					id := segments[idx].id
+					n := int(r - '0')
+					if cfg.Lines == nil {
+						cfg.Lines = make(map[string]int)
+					}
+					if segments[idx].line == n {
+						delete(cfg.Lines, id)
+					} else {
+						cfg.Lines[id] = n
+					}
+					// Ensure the segment is enabled when assigning a line.
+					enabled := false
+					for _, segID := range cfg.Segments {
+						if segID == id {
+							enabled = true
+							break
+						}
+					}
+					if !enabled {
+						cfg.Segments = append(cfg.Segments, id)
+					}
+					updateUI()
 					return nil
 				}
-				id := segments[idx].id
-				n := int(event.Rune() - '0')
-				if cfg.Lines == nil {
-					cfg.Lines = make(map[string]int)
-				}
-				if segments[idx].line == n {
-					delete(cfg.Lines, id)
-				} else {
-					cfg.Lines[id] = n
-				}
-				// Ensure the segment is enabled when assigning a line.
-				enabled := false
-				for _, segID := range cfg.Segments {
-					if segID == id {
-						enabled = true
-						break
-					}
-				}
-				if !enabled {
-					cfg.Segments = append(cfg.Segments, id)
-				}
-				updateUI()
-				return nil
 			case 'r', 'R':
 				cfg = defaultConfig()
 				updateUI()
@@ -448,6 +468,39 @@ func runConfigure() {
 				return nil
 			case 'q', 'Q':
 				app.Stop()
+				return nil
+			}
+		case tcell.KeyLeft, tcell.KeyRight:
+			idx := list.GetCurrentItem()
+			if idx < 0 || idx >= len(segments) {
+				return event
+			}
+			id := segments[idx].id
+			myLine := effectiveLine(id, cfg)
+			// Collect indices in cfg.Segments that share the same line, in order.
+			var peers []int
+			for i, sid := range cfg.Segments {
+				if effectiveLine(sid, cfg) == myLine {
+					peers = append(peers, i)
+				}
+			}
+			// Find this segment's position within peers.
+			pos := -1
+			for i, pi := range peers {
+				if cfg.Segments[pi] == id {
+					pos = i
+					break
+				}
+			}
+			if event.Key() == tcell.KeyLeft && pos > 0 {
+				cfg.Segments[peers[pos]], cfg.Segments[peers[pos-1]] =
+					cfg.Segments[peers[pos-1]], cfg.Segments[peers[pos]]
+				updateUI()
+				return nil
+			} else if event.Key() == tcell.KeyRight && pos >= 0 && pos < len(peers)-1 {
+				cfg.Segments[peers[pos]], cfg.Segments[peers[pos+1]] =
+					cfg.Segments[peers[pos+1]], cfg.Segments[peers[pos]]
+				updateUI()
 				return nil
 			}
 		}
@@ -790,34 +843,32 @@ func segmentByID(id string) (segmentInfo, bool) {
 // ─── Statusline Builder ──────────────────────────────────────────────
 
 func buildStatusline(p payload, c palette, cfg config) []string {
-	line1Parts := []string{}
-	line2Parts := []string{}
-	line3Parts := []string{}
-
+	parts := map[int][]string{}
 	for _, id := range cfg.Segments {
 		if s, ok := segmentByID(id); ok {
 			if rendered, show := s.render(p, c); show {
 				line := s.line
-				if override, ok := cfg.Lines[id]; ok && override >= 1 && override <= 3 {
+				if override, ok := cfg.Lines[id]; ok && override >= 1 {
 					line = override
 				}
-				switch line {
-				case 1:
-					line1Parts = append(line1Parts, rendered)
-				case 2:
-					line2Parts = append(line2Parts, rendered)
-				case 3:
-					line3Parts = append(line3Parts, rendered)
-				}
+				parts[line] = append(parts[line], rendered)
 			}
 		}
 	}
-
-	line1 := joinParts(line1Parts)
-	line2 := joinParts(line2Parts)
-	line3 := joinParts(line3Parts)
-
-	return []string{line1, line2, line3}
+	if len(parts) == 0 {
+		return []string{}
+	}
+	maxLine := 0
+	for k := range parts {
+		if k > maxLine {
+			maxLine = k
+		}
+	}
+	out := make([]string, maxLine)
+	for i := 1; i <= maxLine; i++ {
+		out[i-1] = joinParts(parts[i])
+	}
+	return out
 }
 
 func joinParts(parts []string) string {
