@@ -526,10 +526,14 @@ func runConfigure() {
 		return event
 	})
 
+	topRow := tview.NewFlex().
+		SetDirection(tview.FlexColumn).
+		AddItem(list, 0, 2, true).
+		AddItem(descView, 0, 1, false)
+
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
-		AddItem(list, 0, 1, true).
-		AddItem(descView, 3, 0, false).
+		AddItem(topRow, 0, 1, true).
 		AddItem(previewBox, 12, 0, false).
 		AddItem(help, 1, 0, false)
 
