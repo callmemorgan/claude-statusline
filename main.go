@@ -336,6 +336,10 @@ func runConfigure() {
 		ShowSecondaryText(false)
 	list.SetBorder(true)
 
+	// Description panel — shows the description of the currently selected segment.
+	descView := tview.NewTextView().SetWrap(true)
+	descView.SetBorder(true).SetTitle(" Description ")
+
 	// Live preview of the statusline (plain text — no ANSI / tview colour tags).
 	// Fixed at 12 rows (10 content + 2 border) — max 9 statusline lines plus padding.
 	preview := tview.NewTextView().
@@ -378,9 +382,7 @@ func runConfigure() {
 				lineStr = fmt.Sprintf(" [L%d]", line)
 			}
 
-			// Escape '[' so tview doesn't treat it as a colour tag.
-			desc := strings.ReplaceAll(s.desc, "[", "[[")
-			mainText := fmt.Sprintf("%s%s%s  — %s", mark, s.id, lineStr, desc)
+			mainText := fmt.Sprintf("%s%s%s", mark, s.id, lineStr)
 			list.AddItem(mainText, "", 0, nil)
 		}
 
@@ -403,6 +405,18 @@ func runConfigure() {
 	}
 
 	updateUI()
+
+	list.SetChangedFunc(func(idx int, _, _ string, _ rune) {
+		if idx >= 0 && idx < len(segments) {
+			descView.SetText(segments[idx].desc)
+		} else {
+			descView.SetText("")
+		}
+	})
+	// Seed the description for the initial selection.
+	if len(segments) > 0 {
+		descView.SetText(segments[0].desc)
+	}
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
@@ -515,6 +529,7 @@ func runConfigure() {
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(list, 0, 1, true).
+		AddItem(descView, 3, 0, false).
 		AddItem(previewBox, 12, 0, false).
 		AddItem(help, 1, 0, false)
 
