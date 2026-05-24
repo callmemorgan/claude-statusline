@@ -378,8 +378,8 @@ func runConfigure() {
 
 			// Escape '[' so tview doesn't treat it as a colour tag.
 			desc := strings.ReplaceAll(s.desc, "[", "[[")
-			mainText := fmt.Sprintf("%s%s%s", mark, s.id, lineStr)
-			list.AddItem(mainText, "  "+desc, 0, nil)
+			mainText := fmt.Sprintf("%s%s%s  — %s", mark, s.id, lineStr, desc)
+			list.AddItem(mainText, "", 0, nil)
 		}
 
 		if currentIdx >= 0 && currentIdx < len(segments) {
