@@ -3,12 +3,14 @@ package main
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +19,9 @@ import (
 	"github.com/rivo/tview"
 	"golang.org/x/term"
 )
+
+//go:embed README.md
+var readmeContent string
 
 const (
 	barWidth  = 20
@@ -467,6 +472,59 @@ func runPluginRaw(def pluginDef, p payload) string {
 	return strings.TrimSpace(string(out))
 }
 
+// ─── Markdown → tview renderer ───────────────────────────────────────
+
+var (
+	reBold       = regexp.MustCompile(`\*\*(.+?)\*\*`)
+	reInlineCode = regexp.MustCompile("`([^`]+)`")
+)
+
+func inlineMarkdown(s string) string {
+	s = reBold.ReplaceAllString(s, "[::b]$1[::-]")
+	s = reInlineCode.ReplaceAllString(s, "[green]$1[-]")
+	return s
+}
+
+func markdownToTview(md string) string {
+	var b strings.Builder
+	inCode := false
+	for _, line := range strings.Split(md, "\n") {
+		// Code fence open/close.
+		if strings.HasPrefix(line, "```") {
+			inCode = !inCode
+			if inCode {
+				b.WriteString("[gray]")
+			} else {
+				b.WriteString("[-]\n")
+			}
+			continue
+		}
+		if inCode {
+			b.WriteString(tview.Escape(line) + "\n")
+			continue
+		}
+
+		esc := tview.Escape(line)
+		switch {
+		case strings.HasPrefix(line, "# "):
+			b.WriteString("\n[yellow::bu]" + tview.Escape(strings.TrimPrefix(line, "# ")) + "[-::-]\n")
+		case strings.HasPrefix(line, "## "):
+			b.WriteString("\n[cyan::b]  " + tview.Escape(strings.TrimPrefix(line, "## ")) + "[-::-]\n")
+		case strings.HasPrefix(line, "### "):
+			b.WriteString("[green::b]    " + tview.Escape(strings.TrimPrefix(line, "### ")) + "[-::-]\n")
+		case strings.HasPrefix(line, "|"):
+			// Table rows and separators — dim.
+			b.WriteString("[::d]" + esc + "[-::-]\n")
+		case strings.HasPrefix(line, "---"):
+			// Horizontal rule.
+			b.WriteString("[::d]────────────────────────────────────────[-::-]\n")
+		default:
+			b.WriteString(inlineMarkdown(esc) + "\n")
+		}
+	}
+	return b.String()
+}
+
 // ─── Configure Mode ──────────────────────────────────────────────────
 
 func effectiveLine(id string, cfg config) int {
@@ -516,7 +574,15 @@ func runConfigure() {
 	// Fixed-height help bar.
 	help := tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
-		SetText(" space toggle • 1-9 line • ←/→ reorder • ↑/↓ nav • ⇧↑/↓ move row • r reset • s save • q quit")
+		SetText(" space toggle • 1-9 line • ←/→ reorder • ↑/↓ nav • ⇧↑/↓ move row • h help • r reset • s save • q quit")
+
+	// Help page — full README rendered with markdown formatting.
+	helpView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetScrollable(true).
+		SetWrap(true).
+		SetText(markdownToTview(readmeContent))
+	helpView.SetBorder(true).SetTitle(" Help — README (↑/↓ scroll • q/Esc close) ")
 
 	// Update list items and preview from current cfg.
 	updateUI := func() {
@@ -581,10 +647,35 @@ func runConfigure() {
 		descView.SetText(segments[0].desc)
 	}
 
+	// pages holds both the configure view and the help view.
+	pages := tview.NewPages()
+
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		// When the help page is visible, only intercept close keys; let
+		// everything else pass through so the TextView handles scrolling.
+		if name, _ := pages.GetFrontPage(); name == "help" {
+			switch event.Key() {
+			case tcell.KeyEscape:
+				pages.SwitchToPage("configure")
+				app.SetFocus(list)
+				return nil
+			case tcell.KeyRune:
+				if event.Rune() == 'q' || event.Rune() == 'Q' {
+					pages.SwitchToPage("configure")
+					app.SetFocus(list)
+					return nil
+				}
+			}
+			return event
+		}
+
 		switch event.Key() {
 		case tcell.KeyRune:
 			switch event.Rune() {
+			case 'h', 'H':
+				pages.SwitchToPage("help")
+				app.SetFocus(helpView)
+				return nil
 			case ' ':
 				idx := list.GetCurrentItem()
 				if idx < 0 || idx >= len(segments) {
@@ -751,7 +842,10 @@ func runConfigure() {
 		AddItem(previewBox, 12, 0, false).
 		AddItem(help, 1, 0, false)
 
-	if err := app.SetRoot(flex, true).EnableMouse(true).Run(); err != nil {
+	pages.AddPage("configure", flex, true, true)
+	pages.AddPage("help", helpView, true, false)
+
+	if err := app.SetRoot(pages, true).EnableMouse(true).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
 		os.Exit(1)
 	}
