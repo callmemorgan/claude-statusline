@@ -32,10 +32,10 @@ type config struct {
 func defaultConfig() config {
 	return config{
 		Segments: []string{
-			"vim-mode", "session-name", "agent-name", "directory",
-			"git-branch", "lines-changed", "cache-percent", "cost",
+			"vim-mode", "sandbox", "session-name", "agent-state", "directory",
+			"git-branch", "artifact-count", "lines-changed", "cache-percent", "cost",
 			"model", "version", "duration", "api-efficiency", "tokens",
-			"context-window", "rate-limits",
+			"context-window", "rate-limits", "plan-tier",
 		},
 		Lines: nil,
 	}
@@ -85,6 +85,7 @@ func saveConfig(cfg config) error {
 type payload struct {
 	SessionID      string     `json:"session_id"`
 	SessionName    string     `json:"session_name"`
+	ConversationID string     `json:"conversation_id"`
 	Cwd            string     `json:"cwd"`
 	Version        string     `json:"version"`
 	TranscriptPath string     `json:"transcript_path"`
@@ -98,6 +99,19 @@ type payload struct {
 	Worktree       worktree   `json:"worktree"`
 	Vim            vim        `json:"vim"`
 	Effort         effort     `json:"effort"`
+
+	// agy additions
+	Product       string  `json:"product"`
+	AgentState    string  `json:"agent_state"`
+	Sandbox       sandbox `json:"sandbox"`
+	ArtifactCount int     `json:"artifact_count"`
+	PlanTier      string  `json:"plan_tier"`
+	Email         string  `json:"email"`
+	TerminalWidth int     `json:"terminal_width"`
+}
+
+type sandbox struct {
+	Enabled bool `json:"enabled"`
 }
 
 type model struct {
@@ -186,17 +200,102 @@ func main() {
 		runConfigure()
 		return
 	}
+	debug := len(os.Args) > 1 && os.Args[1] == "--debug"
 
 	start := time.Now()
 
 	input := readInput()
 	p := parsePayload(input)
+
+	if debug {
+		printDebugSchema(input, p)
+		return
+	}
+
 	colors := currentPalette()
 	cfg := loadConfig()
 	lines := buildStatusline(p, colors, cfg)
 
 	elapsedMS := float64(time.Since(start).Microseconds()) / 1000.0
 	fmt.Printf("%s │ %s%.1fms\n%s\n%s\n", safeLine(lines, 0), colors.Dim, elapsedMS, safeLine(lines, 1), safeLine(lines, 2))
+}
+
+// ─── Debug Schema ────────────────────────────────────────────────────
+
+func printDebugSchema(raw []byte, p payload) {
+	tool := "claude-code"
+	if p.Product == "antigravity" {
+		tool = "agy"
+	}
+	fmt.Printf("=== payload source: %s ===\n\n", tool)
+
+	// Parse raw JSON into a map to check which keys are actually present.
+	var raw2 map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &raw2)
+	present := func(key string) string {
+		if _, ok := raw2[key]; ok {
+			return "✓"
+		}
+		return "✗"
+	}
+
+	type row struct{ field, claude, agy, got string }
+	rows := []row{
+		// Claude Code fields
+		{"session_name", "✓", "✗", present("session_name")},
+		{"cost", "✓", "✗", present("cost")},
+		{"rate_limits", "✓", "✗", present("rate_limits")},
+		{"agent.name", "✓", "✗", func() string {
+			if _, ok := raw2["agent"]; ok {
+				return "✓"
+			}
+			return "✗"
+		}()},
+		{"worktree", "✓", "✗", present("worktree")},
+		{"vim", "✓", "✗", present("vim")},
+		{"effort", "✓", "✗", present("effort")},
+		// agy fields
+		{"conversation_id", "✗", "✓", present("conversation_id")},
+		{"product", "✗", "✓", present("product")},
+		{"agent_state", "✗", "✓", present("agent_state")},
+		{"sandbox.enabled", "✗", "✓", present("sandbox")},
+		{"artifact_count", "✗", "✓", present("artifact_count")},
+		{"plan_tier", "✗", "✓", present("plan_tier")},
+		// shared
+		{"model", "✓", "✓", present("model")},
+		{"workspace", "✓", "✓", present("workspace")},
+		{"context_window", "✓", "✓", present("context_window")},
+		{"version", "✓", "✓", present("version")},
+	}
+
+	fmt.Printf("%-22s  %-8s  %-8s  %-8s\n", "field", "claude", "agy", "got")
+	fmt.Println(strings.Repeat("-", 54))
+	for _, r := range rows {
+		mismatch := ""
+		if tool == "claude-code" && r.claude == "✓" && r.got == "✗" {
+			mismatch = "  ← MISSING"
+		}
+		if tool == "agy" && r.agy == "✓" && r.got == "✗" {
+			mismatch = "  ← MISSING"
+		}
+		fmt.Printf("%-22s  %-8s  %-8s  %-8s%s\n", r.field, r.claude, r.agy, r.got, mismatch)
+	}
+
+	fmt.Println()
+	fmt.Printf("parsed values:\n")
+	fmt.Printf("  product        = %q\n", p.Product)
+	fmt.Printf("  session_name   = %q\n", p.SessionName)
+	fmt.Printf("  conversation_id= %q\n", p.ConversationID)
+	fmt.Printf("  model          = %q\n", p.Model.DisplayName)
+	fmt.Printf("  workspace.cur  = %q\n", p.Workspace.CurrentDir)
+	fmt.Printf("  workspace.proj = %q\n", p.Workspace.ProjectDir)
+	fmt.Printf("  agent_state    = %q\n", p.AgentState)
+	fmt.Printf("  plan_tier      = %q\n", p.PlanTier)
+	fmt.Printf("  sandbox        = %v\n", p.Sandbox.Enabled)
+	fmt.Printf("  artifact_count = %d\n", p.ArtifactCount)
+	fmt.Printf("  cost_usd       = %.4f\n", p.Cost.TotalCostUSD)
+	fmt.Printf("  vim_mode       = %q\n", p.Vim.Mode)
+	fmt.Printf("  effort         = %q\n", p.Effort.Level)
 }
 
 // ─── Configure Mode ──────────────────────────────────────────────────
@@ -431,6 +530,7 @@ func parsePayload(data []byte) payload {
 	if err := json.Unmarshal(data, &p); err != nil {
 		_ = json.Unmarshal([]byte(minObject), &p)
 	}
+	p.Workspace.ProjectDir = strings.TrimPrefix(p.Workspace.ProjectDir, "file://")
 	return p
 }
 
@@ -469,10 +569,14 @@ func renderVimMode(p payload, c palette) (string, bool) {
 }
 
 func renderSessionName(p payload, c palette) (string, bool) {
-	if p.SessionName == "" {
+	name := firstNonEmpty(p.SessionName, p.ConversationID)
+	if name == "" {
 		return "", false
 	}
-	return c.Session + p.SessionName + c.Rst, true
+	if len(name) == 36 && strings.Count(name, "-") == 4 {
+		name = name[:8]
+	}
+	return c.Session + name + c.Rst, true
 }
 
 func renderAgentName(p payload, c palette) (string, bool) {
@@ -527,6 +631,9 @@ func renderCachePercent(p payload, c palette) (string, bool) {
 }
 
 func renderCost(p payload, c palette) (string, bool) {
+	if p.Cost.TotalCostUSD == 0 {
+		return "", false
+	}
 	return c.Cost + "$" + formatCost(p.Cost.TotalCostUSD) + c.Rst, true
 }
 
@@ -549,6 +656,9 @@ func renderVersion(p payload, c palette) (string, bool) {
 }
 
 func renderDuration(p payload, c palette) (string, bool) {
+	if p.Cost.TotalDurationMS == 0 {
+		return "", false
+	}
 	elapsed := formatHHMMSS(p.Cost.TotalDurationMS)
 	return c.Dur + elapsed + c.Rst, true
 }
@@ -603,6 +713,38 @@ func renderRateLimits(p payload, c palette) (string, bool) {
 	return strings.Join(parts, " "+c.Dim+"│"+c.Rst+" "), true
 }
 
+func renderAgentState(p payload, c palette) (string, bool) {
+	if p.AgentState == "" {
+		return "", false
+	}
+	stateColor := c.Dim
+	if p.AgentState == "working" {
+		stateColor = c.Git
+	}
+	return stateColor + "[" + p.AgentState + "]" + c.Rst, true
+}
+
+func renderSandbox(p payload, c palette) (string, bool) {
+	if !p.Sandbox.Enabled {
+		return "", false
+	}
+	return c.RCrit + "[SANDBOX]" + c.Rst, true
+}
+
+func renderArtifactCount(p payload, c palette) (string, bool) {
+	if p.ArtifactCount <= 0 {
+		return "", false
+	}
+	return c.Chg + fmt.Sprintf("artifacts:%d", p.ArtifactCount) + c.Rst, true
+}
+
+func renderPlanTier(p payload, c palette) (string, bool) {
+	if p.PlanTier == "" {
+		return "", false
+	}
+	return c.Purple + p.PlanTier + c.Rst, true
+}
+
 // ─── Segment Registry ────────────────────────────────────────────────
 
 type segmentInfo struct {
@@ -615,12 +757,16 @@ type segmentInfo struct {
 func allSegmentInfos() []segmentInfo {
 	return []segmentInfo{
 		{id: "vim-mode", line: 1, desc: "Vim mode indicator (e.g. [normal])", render: renderVimMode},
+		{id: "sandbox", line: 1, desc: "Sandbox status indicator", render: renderSandbox},
 		{id: "session-name", line: 1, desc: "Session name label", render: renderSessionName},
+		{id: "agent-state", line: 1, desc: "Agent working status", render: renderAgentState},
 		{id: "agent-name", line: 1, desc: "Agent name", render: renderAgentName},
 		{id: "directory", line: 1, desc: "Current / project directory", render: renderDirectory},
 		{id: "git-branch", line: 1, desc: "Git branch and worktree name", render: renderGitBranch},
+		{id: "artifact-count", line: 1, desc: "Artifact count", render: renderArtifactCount},
 		{id: "lines-changed", line: 1, desc: "Lines added / removed", render: renderLinesChanged},
 		{id: "cache-percent", line: 1, desc: "Cache read percentage", render: renderCachePercent},
+		{id: "plan-tier", line: 1, desc: "Subscription plan tier", render: renderPlanTier},
 		{id: "cost", line: 1, desc: "Total session cost", render: renderCost},
 		{id: "model", line: 2, desc: "Model name and effort badge", render: renderModel},
 		{id: "version", line: 2, desc: "Claude Code version", render: renderVersion},
