@@ -35,7 +35,13 @@ There are no sub-packages and no generated code. The only external dependencies 
 ## Build and Run
 
 ```bash
-# Build the Go binary
+# Easiest: ask Claude Code to install it for you
+claude "please install https://github.com/callmemorgan/claude-statusline as my statusline"
+
+# Or install via go install
+go install github.com/callmemorgan/claude-statusline@latest
+
+# Or build the Go binary locally
 go build -o claude-statusline .
 
 # Quick smoke test with minimal JSON

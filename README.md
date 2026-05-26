@@ -10,11 +10,23 @@ The core renderer has no dependencies. The interactive `--configure` TUI uses [t
 
 ## Install
 
+**Easiest — ask Claude Code to do it:**
+
+```bash
+claude "please install https://github.com/callmemorgan/claude-statusline as my statusline"
+```
+
+Claude will (probably) read the repo, build or `go install` the binary, and wire it up in `~/.claude/settings.json` for you.
+
+**Manual — `go install`:**
+
 ```bash
 go install github.com/callmemorgan/claude-statusline@latest
 ```
 
-Or clone and build:
+Make sure `$(go env GOPATH)/bin` is on your `$PATH`.
+
+Or clone and build manually:
 
 ```bash
 git clone https://github.com/callmemorgan/claude-statusline.git
@@ -28,11 +40,18 @@ go build -o claude-statusline .
 
 ### Claude Code
 
-Set the statusline command in your Claude Code settings:
+Add to your Claude Code settings (`~/.claude/settings.json`):
 
-```bash
-claude config set statusLine '{"type":"command","command":"/path/to/claude-statusline"}'
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "claude-statusline"
+  }
+}
 ```
+
+If you built from source and didn't move the binary to your `$PATH`, use the full path instead of `claude-statusline`.
 
 ### Antigravity CLI (agy)
 
