@@ -10,17 +10,7 @@ The core renderer has no dependencies. The interactive `--configure` TUI uses [t
 
 ## Install
 
-**Recommended — `go install`:**
-
-```bash
-go install github.com/callmemorgan/claude-statusline@latest
-```
-
-Requires Go 1.22+. Make sure `$(go env GOPATH)/bin` is on your `$PATH`.
-
----
-
-**Homebrew:**
+**macOS — Homebrew (recommended):**
 
 ```bash
 brew tap callmemorgan/tap
@@ -28,6 +18,16 @@ brew install claude-statusline
 ```
 
 Upgrade later with `brew upgrade claude-statusline`.
+
+---
+
+**Any platform — `go install`:**
+
+```bash
+go install github.com/callmemorgan/claude-statusline@latest
+```
+
+Requires Go 1.22+. Make sure `$(go env GOPATH)/bin` is on your `$PATH`.
 
 ---
 
@@ -75,7 +75,7 @@ Add to your Claude Code settings (`~/.claude/settings.json`):
 }
 ```
 
-If you built from source and didn't move the binary to your `$PATH`, use the full path instead of `claude-statusline`.
+If you installed via Homebrew or `go install`, the binary is already on your `$PATH`. If you built from source or downloaded a binary manually, use the full path instead of `claude-statusline`.
 
 ### Antigravity CLI (agy)
 
@@ -83,9 +83,11 @@ Add to your agy config:
 
 ```json
 {
-  "statusline": "/path/to/claude-statusline"
+  "statusline": "claude-statusline"
 }
 ```
+
+If the binary isn't on your `$PATH`, use the full path instead.
 
 The binary auto-detects which tool is calling it via the `product` field in the payload and hides segments that aren't applicable (e.g. rate limits are hidden under agy, plan tier is hidden under Claude Code).
 
