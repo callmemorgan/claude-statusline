@@ -477,14 +477,6 @@ Prints a field presence table comparing the received payload against the Claude 
 - `used_percentage` is calculated from input tokens only (not output tokens)
 - It may differ slightly from `/context` output due to timing of calculation
 
----
-
-## Why Go?
-
-- **Fast** — renders in under 1ms
-- **Portable** — single static binary, no runtime
-- **Zero core dependencies** — the renderer uses only the standard library; `tview` is only pulled in for `--configure`
-
 ## License
 
 MIT
