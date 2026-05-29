@@ -65,7 +65,7 @@ rm -f claude-statusline
 4. **Resolve colors** based on `NO_COLOR` and `TERM=dumb` environment variables.
 5. **Load configuration** from `~/.config/claude-statusline/config.json`.
 6. **Initialize segments** (built-in + any plugins defined in config).
-7. **Build output lines** by iterating enabled segments, rendering each, and grouping by assigned line number (1–9). Blank lines collapse automatically.
+7. **Build output lines** by iterating enabled segments, rendering each, and grouping by assigned line number (1–9). When `COLUMNS` (Claude Code) or `terminal_width` (agy) is available, segments that would overflow the terminal width automatically spill to the next line. Blank lines collapse automatically.
 8. **Print** the statusline lines plus an elapsed-timing suffix on the first line.
 
 ### JSON Payload Schema (Go structs)
@@ -88,6 +88,7 @@ The Go source defines the expected payload shape in the `payload` struct. Key fi
 - `sandbox` — `enabled` (agy)
 - `artifact_count` — number of artifacts (agy)
 - `plan_tier` — subscription tier (agy)
+- `terminal_width` — terminal width in columns (agy)
 
 Fields are optional; missing or zero values cause segments to hide themselves automatically.
 
@@ -258,6 +259,8 @@ Plugin behavior:
 | `STATUSLINE_BRANCH` | Git branch |
 | `STATUSLINE_SESSION` | Session name or conversation ID |
 | `STATUSLINE_PRODUCT` | `"antigravity"` or empty |
+| `STATUSLINE_COLUMNS` | Terminal width (`COLUMNS` or `terminal_width`) |
+| `STATUSLINE_LINES` | Terminal height (`LINES`) |
 | `STATUSLINE_PAYLOAD` | Full JSON payload |
 
 ### Interactive setup

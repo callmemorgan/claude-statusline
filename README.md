@@ -10,15 +10,7 @@ The core renderer has no dependencies. The interactive `--configure` TUI uses [t
 
 ## Install
 
-**Easiest — ask Claude Code to do it:**
-
-```bash
-claude "please install https://github.com/callmemorgan/claude-statusline as my statusline"
-```
-
-Claude will (probably) read the repo, build or `go install` the binary, and wire it up in `~/.claude/settings.json` for you.
-
-**Manual — `go install`:**
+**Recommended — `go install`:**
 
 ```bash
 go install github.com/callmemorgan/claude-statusline@latest
@@ -26,7 +18,18 @@ go install github.com/callmemorgan/claude-statusline@latest
 
 Make sure `$(go env GOPATH)/bin` is on your `$PATH`.
 
-Or clone and build manually:
+**Homebrew:**
+
+```bash
+brew tap callmemorgan/tap
+brew install claude-statusline
+```
+
+**Binary download:**
+
+Grab a signed prebuilt binary from the [releases page](https://github.com/callmemorgan/claude-statusline/releases). Each release includes checksums and cosign certificates for verification.
+
+**Or build from source:**
 
 ```bash
 git clone https://github.com/callmemorgan/claude-statusline.git
@@ -291,6 +294,8 @@ The binary exposes these to every plugin:
 | `STATUSLINE_BRANCH` | Git branch |
 | `STATUSLINE_SESSION` | Session name or conversation ID |
 | `STATUSLINE_PRODUCT` | `antigravity` or empty for Claude Code |
+| `STATUSLINE_COLUMNS` | Terminal width (`COLUMNS` or `terminal_width`) |
+| `STATUSLINE_LINES` | Terminal height (`LINES`) |
 | `STATUSLINE_PAYLOAD` | Full JSON payload (for advanced use) |
 
 ### Example: memory + swap (cross-platform, multi-field)

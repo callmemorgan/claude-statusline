@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -28,6 +29,28 @@ const (
 	maxInput  = 1 << 20
 	minObject = `{"model":{"display_name":"Claude"},"workspace":{"current_dir":"~"}}`
 )
+
+var reANSI = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string {
+	return reANSI.ReplaceAllString(s, "")
+}
+
+func visibleWidth(s string) int {
+	return utf8.RuneCountInString(stripANSI(s))
+}
+
+func terminalWidth(p payload) int {
+	if p.TerminalWidth > 0 {
+		return p.TerminalWidth
+	}
+	if s := os.Getenv("COLUMNS"); s != "" {
+		if n, err := strconv.Atoi(s); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
+}
 
 // ─── Config ──────────────────────────────────────────────────────────
 
@@ -339,7 +362,7 @@ func main() {
 	colors := currentPalette()
 	cfg := loadConfig()
 	initSegments(cfg.Plugins)
-	lines := buildStatusline(p, colors, cfg)
+	lines := buildStatusline(p, colors, cfg, terminalWidth(p))
 
 	elapsedMS := float64(time.Since(start).Microseconds()) / 1000.0
 	if len(lines) > 0 {
@@ -545,6 +568,8 @@ func runPluginRaw(def pluginDef, p payload) string {
 		"STATUSLINE_BRANCH="+p.Worktree.Branch,
 		"STATUSLINE_SESSION="+session,
 		"STATUSLINE_PRODUCT="+p.Product,
+		"STATUSLINE_COLUMNS="+strconv.Itoa(p.TerminalWidth),
+		"STATUSLINE_LINES="+os.Getenv("LINES"),
 	)
 	if raw, err := json.Marshal(p); err == nil {
 		c.Env = append(c.Env, "STATUSLINE_PAYLOAD="+string(raw))
@@ -713,7 +738,7 @@ func runConfigure() {
 
 		// Refresh preview with colours converted to tview tags.
 		p := samplePayload()
-		lines := buildStatusline(p, currentPalette(), cfg)
+		lines := buildStatusline(p, currentPalette(), cfg, 0)
 		for i, l := range lines {
 			lines[i] = strings.TrimLeft(l, " ")
 		}
@@ -1411,7 +1436,7 @@ func segmentByID(id string) (segmentInfo, bool) {
 
 // ─── Statusline Builder ──────────────────────────────────────────────
 
-func buildStatusline(p payload, c palette, cfg config) []string {
+func buildStatusline(p payload, c palette, cfg config, columns int) []string {
 	clearPluginCache()
 	parts := map[int][]string{}
 	for _, id := range cfg.Segments {
@@ -1440,6 +1465,47 @@ func buildStatusline(p payload, c palette, cfg config) []string {
 			maxLine = k
 		}
 	}
+
+	// Auto-reflow: spill trailing segments to the next line when a line
+	// exceeds the available terminal width.
+	if columns > 0 {
+		const timingSuffixReserve = 15
+		lineNum := 1
+		for lineNum <= maxLine {
+			budget := columns
+			if lineNum == 1 {
+				budget = columns - timingSuffixReserve
+				if budget < 10 {
+					budget = 10
+				}
+			}
+			for {
+				segs := parts[lineNum]
+				if len(segs) <= 1 {
+					break
+				}
+				width := 1 // leading space in joinParts
+				for i, seg := range segs {
+					if i > 0 {
+						width += 3 // " │ "
+					}
+					width += visibleWidth(seg)
+				}
+				if width <= budget {
+					break
+				}
+				// Move last segment to the next line.
+				moved := segs[len(segs)-1]
+				parts[lineNum] = segs[:len(segs)-1]
+				parts[lineNum+1] = append([]string{moved}, parts[lineNum+1]...)
+				if lineNum+1 > maxLine {
+					maxLine = lineNum + 1
+				}
+			}
+			lineNum++
+		}
+	}
+
 	out := make([]string, maxLine)
 	for i := 1; i <= maxLine; i++ {
 		out[i-1] = joinParts(parts[i])
