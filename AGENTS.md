@@ -65,7 +65,7 @@ rm -f claude-statusline
 4. **Resolve colors** based on `NO_COLOR` and `TERM=dumb` environment variables.
 5. **Load configuration** from `~/.config/claude-statusline/config.json`.
 6. **Initialize segments** (built-in + any plugins defined in config).
-7. **Build output lines** by iterating enabled segments, rendering each, and grouping by assigned line number (1–9). When `COLUMNS` (Claude Code) or `terminal_width` (agy) is available, segments that would overflow the terminal width automatically spill to the next line. Blank lines collapse automatically.
+7. **Build output lines** by iterating enabled segments, rendering each, and grouping by assigned line number (1–9). When `COLUMNS` (Claude Code) or `terminal_width` (agy) is available, segments that would overflow the terminal width automatically spill to the next line. The `reflow` config setting controls whether wrapping cascades greedily across lines or preserves logical line boundaries by wrapping each line independently. Blank lines collapse automatically.
 8. **Print** the statusline lines plus an elapsed-timing suffix on the first line.
 
 ### JSON Payload Schema (Go structs)
@@ -116,7 +116,8 @@ cp config.json.example ~/.config/claude-statusline/config.json
     "model": "cyan",
     "cost": "green"
   },
-  "plugins": []
+  "plugins": [],
+  "reflow": "group"
 }
 ```
 
@@ -124,6 +125,9 @@ cp config.json.example ~/.config/claude-statusline/config.json
 - `segments` controls visibility and order. An explicit empty array `[]` hides the statusline entirely.
 - `lines` maps segment IDs to line numbers (1–9). Segments not listed use their natural line.
 - `colors` maps segment IDs to color names (`red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, and `bright-*` variants). Segments not listed use their natural color.
+- `reflow` controls how segments wrap when the terminal is too narrow:
+  - `"cascade"` (default) — segments spill greedily to the next line regardless of logical line boundaries. Blank lines may be inserted before original lines that received overflow.
+  - `"group"` — each logical line wraps independently. Segments from different lines never share a physical line, preserving the line boundaries defined in `lines`.
 - Blank lines (lines with no active segments) collapse automatically.
 - Invalid line numbers or unknown segment IDs in `lines` are silently ignored.
 - Missing config file = all default segments in default order with no line or color overrides.

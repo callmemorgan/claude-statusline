@@ -39,6 +39,7 @@
       "desc": "RAM usage",
       "timeout_ms": 200
     }
-  ]
+  ],
+  "reflow": "group"
 }
 

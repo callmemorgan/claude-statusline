@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -74,6 +75,7 @@ type config struct {
 	Lines    map[string]int      `json:"lines"`
 	Colors   map[string]string   `json:"colors"`
 	Plugins  []pluginDef         `json:"plugins"`
+	Reflow   string              `json:"reflow"`
 }
 
 func defaultConfig() config {
@@ -114,6 +116,7 @@ func loadConfig() config {
 	cfg.Lines = loaded.Lines
 	cfg.Colors = loaded.Colors
 	cfg.Plugins = loaded.Plugins
+	cfg.Reflow = loaded.Reflow
 	// Auto-append plugin IDs only when the config file doesn't specify
 	// segments at all (nil). If the user explicitly set segments — even to
 	// an empty array — respect their choice and don't force plugins on.
@@ -1462,6 +1465,17 @@ func buildStatusline(p payload, c palette, cfg config, columns int) []string {
 	if len(parts) == 0 {
 		return []string{}
 	}
+
+	if columns > 0 && cfg.Reflow == "group" {
+		return buildStatuslineGroup(parts, columns)
+	}
+
+	return buildStatuslineCascade(parts, columns)
+}
+
+// buildStatuslineCascade is the original reflow behaviour: segments spill
+// greedily from line 1 → 2 → 3 regardless of which logical line they belong to.
+func buildStatuslineCascade(parts map[int][]string, columns int) []string {
 	maxLine := 0
 	originalLines := map[int]bool{}
 	for k := range parts {
@@ -1524,6 +1538,66 @@ func buildStatusline(p payload, c palette, cfg config, columns int) []string {
 		}
 		out = append(out, line)
 	}
+	return out
+}
+
+// buildStatuslineGroup wraps each logical line independently. Segments from
+// different logical lines never share a physical line, preserving the line
+// boundaries defined in the configuration.
+func buildStatuslineGroup(parts map[int][]string, columns int) []string {
+	const timingSuffixReserve = 15
+	const safetyMargin = 5
+
+	var lineNums []int
+	for k := range parts {
+		lineNums = append(lineNums, k)
+	}
+	sort.Ints(lineNums)
+
+	var out []string
+	firstPhysicalLine := true
+
+	for _, lineNum := range lineNums {
+		segs := parts[lineNum]
+		if len(segs) == 0 {
+			continue
+		}
+
+		var current []string
+		currentWidth := 0
+
+		for _, seg := range segs {
+			segWidth := visibleWidth(seg)
+			sep := 1 // leading space
+			if len(current) > 0 {
+				sep = 3 // " │ "
+			}
+
+			budget := columns - safetyMargin
+			if firstPhysicalLine && len(out) == 0 {
+				budget = columns - timingSuffixReserve - safetyMargin
+				if budget < 10 {
+					budget = 10
+				}
+			}
+
+			if len(current) == 0 || currentWidth+sep+segWidth <= budget {
+				current = append(current, seg)
+				currentWidth += sep + segWidth
+			} else {
+				out = append(out, joinParts(current))
+				current = []string{seg}
+				currentWidth = 1 + segWidth
+				firstPhysicalLine = false
+			}
+		}
+
+		if len(current) > 0 {
+			out = append(out, joinParts(current))
+			firstPhysicalLine = false
+		}
+	}
+
 	return out
 }
 

@@ -146,6 +146,30 @@ echo '{"model":{"display_name":"Claude"},"workspace":{"current_dir":"~"},"versio
 
 Expect: line 1 has session-name and directory, line 2 has model and version, line 3 has context-window.
 
+### Group reflow (`reflow: "group"`)
+
+```bash
+cat > ~/.config/claude-statusline/config.json <<'EOF'
+{
+  "segments": ["directory", "git-branch", "cost", "model", "version", "context-window"],
+  "lines": {
+    "directory": 1,
+    "git-branch": 1,
+    "cost": 1,
+    "model": 2,
+    "version": 2,
+    "context-window": 3
+  },
+  "reflow": "group"
+}
+EOF
+echo '{"model":{"display_name":"Claude 3.7 Sonnet"},"workspace":{"current_dir":"~/my-project"},"worktree":{"branch":"feature/my-branch"},"cost":{"total_cost_usd":1.23},"version":"2.1.158","context_window":{"used_percentage":50,"context_window_size":200000}}' | COLUMNS=40 ./claude-statusline
+```
+
+Expect: each logical line wraps independently. Line 1 segments (`directory`, `git-branch`, `cost`) do not mix with line 2 segments (`model`, `version`) even when line 1 overflows. No blank lines inserted between wrapped groups.
+
+Compare with `"reflow": "cascade"` (or omitting the key) — segments spill across line boundaries and blank lines may appear before original lines that received overflow.
+
 ---
 
 ## Edge cases
