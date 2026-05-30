@@ -366,12 +366,12 @@ func main() {
 
 	elapsedMS := float64(time.Since(start).Microseconds()) / 1000.0
 	if len(lines) > 0 {
-		fmt.Printf("%s │ %s%.1fms\n", lines[0], colors.Dim, elapsedMS)
+		fmt.Printf("%s │ %s%.1fms%s\n", lines[0], colors.Dim, elapsedMS, colors.Rst)
 		for _, l := range lines[1:] {
 			fmt.Println(l)
 		}
 	} else {
-		fmt.Printf("%s%.1fms\n", colors.Dim, elapsedMS)
+		fmt.Printf("%s%.1fms%s\n", colors.Dim, elapsedMS, colors.Rst)
 	}
 }
 
@@ -1463,15 +1463,11 @@ func buildStatusline(p payload, c palette, cfg config, columns int) []string {
 		return []string{}
 	}
 	maxLine := 0
+	originalLines := map[int]bool{}
 	for k := range parts {
 		if k > maxLine {
 			maxLine = k
 		}
-	}
-
-	// Capture which lines had segments before reflow.
-	originalLines := map[int]bool{}
-	for k := range parts {
 		originalLines[k] = true
 	}
 
