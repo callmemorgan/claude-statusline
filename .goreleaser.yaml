@@ -59,3 +59,14 @@ brews:
       system "#{bin}/claude-statusline", "--help"
     install: |
       bin.install "claude-statusline"
+    post_install: |
+      gopath = ENV["GOPATH"] || "#{ENV["HOME"]}/go"
+      go_bin = "#{gopath}/bin/claude-statusline"
+      if File.exist?(go_bin)
+        opoo "Detected another claude-statusline installation at #{go_bin}. Consider removing it to avoid PATH conflicts."
+      end
+
+      local_bin = "#{ENV["HOME"]}/.local/bin/claude-statusline"
+      if File.exist?(local_bin)
+        opoo "Detected another claude-statusline installation at #{local_bin}. Consider removing it to avoid PATH conflicts."
+      end
