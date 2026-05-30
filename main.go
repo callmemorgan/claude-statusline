@@ -306,7 +306,7 @@ Line 1 segments — Session & workspace:
   directory     Current / project directory (both)
   git-branch    Git branch and worktree name (both)
   artifact-count  Number of artifacts (agy only)
-  lines-changed   Session lines added/removed +N/-M (Claude Code only)
+  lines-changed   All lines added/removed by the agent in the session +N/-M (Claude Code only)
   cache-percent   Cache read percentage (Claude Code only)
   plan-tier     Subscription plan tier (agy only)
   cost          Estimated session cost $X.XX (Claude Code only)
@@ -1413,7 +1413,7 @@ func allSegmentInfos() []segmentInfo {
 		{id: "directory", line: 1, desc: "Current / project directory", primaryColor: "Dir", render: renderDirectory},
 		{id: "git-branch", line: 1, desc: "Git branch and worktree name", primaryColor: "Git", render: renderGitBranch},
 		{id: "artifact-count", line: 1, desc: "Artifact count", primaryColor: "Chg", render: renderArtifactCount},
-		{id: "lines-changed", line: 1, desc: "Lines added / removed", primaryColor: "Chg", render: renderLinesChanged},
+		{id: "lines-changed", line: 1, desc: "All lines added / removed by the agent in the session", primaryColor: "Chg", render: renderLinesChanged},
 		{id: "cache-percent", line: 1, desc: "Cache read percentage", primaryColor: "Dim", render: renderCachePercent},
 		{id: "plan-tier", line: 1, desc: "Subscription plan tier", primaryColor: "Purple", render: renderPlanTier},
 		{id: "cost", line: 1, desc: "Total session cost", primaryColor: "Cost", render: renderCost},
