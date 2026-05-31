@@ -485,3 +485,7 @@ Prints a field presence table comparing the received payload against the Claude 
 ## License
 
 MIT
+
+## AI use
+
+This project was developed primarily with [Moonshot AI's Kimi Code](https://www.moonshot.cn/), with contributions from [Warp.dev GLM 5.1](https://www.warp.dev/) and [Claude Code](https://claude.ai/code) for code review.
