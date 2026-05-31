@@ -727,6 +727,8 @@ func runConfigure() {
 		ShowSecondaryText(false)
 	flyoutList.SetBorder(true)
 
+	var confirmModal *tview.Modal
+
 	flyoutDescView := tview.NewTextView().SetWrap(true)
 	flyoutDescView.SetBorder(true).SetTitle(" Description ")
 
@@ -800,6 +802,7 @@ func runConfigure() {
 
 	openFlyout := func(segID string) {
 		if len(flyoutFeatures[segID]) == 0 {
+			descView.SetText("(no configurable options for this segment)")
 			return
 		}
 		currentFlyoutSegment = segID
@@ -815,6 +818,100 @@ func runConfigure() {
 		app.SetFocus(flyoutList)
 	}
 
+	var updateUI func()
+
+	list.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if action == tview.MouseLeftDoubleClick && list.InRect(event.Position()) {
+			idx := list.GetCurrentItem()
+			if idx >= 0 && idx < len(segments) {
+				openFlyout(segments[idx].id)
+			}
+			return tview.MouseConsumed, nil
+		}
+		if action == tview.MouseLeftClick && list.InRect(event.Position()) {
+			x, y := event.Position()
+			innerX, innerY, _, _ := list.GetInnerRect()
+			if x >= innerX && x <= innerX+1 {
+				itemOff, _ := list.GetOffset()
+				clickedIdx := y - innerY + itemOff
+				if clickedIdx >= 0 && clickedIdx < len(segments) {
+					id := segments[clickedIdx].id
+					found := -1
+					for i, segID := range cfg.Segments {
+						if segID == id {
+							found = i
+							break
+						}
+					}
+					if found >= 0 {
+						cfg.Segments = append(cfg.Segments[:found], cfg.Segments[found+1:]...)
+					} else {
+						cfg.Segments = append(cfg.Segments, id)
+					}
+					list.SetCurrentItem(clickedIdx)
+					app.SetFocus(list)
+					updateUI()
+					return tview.MouseConsumed, nil
+				}
+			}
+		}
+		return action, event
+	})
+
+	flyoutList.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if action == tview.MouseLeftDoubleClick && flyoutList.InRect(event.Position()) {
+			idx := flyoutList.GetCurrentItem()
+			features := flyoutFeatures[currentFlyoutSegment]
+			if idx >= 0 && idx < len(features) {
+				f := features[idx]
+				switch f.kind {
+				case kindToggle:
+					if f.id == "sync_to_all" {
+						pages.SwitchToPage("confirm")
+						app.SetFocus(confirmModal)
+						return tview.MouseConsumed, nil
+					}
+					applyFlyoutToggle(currentFlyoutSegment, f, &cfg)
+					if f.id == "stress_test" && stressTestActive[currentFlyoutSegment] {
+						scheduleStressTick(app, currentFlyoutSegment, updateFlyout)
+					}
+				case kindCycle:
+					applyFlyoutCycle(currentFlyoutSegment, f, &cfg, 1)
+				case kindNumber:
+					applyFlyoutNumber(currentFlyoutSegment, f, &cfg, 1)
+				}
+				updateFlyout()
+			}
+			return tview.MouseConsumed, nil
+		}
+		return action, event
+	})
+
+	flyoutList.SetSelectedFunc(func(idx int, _, _ string, _ rune) {
+		features := flyoutFeatures[currentFlyoutSegment]
+		if idx < 0 || idx >= len(features) {
+			return
+		}
+		f := features[idx]
+		switch f.kind {
+		case kindToggle:
+			if f.id == "sync_to_all" {
+				pages.SwitchToPage("confirm")
+				app.SetFocus(confirmModal)
+				return
+			}
+			applyFlyoutToggle(currentFlyoutSegment, f, &cfg)
+			if f.id == "stress_test" && stressTestActive[currentFlyoutSegment] {
+				scheduleStressTick(app, currentFlyoutSegment, updateFlyout)
+			}
+		case kindCycle:
+			applyFlyoutCycle(currentFlyoutSegment, f, &cfg, 1)
+		case kindNumber:
+			applyFlyoutNumber(currentFlyoutSegment, f, &cfg, 1)
+		}
+		updateFlyout()
+	})
+
 	flyoutTopRow := tview.NewFlex().
 		SetDirection(tview.FlexColumn).
 		AddItem(flyoutList, 0, 1, true).
@@ -828,7 +925,7 @@ func runConfigure() {
 		AddItem(flyoutHelp, 1, 0, false)
 
 	// Update list items and preview from current cfg.
-	updateUI := func() {
+	updateUI = func() {
 		currentIdx := list.GetCurrentItem()
 
 		list.Clear()
@@ -952,6 +1049,11 @@ func runConfigure() {
 						f := features[idx]
 						switch f.kind {
 						case kindToggle:
+							if f.id == "sync_to_all" {
+								pages.SwitchToPage("confirm")
+								app.SetFocus(confirmModal)
+								return nil
+							}
 							applyFlyoutToggle(currentFlyoutSegment, f, &cfg)
 							if f.id == "stress_test" && stressTestActive[currentFlyoutSegment] {
 								scheduleStressTick(app, currentFlyoutSegment, updateFlyout)
@@ -982,11 +1084,26 @@ func runConfigure() {
 			}
 			return event
 		}
+		if pageName == "confirm" {
+			switch event.Key() {
+			case tcell.KeyEscape:
+				pages.SwitchToPage("flyout")
+				app.SetFocus(flyoutList)
+				return nil
+			case tcell.KeyRune:
+				if event.Rune() == 'q' || event.Rune() == 'Q' {
+					pages.SwitchToPage("flyout")
+					app.SetFocus(flyoutList)
+					return nil
+				}
+			}
+			return event
+		}
 
 		switch event.Key() {
 		case tcell.KeyRune:
 			switch event.Rune() {
-			case 'f', 'F':
+			case 'o', 'O':
 				idx := list.GetCurrentItem()
 				if idx >= 0 && idx < len(segments) {
 					openFlyout(segments[idx].id)
@@ -1206,6 +1323,28 @@ func runConfigure() {
 	pages.AddPage("configure", flex, true, true)
 	pages.AddPage("help", helpView, true, false)
 	pages.AddPage("flyout", flyoutFlex, true, false)
+
+	confirmModal = tview.NewModal().
+		SetText("Copy these settings to all progress bar segments?").
+		AddButtons([]string{"Yes", "No"}).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+			if buttonLabel == "Yes" {
+				s := settingsFor(cfg, currentFlyoutSegment)
+				if cfg.Settings == nil {
+					cfg.Settings = map[string]segmentSettings{}
+				}
+				for _, target := range progressBarSegmentIDs {
+					if target == currentFlyoutSegment {
+						continue
+					}
+					cfg.Settings[target] = cloneSettings(s)
+				}
+			}
+			pages.SwitchToPage("flyout")
+			app.SetFocus(flyoutList)
+			updateFlyout()
+		})
+	pages.AddPage("confirm", confirmModal, true, false)
 
 	if err := app.SetRoot(pages, true).EnableMouse(true).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
@@ -1602,6 +1741,10 @@ func renderPlanTier(p payload, c palette) (string, bool) {
 }
 
 // ─── Flyout Test Segment ─────────────────────────────────────────────
+
+// progressBarSegmentIDs is the canonical set of segments that share bar
+// settings via "Sync to all bars".
+var progressBarSegmentIDs = []string{"context-window", "rate-limit-5h", "rate-limit-7d"}
 
 // flyoutState holds per-segment sub-feature toggle states for legacy/demo
 // segments that don't use segmentSettings.
