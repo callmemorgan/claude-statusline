@@ -1510,6 +1510,8 @@ func paletteWithOverride(c palette, primaryColor, colorName string) palette {
 
 // ansiToTview converts ANSI color codes in s to tview color tags.
 // It escapes literal '[' characters so they are not interpreted as tags.
+// Only the specific SGR codes emitted by currentPalette() are mapped; any
+// other ANSI sequences (bold, 256-color, etc.) will pass through as raw bytes.
 func ansiToTview(s string) string {
 	// Step 1: replace ANSI codes with Unicode private-use placeholders.
 	s = strings.ReplaceAll(s, "\x1b[0m", "\uE000")
@@ -1635,9 +1637,12 @@ func renderCost(p payload, c palette) (string, bool) {
 
 func renderModel(p payload, c palette) (string, bool) {
 	modelName := firstNonEmpty(p.Model.DisplayName, p.Model.ID, "Claude")
-	effort := firstNonEmpty(p.Effort.Level, readEffortLevel())
+	effortLevel := p.Effort.Level
+	if effortLevel == "" {
+		effortLevel = readEffortLevel()
+	}
 	modelLabel := modelName
-	badge := effortBadge(effort)
+	badge := effortBadge(effortLevel)
 	if badge != "" {
 		modelLabel += " " + badge
 	}
@@ -1859,21 +1864,11 @@ func scheduleStressTick(app *tview.Application, segID string, updateFn func()) {
 }
 
 func stopStressTest(segID string) {
-	stressTestActive[segID] = false
+	delete(stressTestActive, segID)
 	if t, ok := stressTestTimers[segID]; ok {
 		t.Stop()
 		delete(stressTestTimers, segID)
 	}
-}
-
-func ensureSettings(cfg *config, segID string) segmentSettings {
-	if cfg.Settings == nil {
-		cfg.Settings = map[string]segmentSettings{}
-	}
-	if _, ok := cfg.Settings[segID]; !ok {
-		cfg.Settings[segID] = segmentSettings{}
-	}
-	return cfg.Settings[segID]
 }
 
 func flyoutValueStr(segID string, f subFeature, cfg config) string {
@@ -1960,17 +1955,6 @@ func applyFlyoutToggle(segID string, f subFeature, cfg *config) {
 	case "stress_test":
 		stressTestActive[segID] = !stressTestActive[segID]
 		return // don't save stress_test to cfg.Settings
-	case "sync_to_all":
-		if cfg.Settings == nil {
-			cfg.Settings = map[string]segmentSettings{}
-		}
-		for _, target := range []string{"context-window", "rate-limit-5h", "rate-limit-7d"} {
-			if target == segID {
-				continue
-			}
-			cfg.Settings[target] = cloneSettings(s)
-		}
-		return // don't save sync_to_all to cfg.Settings
 	}
 	if cfg.Settings == nil {
 		cfg.Settings = map[string]segmentSettings{}
@@ -2473,10 +2457,6 @@ func settingsFor(cfg config, id string) segmentSettings {
 	return s
 }
 
-func progressBar(pct int, fillColor, emptyColor string, c palette) string {
-	return progressBarWithIconset(pct, fillColor, emptyColor, c, barWidth, "default")
-}
-
 func progressBarWithIconset(pct int, fillColor, emptyColor string, c palette, width int, iconset string) string {
 	if pct < 0 {
 		pct = 0
@@ -2490,12 +2470,6 @@ func progressBarWithIconset(pct int, fillColor, emptyColor string, c palette, wi
 	return fillColor + strings.Repeat(filledChar, filled) + emptyColor + strings.Repeat(emptyChar, empty) + c.Rst
 }
 
-// progressBarWithTime renders a bar like progressBar but overlays a purple "|"
-// at the timePct position so you can compare quota usage vs. time elapsed.
-// timePct < 0 means unknown — falls back to a plain bar.
-func progressBarWithTime(pct, timePct int, fillColor, emptyColor string, c palette) string {
-	return progressBarWithTimeAndIconset(pct, timePct, fillColor, emptyColor, c, barWidth, "default")
-}
 
 func progressBarWithTimeAndIconset(pct, timePct int, fillColor, emptyColor string, c palette, width int, iconset string) string {
 	if pct < 0 {
@@ -2528,10 +2502,6 @@ func progressBarWithTimeAndIconset(pct, timePct int, fillColor, emptyColor strin
 	}
 	b.WriteString(c.Rst)
 	return b.String()
-}
-
-func pctColor(pct int, c palette) string {
-	return pctColorWithSettings(pct, c, segmentSettings{})
 }
 
 func pctColorWithSettings(pct int, c palette, s segmentSettings) string {
@@ -2663,9 +2633,3 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func safeLine(lines []string, idx int) string {
-	if idx < 0 || idx >= len(lines) {
-		return ""
-	}
-	return lines[idx]
-}
