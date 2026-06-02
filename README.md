@@ -171,6 +171,7 @@ Opens an interactive TUI: a scrollable segment list on the left, a live descript
 | `c` | Cycle segment color (enables it if disabled) |
 | `←` / `→` | Reorder segment within its current line |
 | `Shift+↑` / `Shift+↓` | Swap all segments on the current line with the adjacent line |
+| `o` | Open per-segment settings (bar width, icons, colors, thresholds) |
 | `r` | Reset to defaults |
 | `s` | Save and exit |
 | `q` | Quit without saving |
@@ -204,6 +205,18 @@ cp config.json.example ~/.config/claude-statusline/config.json
     "model": "cyan",
     "cost": "green"
   },
+  "settings": {
+    "context-window": {
+      "bar_width": 30,
+      "iconset": "blocks",
+      "warn_at": 70,
+      "crit_at": 90
+    },
+    "rate-limit-5h": {
+      "show_countdown": true,
+      "bar_width": 25
+    }
+  },
   "reflow": "group"
 }
 ```
@@ -211,6 +224,14 @@ cp config.json.example ~/.config/claude-statusline/config.json
 - `segments` — which segments to show and in what order. Omit to use defaults.
 - `lines` — override which line a segment renders on (1–9). Omit a segment to use its natural line.
 - `colors` — override the display color of a segment. Supported names: `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, and `bright-*` variants. Set to `"default"` or omit to use the segment's natural color.
+- `settings` — per-segment configuration for segments with configurable sub-features. Currently used by `context-window`, `rate-limit-5h`, and `rate-limit-7d`. Open the TUI (`o` on a segment) to discover what's available; common fields:
+  - `show_bar` (bool) — render the progress bar at all
+  - `show_countdown` (bool, rate limits only) — append the time-until-reset text
+  - `show_warning` (bool, context-window only) — append `>200k` when context exceeds 200k tokens
+  - `bar_width` (int, 5–50) — number of characters in the bar
+  - `iconset` (`"default"`, `"blocks"`, `"dots"`, `"ascii"`, `"minimal"`) — visual style of the bar
+  - `warn_at` / `crit_at` (int, 0–100) — percentage thresholds for warn/critical colors
+  - `ok_color` / `warn_color` / `crit_color` (color name or `"default"`) — bar color at each threshold
 - `reflow` — how segments wrap when the terminal is too narrow:
   - `"cascade"` (default) — segments spill greedily across line boundaries.
   - `"group"` — each logical line wraps independently, preserving the boundaries set in `lines`.

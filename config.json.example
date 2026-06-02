@@ -30,6 +30,12 @@
     "model": "cyan",
     "cost": "green"
   },
+  "settings": {
+    "context-window": {
+      "bar_width": 30,
+      "iconset": "blocks"
+    }
+  },
   "plugins": [
     {
       "_comment": "Single-field plugin — whole stdout becomes the segment value.",
