@@ -1442,8 +1442,15 @@ func currentPalette() palette {
 	}
 }
 
-// colorCycle is the ordered list of color names cycled by the TUI.
-var colorCycle = []string{"default", "red", "green", "yellow", "blue", "magenta", "cyan", "white"}
+// colorCycle is the ordered list of color names cycled by the TUI and offered
+// in flyout color sub-features. Includes both the 8 standard and 8 bright
+// variants to match the documented "Supported names" surface in the README.
+var colorCycle = []string{
+	"default",
+	"red", "green", "yellow", "blue", "magenta", "cyan", "white",
+	"bright-red", "bright-green", "bright-yellow", "bright-blue",
+	"bright-magenta", "bright-cyan", "bright-white",
+}
 
 // colorCodes maps color names to ANSI escape codes.
 var colorCodes = map[string]string{
@@ -1795,9 +1802,9 @@ var flyoutFeatures = map[string][]subFeature{
 		{id: "iconset", name: "Iconset", desc: "Visual style of the progress bar", kind: kindCycle, options: []string{"default", "blocks", "dots", "ascii", "minimal"}},
 		{id: "warn_at", name: "Warn at", desc: "Percentage threshold for yellow warning color", kind: kindNumber, min: 0, max: 100},
 		{id: "crit_at", name: "Critical at", desc: "Percentage threshold for red critical color", kind: kindNumber, min: 0, max: 100},
-		{id: "ok_color", name: "OK color", desc: "Color below warning threshold", kind: kindCycle, options: []string{"default", "red", "green", "yellow", "blue", "magenta", "cyan", "white"}},
-		{id: "warn_color", name: "Warn color", desc: "Color between warn and critical thresholds", kind: kindCycle, options: []string{"default", "red", "green", "yellow", "blue", "magenta", "cyan", "white"}},
-		{id: "crit_color", name: "Critical color", desc: "Color above critical threshold", kind: kindCycle, options: []string{"default", "red", "green", "yellow", "blue", "magenta", "cyan", "white"}},
+		{id: "ok_color", name: "OK color", desc: "Color below warning threshold", kind: kindCycle, options: colorCycle},
+		{id: "warn_color", name: "Warn color", desc: "Color between warn and critical thresholds", kind: kindCycle, options: colorCycle},
+		{id: "crit_color", name: "Critical color", desc: "Color above critical threshold", kind: kindCycle, options: colorCycle},
 		{id: "stress_test", name: "Stress test preview", desc: "Animate preview from 0% to 100% to see all colors", kind: kindToggle},
 	},
 	"rate-limit-5h": {
@@ -1807,9 +1814,9 @@ var flyoutFeatures = map[string][]subFeature{
 		{id: "iconset", name: "Iconset", desc: "Visual style of the progress bar", kind: kindCycle, options: []string{"default", "blocks", "dots", "ascii", "minimal"}},
 		{id: "warn_at", name: "Warn at", desc: "Percentage threshold for yellow warning color", kind: kindNumber, min: 0, max: 100},
 		{id: "crit_at", name: "Critical at", desc: "Percentage threshold for red critical color", kind: kindNumber, min: 0, max: 100},
-		{id: "ok_color", name: "OK color", desc: "Color below warning threshold", kind: kindCycle, options: []string{"default", "red", "green", "yellow", "blue", "magenta", "cyan", "white"}},
-		{id: "warn_color", name: "Warn color", desc: "Color between warn and critical thresholds", kind: kindCycle, options: []string{"default", "red", "green", "yellow", "blue", "magenta", "cyan", "white"}},
-		{id: "crit_color", name: "Critical color", desc: "Color above critical threshold", kind: kindCycle, options: []string{"default", "red", "green", "yellow", "blue", "magenta", "cyan", "white"}},
+		{id: "ok_color", name: "OK color", desc: "Color below warning threshold", kind: kindCycle, options: colorCycle},
+		{id: "warn_color", name: "Warn color", desc: "Color between warn and critical thresholds", kind: kindCycle, options: colorCycle},
+		{id: "crit_color", name: "Critical color", desc: "Color above critical threshold", kind: kindCycle, options: colorCycle},
 		{id: "stress_test", name: "Stress test preview", desc: "Animate preview from 0% to 100% to see all colors", kind: kindToggle},
 		{id: "sync_to_all", name: "Sync to all bars", desc: "Copy these settings to context-window and rate-limit-7d", kind: kindToggle},
 	},
@@ -1820,9 +1827,9 @@ var flyoutFeatures = map[string][]subFeature{
 		{id: "iconset", name: "Iconset", desc: "Visual style of the progress bar", kind: kindCycle, options: []string{"default", "blocks", "dots", "ascii", "minimal"}},
 		{id: "warn_at", name: "Warn at", desc: "Percentage threshold for yellow warning color", kind: kindNumber, min: 0, max: 100},
 		{id: "crit_at", name: "Critical at", desc: "Percentage threshold for red critical color", kind: kindNumber, min: 0, max: 100},
-		{id: "ok_color", name: "OK color", desc: "Color below warning threshold", kind: kindCycle, options: []string{"default", "red", "green", "yellow", "blue", "magenta", "cyan", "white"}},
-		{id: "warn_color", name: "Warn color", desc: "Color between warn and critical thresholds", kind: kindCycle, options: []string{"default", "red", "green", "yellow", "blue", "magenta", "cyan", "white"}},
-		{id: "crit_color", name: "Critical color", desc: "Color above critical threshold", kind: kindCycle, options: []string{"default", "red", "green", "yellow", "blue", "magenta", "cyan", "white"}},
+		{id: "ok_color", name: "OK color", desc: "Color below warning threshold", kind: kindCycle, options: colorCycle},
+		{id: "warn_color", name: "Warn color", desc: "Color between warn and critical thresholds", kind: kindCycle, options: colorCycle},
+		{id: "crit_color", name: "Critical color", desc: "Color above critical threshold", kind: kindCycle, options: colorCycle},
 		{id: "stress_test", name: "Stress test preview", desc: "Animate preview from 0% to 100% to see all colors", kind: kindToggle},
 		{id: "sync_to_all", name: "Sync to all bars", desc: "Copy these settings to context-window and rate-limit-5h", kind: kindToggle},
 	},
