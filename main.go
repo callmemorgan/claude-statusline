@@ -807,9 +807,6 @@ func runConfigure() {
 		}
 		currentFlyoutSegment = segID
 		flyoutTitle.SetText(fmt.Sprintf("[yellow::b]  %s — sub-features[-::-]", segID))
-		if flyoutState[segID] == nil {
-			flyoutState[segID] = map[string]bool{}
-		}
 		updateFlyout()
 		if len(flyoutFeatures[segID]) > 0 {
 			flyoutDescView.SetText(flyoutFeatures[segID][0].desc)
@@ -1751,10 +1748,6 @@ func renderPlanTier(p payload, c palette) (string, bool) {
 // settings via "Sync to all bars".
 var progressBarSegmentIDs = []string{"context-window", "rate-limit-5h", "rate-limit-7d"}
 
-// flyoutState holds per-segment sub-feature toggle states for legacy/demo
-// segments that don't use segmentSettings.
-var flyoutState = map[string]map[string]bool{}
-
 type featureKind string
 
 const (
@@ -1775,12 +1768,6 @@ type subFeature struct {
 
 // flyoutFeatures defines which segments have configurable sub-features.
 var flyoutFeatures = map[string][]subFeature{
-	"flyout-test": {
-		{id: "brackets", name: "Brackets", desc: "Wrap value in square brackets []", kind: kindToggle},
-		{id: "prefix", name: "Prefix", desc: "Prepend 'TEST:' label", kind: kindToggle},
-		{id: "uppercase", name: "Uppercase", desc: "Render in ALL CAPS", kind: kindToggle},
-		{id: "emoji", name: "Emoji", desc: "Add a test-tube emoji", kind: kindToggle},
-	},
 	"context-window": {
 		{id: "show_bar", name: "Show bar", desc: "Render the progress bar", kind: kindToggle},
 		{id: "show_warning", name: "Show >200k warning", desc: "Append red >200k when context exceeds 200k tokens", kind: kindToggle},
@@ -1821,27 +1808,6 @@ var flyoutFeatures = map[string][]subFeature{
 	},
 }
 
-func renderFlyoutTest(p payload, c palette) (string, bool) {
-	state, ok := flyoutState["flyout-test"]
-	if !ok {
-		state = map[string]bool{}
-	}
-	val := "flyout-test"
-	if state["uppercase"] {
-		val = strings.ToUpper(val)
-	}
-	if state["prefix"] {
-		val = "TEST:" + val
-	}
-	if state["emoji"] {
-		val = "🧪 " + val
-	}
-	if state["brackets"] {
-		val = "[" + val + "]"
-	}
-	return c.Model + val + c.Rst, true
-}
-
 // ─── Flyout Helpers ──────────────────────────────────────────────────
 
 func ptrBool(v bool) *bool       { return &v }
@@ -1872,12 +1838,6 @@ func stopStressTest(segID string) {
 }
 
 func flyoutValueStr(segID string, f subFeature, cfg config) string {
-	if segID == "flyout-test" && f.kind == kindToggle {
-		if flyoutState[segID][f.id] {
-			return "on"
-		}
-		return "off"
-	}
 	s := settingsFor(cfg, segID)
 	switch f.kind {
 	case kindToggle:
@@ -1937,13 +1897,6 @@ func cycleOption(options []string, current string, delta int) string {
 }
 
 func applyFlyoutToggle(segID string, f subFeature, cfg *config) {
-	if segID == "flyout-test" {
-		if flyoutState[segID] == nil {
-			flyoutState[segID] = map[string]bool{}
-		}
-		flyoutState[segID][f.id] = !flyoutState[segID][f.id]
-		return
-	}
 	s := settingsFor(*cfg, segID)
 	switch f.id {
 	case "show_bar":
@@ -1963,9 +1916,6 @@ func applyFlyoutToggle(segID string, f subFeature, cfg *config) {
 }
 
 func applyFlyoutCycle(segID string, f subFeature, cfg *config, delta int) {
-	if segID == "flyout-test" {
-		return
-	}
 	s := settingsFor(*cfg, segID)
 	cur := ""
 	switch f.id {
@@ -1996,9 +1946,6 @@ func applyFlyoutCycle(segID string, f subFeature, cfg *config, delta int) {
 }
 
 func applyFlyoutNumber(segID string, f subFeature, cfg *config, delta int) {
-	if segID == "flyout-test" {
-		return
-	}
 	s := settingsFor(*cfg, segID)
 	var v int
 	switch f.id {
@@ -2121,7 +2068,6 @@ func allSegmentInfos() []segmentInfo {
 		{id: "lines-changed", line: 1, desc: "All lines added / removed by the agent in the session", primaryColor: "Chg", render: renderLinesChanged},
 		{id: "cache-percent", line: 1, desc: "Cache read percentage", primaryColor: "Dim", render: renderCachePercent},
 		{id: "plan-tier", line: 1, desc: "Subscription plan tier", primaryColor: "Purple", render: renderPlanTier},
-		{id: "flyout-test", line: 1, desc: "Flyout UI/UX test segment — press o in --configure", primaryColor: "Model", render: renderFlyoutTest},
 		{id: "cost", line: 1, desc: "Total session cost", primaryColor: "Cost", render: renderCost},
 		{id: "model", line: 2, desc: "Model name and effort badge", primaryColor: "Model", render: renderModel},
 		{id: "version", line: 2, desc: "Claude Code version", primaryColor: "Dim", render: renderVersion},
