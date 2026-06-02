@@ -989,7 +989,7 @@ func runConfigure() {
 		preview.SetText(previewText)
 	}
 
-	updateUI()
+	app.QueueUpdateDraw(updateUI)
 
 	list.SetChangedFunc(func(idx int, _, _ string, _ rune) {
 		if idx >= 0 && idx < len(segments) {
