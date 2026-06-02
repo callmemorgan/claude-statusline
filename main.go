@@ -1505,6 +1505,26 @@ func paletteWithOverride(c palette, primaryColor, colorName string) palette {
 	return p
 }
 
+// pickColor resolves a per-segment color override against the segment's natural
+// color for this threshold state. An empty string or "default" both mean
+// "use the natural color" — the same no-op semantics as paletteWithOverride.
+func pickColor(override *string, natural string) string {
+	if override == nil || *override == "" || *override == "default" {
+		return natural
+	}
+	return *override
+}
+
+// resolveColor maps a color name to its ANSI escape code. Returns the palette's
+// ok color if the name is unknown or unset, so callers never have to handle the
+// "no code found" case inline.
+func resolveColor(name string, c palette) string {
+	if code := colorCodes[name]; code != "" {
+		return code
+	}
+	return c.ROK
+}
+
 // ansiToTview converts ANSI color codes in s to tview color tags.
 // It escapes literal '[' characters so they are not interpreted as tags.
 // Only the specific SGR codes emitted by currentPalette() are mapped; any
@@ -2462,26 +2482,13 @@ func pctColorWithSettings(pct int, c palette, s segmentSettings) string {
 	var colorName string
 	switch {
 	case pct > critAt:
-		colorName = "bright-red"
-		if s.CritColor != nil {
-			colorName = *s.CritColor
-		}
+		colorName = pickColor(s.CritColor, "bright-red")
 	case pct >= warnAt:
-		colorName = "yellow"
-		if s.WarnColor != nil {
-			colorName = *s.WarnColor
-		}
+		colorName = pickColor(s.WarnColor, "yellow")
 	default:
-		colorName = "green"
-		if s.OkColor != nil {
-			colorName = *s.OkColor
-		}
+		colorName = pickColor(s.OkColor, "green")
 	}
-	code := colorCodes[colorName]
-	if code == "" {
-		return c.ROK
-	}
-	return code
+	return resolveColor(colorName, c)
 }
 
 func rateLimitSegment(label string, window limitWindow, windowSecs int64, c palette, s segmentSettings) (string, bool) {
