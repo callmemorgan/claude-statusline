@@ -817,6 +817,19 @@ func runConfigure() {
 
 	var updateUI func()
 
+	// Re-run updateUI on the first paint so the → arrow's right-padding sees
+	// the list's real inner width. Pre-Run() GetInnerRect() returns zero, so
+	// the very first updateUI() builds rows without padding; this re-runs
+	// updateUI once the flex layout has computed the list's true width.
+	var firstListDraw = true
+	list.SetDrawFunc(func(screen tcell.Screen, x, y, width, height int) (int, int, int, int) {
+		if firstListDraw {
+			firstListDraw = false
+			app.QueueUpdateDraw(updateUI)
+		}
+		return x, y, width, height
+	})
+
 	list.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
 		if action == tview.MouseLeftDoubleClick && list.InRect(event.Position()) {
 			idx := list.GetCurrentItem()
@@ -989,7 +1002,7 @@ func runConfigure() {
 		preview.SetText(previewText)
 	}
 
-	app.QueueUpdateDraw(updateUI)
+	updateUI()
 
 	list.SetChangedFunc(func(idx int, _, _ string, _ rune) {
 		if idx >= 0 && idx < len(segments) {
