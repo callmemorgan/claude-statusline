@@ -25,14 +25,20 @@ func effectiveLine(id string, cfg config) int {
 
 func runConfigure() {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
-		fmt.Fprintln(os.Stderr, "claude-statusline --configure requires an interactive terminal.")
+		fmt.Fprintln(os.Stderr, "claude-statusline configure requires an interactive terminal.")
 		fmt.Fprintf(os.Stderr, "Edit %s directly, or run from a terminal.\n", configPath())
 		os.Exit(1)
 	}
 
-	cfg := loadConfig()
+	cfg, cfgWarns := loadConfigWarn()
 	initSegments(cfg.Plugins)
-	segments := registeredSegments
+
+	// visible is the (possibly filtered) slice the list renders from; every
+	// handler resolves the selection through it, never registeredSegments.
+	visible := registeredSegments
+
+	// dirty tracks unsaved changes; mutate is the single mutation funnel.
+	dirty := false
 
 	app := tview.NewApplication()
 
@@ -43,12 +49,19 @@ func runConfigure() {
 		ShowSecondaryText(false)
 	list.SetBorder(true)
 
+	selectedSegment := func() (segmentInfo, bool) {
+		idx := list.GetCurrentItem()
+		if idx < 0 || idx >= len(visible) {
+			return segmentInfo{}, false
+		}
+		return visible[idx], true
+	}
+
 	// Description panel — shows the description of the currently selected segment.
-	descView := tview.NewTextView().SetWrap(true)
+	descView := tview.NewTextView().SetWrap(true).SetDynamicColors(true)
 	descView.SetBorder(true).SetTitle(" Description ")
 
-	// Live preview of the statusline (plain text — no ANSI / tview colour tags).
-	// Fixed at 12 rows (10 content + 2 border) — max 9 statusline lines plus padding.
+	// Live preview of the statusline.
 	preview := tview.NewTextView().
 		SetDynamicColors(true).
 		SetWrap(false)
@@ -58,10 +71,45 @@ func runConfigure() {
 		AddItem(preview, 0, 1, false)
 	previewBox.SetBorder(true).SetTitle(" Preview ")
 
-	// Fixed-height help bar.
+	// Status strip: persistent context on the left (active theme), transient
+	// flash messages on the right.
+	stripLeft := tview.NewTextView().SetDynamicColors(true)
+	stripRight := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignRight)
+	statusStrip := tview.NewFlex().
+		SetDirection(tview.FlexColumn).
+		AddItem(stripLeft, 0, 1, false).
+		AddItem(stripRight, 0, 1, false)
+
+	flashGen := 0
+	flash := func(color, msg string) {
+		flashGen++
+		gen := flashGen
+		stripRight.SetText(fmt.Sprintf("[%s]%s[-] ", color, msg))
+		time.AfterFunc(2500*time.Millisecond, func() {
+			app.QueueUpdateDraw(func() {
+				if flashGen == gen {
+					stripRight.SetText("")
+				}
+			})
+		})
+	}
+
+	updateStrip := func() {
+		theme := cfg.Theme
+		if theme == "" {
+			theme = "classic"
+		}
+		marker := ""
+		if dirty {
+			marker = " [yellow]●[-]"
+		}
+		stripLeft.SetText(fmt.Sprintf(" theme: [::b]%s[-:-:-]%s", theme, marker))
+	}
+
+	// Footer generated from the keymap table.
 	help := tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
-		SetText(" space toggle • 1-9 line • c color • ←/→ reorder • ↑/↓ nav • ⇧↑/↓ move row • o options • h help • r reset • s save • q quit")
+		SetText(footerText("main"))
 
 	// Help page — full README rendered with markdown formatting.
 	helpView := tview.NewTextView().
@@ -72,8 +120,6 @@ func runConfigure() {
 	helpView.SetBorder(true).SetTitle(" Help — README (↑/↓ scroll • q/Esc close) ")
 
 	// ─── Flyout Panel ────────────────────────────────────────────────────
-	// Sub-feature toggle panel for segments that expose granular settings.
-	// Populated dynamically when the user presses 'o' on a segment.
 
 	flyoutTitle := tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
@@ -97,7 +143,7 @@ func runConfigure() {
 
 	flyoutHelp := tview.NewTextView().
 		SetTextAlign(tview.AlignCenter).
-		SetText(" space toggle/cycle • ←/→ adjust • ⇧+←/→ coarse step • ↑/↓ nav • q/Esc close ")
+		SetText(footerText("flyout"))
 
 	var currentFlyoutSegment string
 
@@ -170,7 +216,7 @@ func runConfigure() {
 			return
 		}
 		currentFlyoutSegment = segID
-		flyoutTitle.SetText(fmt.Sprintf("[yellow::b]  %s — sub-features[-::-]", segID))
+		flyoutTitle.SetText(fmt.Sprintf("[yellow::b]  %s — settings[-::-]", segID))
 		updateFlyout()
 		flyoutDescView.SetText(specs[0].Desc)
 		pages.SwitchToPage("flyout")
@@ -179,11 +225,45 @@ func runConfigure() {
 
 	var updateUI func()
 
+	// mutate funnels every config change: marks the session dirty and
+	// refreshes the UI afterwards.
+	mutate := func(fn func()) {
+		fn()
+		dirty = true
+		updateUI()
+	}
+
+	toggleSegment := func(id string) {
+		mutate(func() {
+			found := -1
+			for i, segID := range cfg.Segments {
+				if segID == id {
+					found = i
+					break
+				}
+			}
+			if found >= 0 {
+				cfg.Segments = append(cfg.Segments[:found], cfg.Segments[found+1:]...)
+			} else {
+				cfg.Segments = append(cfg.Segments, id)
+			}
+		})
+	}
+
+	// ensureEnabled appends a segment that's being customized while off.
+	ensureEnabled := func(id string) {
+		for _, segID := range cfg.Segments {
+			if segID == id {
+				return
+			}
+		}
+		cfg.Segments = append(cfg.Segments, id)
+	}
+
 	list.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
 		if action == tview.MouseLeftDoubleClick && list.InRect(event.Position()) {
-			idx := list.GetCurrentItem()
-			if idx >= 0 && idx < len(segments) {
-				openFlyout(segments[idx].id)
+			if seg, ok := selectedSegment(); ok {
+				openFlyout(seg.id)
 			}
 			return tview.MouseConsumed, nil
 		}
@@ -193,23 +273,11 @@ func runConfigure() {
 			if x >= innerX && x <= innerX+1 {
 				itemOff, _ := list.GetOffset()
 				clickedIdx := y - innerY + itemOff
-				if clickedIdx >= 0 && clickedIdx < len(segments) {
-					id := segments[clickedIdx].id
-					found := -1
-					for i, segID := range cfg.Segments {
-						if segID == id {
-							found = i
-							break
-						}
-					}
-					if found >= 0 {
-						cfg.Segments = append(cfg.Segments[:found], cfg.Segments[found+1:]...)
-					} else {
-						cfg.Segments = append(cfg.Segments, id)
-					}
+				if clickedIdx >= 0 && clickedIdx < len(visible) {
+					id := visible[clickedIdx].id
 					list.SetCurrentItem(clickedIdx)
 					app.SetFocus(list)
-					updateUI()
+					toggleSegment(id)
 					return tview.MouseConsumed, nil
 				}
 			}
@@ -227,13 +295,26 @@ func runConfigure() {
 		}
 		sp := specs[idx]
 		if sp.Key == "sync_to_all" {
+			targets := []string{}
+			for _, id := range progressBarSegmentIDs() {
+				if id != currentFlyoutSegment {
+					targets = append(targets, id)
+				}
+			}
+			confirmModal.SetText(fmt.Sprintf("Copy settings from %s to %s?",
+				currentFlyoutSegment, strings.Join(targets, ", ")))
 			pages.SwitchToPage("confirm")
 			app.SetFocus(confirmModal)
 			return
 		}
 		applyFlyoutChange(currentFlyoutSegment, sp, &cfg, 1)
-		if sp.Key == "stress_test" && stressTestActive[currentFlyoutSegment] {
-			scheduleStressTick(app, currentFlyoutSegment, updateFlyout)
+		if sp.Key == "stress_test" {
+			if stressTestActive[currentFlyoutSegment] {
+				scheduleStressTick(app, currentFlyoutSegment, updateFlyout)
+			}
+		} else {
+			dirty = true
+			updateStrip()
 		}
 		updateFlyout()
 	}
@@ -262,12 +343,22 @@ func runConfigure() {
 		AddItem(flyoutPreview, 5, 0, false).
 		AddItem(flyoutHelp, 1, 0, false)
 
+	// describeSegment renders the description panel for a segment, including
+	// the "press o" discoverability hint when it has settings.
+	describeSegment := func(seg segmentInfo) {
+		text := seg.desc
+		if n := len(seg.settings); n > 0 {
+			text += fmt.Sprintf("\n\n[gray]%d options — press o to configure[-]", n)
+		}
+		descView.SetText(text)
+	}
+
 	// Update list items and preview from current cfg.
 	updateUI = func() {
 		currentIdx := list.GetCurrentItem()
 
 		list.Clear()
-		for _, s := range segments {
+		for _, s := range visible {
 			enabled := false
 			for _, id := range cfg.Segments {
 				if id == s.id {
@@ -310,10 +401,10 @@ func runConfigure() {
 			list.AddItem(mainText, "", 0, nil)
 		}
 
-		if currentIdx >= 0 && currentIdx < len(segments) {
+		if currentIdx >= 0 && currentIdx < len(visible) {
 			list.SetCurrentItem(currentIdx)
 		}
-		list.SetTitle(fmt.Sprintf(" Segments (%d/%d) ", len(cfg.Segments), len(segments)))
+		list.SetTitle(fmt.Sprintf(" Segments (%d/%d) ", len(cfg.Segments), len(registeredSegments)))
 
 		// Refresh preview with colours converted to tview tags.
 		p := samplePayload()
@@ -328,25 +419,53 @@ func runConfigure() {
 			previewText = ansiToTview(previewText)
 		}
 		preview.SetText(previewText)
+		updateStrip()
 	}
 
 	updateUI()
 
 	list.SetChangedFunc(func(idx int, _, _ string, _ rune) {
-		if idx >= 0 && idx < len(segments) {
-			descView.SetText(segments[idx].desc)
+		if idx >= 0 && idx < len(visible) {
+			describeSegment(visible[idx])
 		} else {
 			descView.SetText("")
 		}
 	})
 	// Seed the description for the initial selection.
-	if len(segments) > 0 {
-		descView.SetText(segments[0].desc)
+	if len(visible) > 0 {
+		describeSegment(visible[0])
+	}
+	// Surface config warnings once on open.
+	if len(cfgWarns) > 0 {
+		flash("yellow", fmt.Sprintf("config: %s", cfgWarns[0]))
+	}
+
+	// quitModal guards unsaved changes; resetModal guards the reset key.
+	var quitModal, resetModal *tview.Modal
+
+	requestQuit := func() {
+		if !dirty {
+			app.Stop()
+			return
+		}
+		pages.SwitchToPage("quit")
+		app.SetFocus(quitModal)
+	}
+
+	doSave := func() bool {
+		if err := saveConfig(cfg); err != nil {
+			flash("red", fmt.Sprintf("✗ save failed: %v", err))
+			return false
+		}
+		dirty = false
+		updateStrip()
+		flash("green", "✓ Saved to "+configPath())
+		return true
 	}
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		// When the help or flyout page is visible, only intercept close/nav keys;
-		// let everything else pass through so the inner widget handles scrolling.
+		// When an overlay page is visible, only intercept close/nav keys;
+		// let everything else pass through to the inner widget.
 		pageName, _ := pages.GetFrontPage()
 		if pageName == "help" {
 			switch event.Key() {
@@ -396,22 +515,30 @@ func runConfigure() {
 						delta *= specs[idx].Step
 					}
 					applyFlyoutChange(currentFlyoutSegment, specs[idx], &cfg, delta)
+					dirty = true
 					updateFlyout()
 					return nil
 				}
 			}
 			return event
 		}
-		if pageName == "confirm" {
+		if pageName == "confirm" || pageName == "quit" || pageName == "reset" {
+			// Modals handle their own keys; offer Esc/q as cancel.
+			back := "configure"
+			focus := tview.Primitive(list)
+			if pageName == "confirm" {
+				back = "flyout"
+				focus = flyoutList
+			}
 			switch event.Key() {
 			case tcell.KeyEscape:
-				pages.SwitchToPage("flyout")
-				app.SetFocus(flyoutList)
+				pages.SwitchToPage(back)
+				app.SetFocus(focus)
 				return nil
 			case tcell.KeyRune:
 				if event.Rune() == 'q' || event.Rune() == 'Q' {
-					pages.SwitchToPage("flyout")
-					app.SetFocus(flyoutList)
+					pages.SwitchToPage(back)
+					app.SetFocus(focus)
 					return nil
 				}
 			}
@@ -422,122 +549,81 @@ func runConfigure() {
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case 'o', 'O':
-				idx := list.GetCurrentItem()
-				if idx >= 0 && idx < len(segments) {
-					openFlyout(segments[idx].id)
+				if seg, ok := selectedSegment(); ok {
+					openFlyout(seg.id)
 				}
 				return nil
-			case 'h', 'H':
+			case 'h', 'H', '?':
 				pages.SwitchToPage("help")
 				app.SetFocus(helpView)
 				return nil
 			case ' ':
-				idx := list.GetCurrentItem()
-				if idx < 0 || idx >= len(segments) {
-					return nil
+				if seg, ok := selectedSegment(); ok {
+					toggleSegment(seg.id)
 				}
-				id := segments[idx].id
-				found := -1
-				for i, segID := range cfg.Segments {
-					if segID == id {
-						found = i
-						break
-					}
-				}
-				if found >= 0 {
-					cfg.Segments = append(cfg.Segments[:found], cfg.Segments[found+1:]...)
-				} else {
-					cfg.Segments = append(cfg.Segments, id)
-				}
-				updateUI()
 				return nil
 			case 'c', 'C':
-				idx := list.GetCurrentItem()
-				if idx < 0 || idx >= len(segments) {
+				seg, ok := selectedSegment()
+				if !ok {
 					return nil
 				}
-				id := segments[idx].id
-				if cfg.Colors == nil {
-					cfg.Colors = make(map[string]string)
-				}
-				currentColor := cfg.Colors[id]
-				if currentColor == "" {
-					currentColor = "default"
-				}
-				nextColor := "default"
-				for i, name := range colorCycle {
-					if name == currentColor {
-						nextColor = colorCycle[(i+1)%len(colorCycle)]
-						break
+				mutate(func() {
+					if cfg.Colors == nil {
+						cfg.Colors = make(map[string]string)
 					}
-				}
-				if nextColor == "default" {
-					delete(cfg.Colors, id)
-				} else {
-					cfg.Colors[id] = nextColor
-				}
-				// Ensure the segment is enabled when assigning a color.
-				enabled := false
-				for _, segID := range cfg.Segments {
-					if segID == id {
-						enabled = true
-						break
+					currentColor := cfg.Colors[seg.id]
+					if currentColor == "" {
+						currentColor = "default"
 					}
-				}
-				if !enabled {
-					cfg.Segments = append(cfg.Segments, id)
-				}
-				updateUI()
+					nextColor := "default"
+					for i, name := range colorCycle {
+						if name == currentColor {
+							nextColor = colorCycle[(i+1)%len(colorCycle)]
+							break
+						}
+					}
+					if nextColor == "default" {
+						delete(cfg.Colors, seg.id)
+					} else {
+						cfg.Colors[seg.id] = nextColor
+					}
+					ensureEnabled(seg.id)
+				})
 				return nil
 			default:
 				r := event.Rune()
 				if r >= '1' && r <= '9' {
-					idx := list.GetCurrentItem()
-					if idx < 0 || idx >= len(segments) {
+					seg, ok := selectedSegment()
+					if !ok {
 						return nil
 					}
-					id := segments[idx].id
-					n := int(r - '0')
-					if cfg.Lines == nil {
-						cfg.Lines = make(map[string]int)
-					}
-					if segments[idx].line == n {
-						delete(cfg.Lines, id)
-					} else {
-						cfg.Lines[id] = n
-					}
-					// Ensure the segment is enabled when assigning a line.
-					enabled := false
-					for _, segID := range cfg.Segments {
-						if segID == id {
-							enabled = true
-							break
+					mutate(func() {
+						n := int(r - '0')
+						if cfg.Lines == nil {
+							cfg.Lines = make(map[string]int)
 						}
-					}
-					if !enabled {
-						cfg.Segments = append(cfg.Segments, id)
-					}
-					updateUI()
+						if seg.line == n {
+							delete(cfg.Lines, seg.id)
+						} else {
+							cfg.Lines[seg.id] = n
+						}
+						ensureEnabled(seg.id)
+					})
 					return nil
 				}
 			case 'r', 'R':
-				cfg = defaultConfig()
-				updateUI()
+				pages.SwitchToPage("reset")
+				app.SetFocus(resetModal)
 				return nil
 			case 's', 'S':
-				if err := saveConfig(cfg); err != nil {
-					preview.SetText(fmt.Sprintf("Error saving: %v", err))
-					return nil
-				}
-				app.Stop()
-				fmt.Printf("Saved to %s\n", configPath())
+				doSave()
 				return nil
 			case 'q', 'Q':
-				app.Stop()
+				requestQuit()
 				return nil
 			}
 		case tcell.KeyEscape:
-			app.Stop()
+			requestQuit()
 			return nil
 		case tcell.KeyUp, tcell.KeyDown:
 			// Unmodified Up/Down: pass through for list navigation.
@@ -545,12 +631,11 @@ func runConfigure() {
 				return event
 			}
 			// Shift+Up / Shift+Down: swap the entire row with the adjacent row.
-			idx := list.GetCurrentItem()
-			if idx < 0 || idx >= len(segments) {
+			seg, ok := selectedSegment()
+			if !ok {
 				return nil
 			}
-			id := segments[idx].id
-			myLine := effectiveLine(id, cfg)
+			myLine := effectiveLine(seg.id, cfg)
 			targetLine := myLine - 1
 			if event.Key() == tcell.KeyDown {
 				targetLine = myLine + 1
@@ -558,45 +643,45 @@ func runConfigure() {
 			if targetLine < 1 || targetLine > 9 {
 				return nil
 			}
-			if cfg.Lines == nil {
-				cfg.Lines = make(map[string]int)
-			}
-			// Snapshot which segments are on each line before reassigning.
-			var onMyLine, onTargetLine []string
-			for _, sid := range cfg.Segments {
-				el := effectiveLine(sid, cfg)
-				if el == myLine {
-					onMyLine = append(onMyLine, sid)
-				} else if el == targetLine {
-					onTargetLine = append(onTargetLine, sid)
+			mutate(func() {
+				if cfg.Lines == nil {
+					cfg.Lines = make(map[string]int)
 				}
-			}
-			assignLine := func(sid string, line int) {
-				naturalLine := 1
-				if s, ok := segmentByID(sid); ok {
-					naturalLine = s.line
+				// Snapshot which segments are on each line before reassigning.
+				var onMyLine, onTargetLine []string
+				for _, sid := range cfg.Segments {
+					el := effectiveLine(sid, cfg)
+					if el == myLine {
+						onMyLine = append(onMyLine, sid)
+					} else if el == targetLine {
+						onTargetLine = append(onTargetLine, sid)
+					}
 				}
-				if line == naturalLine {
-					delete(cfg.Lines, sid)
-				} else {
-					cfg.Lines[sid] = line
+				assignLine := func(sid string, line int) {
+					naturalLine := 1
+					if s, ok := segmentByID(sid); ok {
+						naturalLine = s.line
+					}
+					if line == naturalLine {
+						delete(cfg.Lines, sid)
+					} else {
+						cfg.Lines[sid] = line
+					}
 				}
-			}
-			for _, sid := range onMyLine {
-				assignLine(sid, targetLine)
-			}
-			for _, sid := range onTargetLine {
-				assignLine(sid, myLine)
-			}
-			updateUI()
+				for _, sid := range onMyLine {
+					assignLine(sid, targetLine)
+				}
+				for _, sid := range onTargetLine {
+					assignLine(sid, myLine)
+				}
+			})
 			return nil
 		case tcell.KeyLeft, tcell.KeyRight:
-			idx := list.GetCurrentItem()
-			if idx < 0 || idx >= len(segments) {
+			seg, ok := selectedSegment()
+			if !ok {
 				return event
 			}
-			id := segments[idx].id
-			myLine := effectiveLine(id, cfg)
+			myLine := effectiveLine(seg.id, cfg)
 			// Collect indices in cfg.Segments that share the same line, in order.
 			var peers []int
 			for i, sid := range cfg.Segments {
@@ -607,20 +692,22 @@ func runConfigure() {
 			// Find this segment's position within peers.
 			pos := -1
 			for i, pi := range peers {
-				if cfg.Segments[pi] == id {
+				if cfg.Segments[pi] == seg.id {
 					pos = i
 					break
 				}
 			}
 			if event.Key() == tcell.KeyLeft && pos > 0 {
-				cfg.Segments[peers[pos]], cfg.Segments[peers[pos-1]] =
-					cfg.Segments[peers[pos-1]], cfg.Segments[peers[pos]]
-				updateUI()
+				mutate(func() {
+					cfg.Segments[peers[pos]], cfg.Segments[peers[pos-1]] =
+						cfg.Segments[peers[pos-1]], cfg.Segments[peers[pos]]
+				})
 				return nil
 			} else if event.Key() == tcell.KeyRight && pos >= 0 && pos < len(peers)-1 {
-				cfg.Segments[peers[pos]], cfg.Segments[peers[pos+1]] =
-					cfg.Segments[peers[pos+1]], cfg.Segments[peers[pos]]
-				updateUI()
+				mutate(func() {
+					cfg.Segments[peers[pos]], cfg.Segments[peers[pos+1]] =
+						cfg.Segments[peers[pos+1]], cfg.Segments[peers[pos]]
+				})
 				return nil
 			}
 		}
@@ -636,6 +723,7 @@ func runConfigure() {
 		SetDirection(tview.FlexRow).
 		AddItem(topRow, 0, 1, true).
 		AddItem(previewBox, 12, 0, false).
+		AddItem(statusStrip, 1, 0, false).
 		AddItem(help, 1, 0, false)
 
 	pages.AddPage("configure", flex, true, true)
@@ -648,12 +736,48 @@ func runConfigure() {
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			if buttonLabel == "Yes" {
 				syncSettingsToAllBars(&cfg, currentFlyoutSegment)
+				dirty = true
 			}
 			pages.SwitchToPage("flyout")
 			app.SetFocus(flyoutList)
 			updateFlyout()
 		})
 	pages.AddPage("confirm", confirmModal, true, false)
+
+	resetModal = tview.NewModal().
+		SetText("Reset to defaults? This discards your current layout, colors, and settings.").
+		AddButtons([]string{"Reset", "Cancel"}).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+			pages.SwitchToPage("configure")
+			app.SetFocus(list)
+			if buttonLabel == "Reset" {
+				mutate(func() { cfg = defaultConfig() })
+				flash("yellow", "reset to defaults (not yet saved)")
+			}
+		})
+	pages.AddPage("reset", resetModal, true, false)
+
+	quitModal = tview.NewModal().
+		SetText("Unsaved changes.").
+		AddButtons([]string{"Save & quit", "Discard", "Cancel"}).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+			switch buttonLabel {
+			case "Save & quit":
+				if doSave() {
+					app.Stop()
+					fmt.Printf("Saved to %s\n", configPath())
+					return
+				}
+				pages.SwitchToPage("configure")
+				app.SetFocus(list)
+			case "Discard":
+				app.Stop()
+			default:
+				pages.SwitchToPage("configure")
+				app.SetFocus(list)
+			}
+		})
+	pages.AddPage("quit", quitModal, true, false)
 
 	if err := app.SetRoot(pages, true).EnableMouse(true).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)

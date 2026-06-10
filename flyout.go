@@ -149,21 +149,28 @@ func syncSettingsToAllBars(cfg *config, sourceID string) {
 
 // flyoutPreviewPayload returns a payload modified for the flyout preview.
 // If stress test is active, it overrides the percentage fields so the preview
-// animates through all threshold states.
+// animates through all threshold states; rate-limit resets wind down with the
+// bar so the countdown animates too.
 func flyoutPreviewPayload(segID string, base payload) payload {
 	if !stressTestActive[segID] {
 		return base
 	}
 	p := base
 	pct := int((time.Now().UnixMilli() % 2000) * 100 / 2000)
+	resetIn := func(windowSecs int64) *int64 {
+		v := time.Now().Unix() + windowSecs*int64(100-pct)/100
+		return &v
+	}
 	switch segID {
 	case "context-window":
 		p.Exceeds200K = ptrBool(pct > 80)
 		p.ContextWindow.UsedPercentage = ptrFloat64(float64(pct))
 	case "rate-limit-5h":
 		p.RateLimits.FiveHour.UsedPercentage = ptrFloat64(float64(pct))
+		p.RateLimits.FiveHour.ResetsAt = resetIn(5 * 3600)
 	case "rate-limit-7d":
 		p.RateLimits.SevenDay.UsedPercentage = ptrFloat64(float64(pct))
+		p.RateLimits.SevenDay.ResetsAt = resetIn(7 * 24 * 3600)
 	}
 	return p
 }
