@@ -61,7 +61,7 @@ func defaultConfig() config {
 		Segments: []string{
 			"vim-mode", "sandbox", "session-name", "agent-state", "directory",
 			"added-dirs", "git-branch", "artifact-count", "lines-changed", "cache-percent", "cost",
-			"model", "output-style", "version", "duration", "api-efficiency", "tokens",
+			"model", "output-style", "version", "duration", "cost-rate", "api-efficiency", "tokens",
 			"context-window", "rate-limit-5h", "rate-limit-7d", "plan-tier",
 		},
 		Lines: nil,

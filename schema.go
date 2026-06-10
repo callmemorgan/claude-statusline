@@ -163,9 +163,9 @@ func gitBranchSettingSpecs() []settingSpec {
 }
 
 // barSettingSpecs generates the shared schema for progress-bar segments.
-// countdown/warning toggle the segment-specific extras; syncToAll appends the
-// ephemeral "copy to all bars" action.
-func barSettingSpecs(countdown, warning, syncToAll bool) []settingSpec {
+// countdown/warning toggle the segment-specific extras; extra specs slot in
+// before the ephemeral rows; syncToAll appends the "copy to all bars" action.
+func barSettingSpecs(countdown, warning, syncToAll bool, extra ...settingSpec) []settingSpec {
 	specs := []settingSpec{
 		{Key: "show_bar", Name: "Show bar", Desc: "Render the progress bar", Kind: kindBool, Default: true},
 	}
@@ -183,10 +183,34 @@ func barSettingSpecs(countdown, warning, syncToAll bool) []settingSpec {
 		settingSpec{Key: "ok_color", Name: "OK color", Desc: "Color below the warning threshold", Kind: kindEnum, Default: "green", Options: colorCycle},
 		settingSpec{Key: "warn_color", Name: "Warn color", Desc: "Color between the warn and critical thresholds", Kind: kindEnum, Default: "yellow", Options: colorCycle},
 		settingSpec{Key: "crit_color", Name: "Critical color", Desc: "Color above the critical threshold", Kind: kindEnum, Default: "bright-red", Options: colorCycle},
-		settingSpec{Key: "stress_test", Name: "Stress test preview", Desc: "Animate the preview from 0% to 100% to see all colors", Kind: kindBool, Default: false, Ephemeral: true},
 	)
+	specs = append(specs, extra...)
+	specs = append(specs, settingSpec{Key: "stress_test", Name: "Stress test preview", Desc: "Animate the preview from 0% to 100% to see all colors", Kind: kindBool, Default: false, Ephemeral: true})
 	if syncToAll {
 		specs = append(specs, settingSpec{Key: "sync_to_all", Name: "Sync to all bars", Desc: "Copy these settings to the other progress bar segments", Kind: kindBool, Default: false, Ephemeral: true})
 	}
 	return specs
+}
+
+// costRateSpecs declares the cost-rate segment's settings.
+func costRateSpecs() []settingSpec {
+	return []settingSpec{
+		{Key: "window_min", Name: "Window (min)", Desc: "Trailing minutes of history the $/h rate is computed over (falls back to the whole session when shorter)", Kind: kindInt, Default: 60, Min: 5, Max: 480, Step: 15},
+	}
+}
+
+// projectionSpecs are the burn-rate projection settings on rate-limit bars.
+func projectionSpecs(defaultWindowMin int) []settingSpec {
+	return []settingSpec{
+		{Key: "show_projection", Name: "Show projection", Desc: "Project usage at reset from the recent burn rate, e.g. →58% (needs a few minutes of session history)", Kind: kindBool, Default: true},
+		{Key: "projection_window_min", Name: "Projection window (min)", Desc: "Trailing minutes of history the burn rate is computed over", Kind: kindInt, Default: defaultWindowMin, Min: 5, Max: 24 * 60, Step: 15},
+	}
+}
+
+// trendSpecs are the context growth trend settings on context-window.
+func trendSpecs() []settingSpec {
+	return []settingSpec{
+		{Key: "show_trend", Name: "Show trend", Desc: "Append a growth arrow and time-to-compact estimate, e.g. ↗ ~35m (needs a few minutes of session history)", Kind: kindBool, Default: true},
+		{Key: "compact_at", Name: "Compact at %", Desc: "Context percentage where auto-compact is expected; the ETA counts down to this", Kind: kindInt, Default: 80, Min: 0, Max: 100, Step: 5},
+	}
 }

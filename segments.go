@@ -171,18 +171,93 @@ func renderContextWindow(ctx renderCtx) (string, bool) {
 		result += progressBarWithIconset(ctxPct, ctxColor, ctx.C.Dim, ctx.C, s.Int("bar_width"), s.Str("iconset")) + " "
 	}
 	result += ctxColor + strconv.Itoa(ctxPct) + "%" + ctx.C.Rst
+	if trend := contextTrend(ctx, ctxPct); trend != "" {
+		result += " " + trend
+	}
 	if s.Bool("show_warning") && ctx.P.Exceeds200K != nil && *ctx.P.Exceeds200K {
 		result += " " + ctx.C.RCrit + ">200k" + ctx.C.Rst
 	}
 	return result, true
 }
 
+// stateMinTrendSpan is the minimum recorded history before any trend,
+// projection, or rate renders — slopes over less are noise.
+const stateMinTrendSpan = 5 * time.Minute
+
+// contextTrend renders the context growth arrow and time-to-compact ETA from
+// session history: ↗ ~35m while growing (warn-colored inside 15 minutes),
+// ↘ after shrinking (compaction), nothing when flat or data-starved.
+func contextTrend(ctx renderCtx, ctxPct int) string {
+	if !ctx.S.Bool("show_trend") || ctx.State == nil {
+		return ""
+	}
+	const window = 15 * time.Minute
+	const flatPerHour = 6.0 // ±1% per 10 minutes
+	series := ctx.State.Series("ctx")
+	if series.Span(window, ctx.Now) < stateMinTrendSpan {
+		return ""
+	}
+	rate, ok := series.Rate(window, ctx.Now)
+	if !ok {
+		return ""
+	}
+	switch {
+	case rate >= flatPerHour:
+		compactAt := ctx.S.Int("compact_at")
+		arrowColor := ctx.C.Dim
+		eta := ""
+		if ctxPct < compactAt {
+			if when, ok := series.ProjectWhen(float64(compactAt), window, ctx.Now); ok {
+				if d := when.Sub(ctx.Now); d < 2*time.Hour {
+					eta = " ~" + shortDuration(d)
+					if d < 15*time.Minute {
+						arrowColor = ctx.C.RWarn
+					}
+				}
+			}
+		}
+		return arrowColor + "↗" + eta + ctx.C.Rst
+	case rate <= -flatPerHour:
+		return ctx.C.Dim + "↘" + ctx.C.Rst
+	}
+	return ""
+}
+
+// shortDuration formats an ETA compactly: 35m, 1h20m.
+func shortDuration(d time.Duration) string {
+	if d < time.Minute {
+		d = time.Minute
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh%02dm", h, m)
+	}
+	return fmt.Sprintf("%dm", m)
+}
+
 func renderRateLimit5h(ctx renderCtx) (string, bool) {
-	return rateLimitSegment("5h", ctx.P.RateLimits.FiveHour, 5*3600, ctx)
+	return rateLimitSegment("5h", ctx.P.RateLimits.FiveHour, 5*3600, "rl5h", ctx)
 }
 
 func renderRateLimit7d(ctx renderCtx) (string, bool) {
-	return rateLimitSegment("7d", ctx.P.RateLimits.SevenDay, 7*24*3600, ctx)
+	return rateLimitSegment("7d", ctx.P.RateLimits.SevenDay, 7*24*3600, "rl7d", ctx)
+}
+
+func renderCostRate(ctx renderCtx) (string, bool) {
+	if ctx.State == nil {
+		return "", false
+	}
+	window := time.Duration(ctx.S.Int("window_min")) * time.Minute
+	series := ctx.State.Series("cost")
+	if series.Span(window, ctx.Now) < stateMinTrendSpan {
+		return "", false
+	}
+	rate, ok := series.Rate(window, ctx.Now)
+	if !ok || rate < 0.01 {
+		return "", false
+	}
+	return ctx.C.Cost + "$" + formatCost(rate) + "/h" + ctx.C.Rst, true
 }
 
 func renderAgentState(ctx renderCtx) (string, bool) {
@@ -280,11 +355,12 @@ func allSegmentInfos() []segmentInfo {
 		{id: "email", line: 2, desc: "Account email, user part only (off by default)", primaryColor: "Dim", render: renderEmail},
 		{id: "version", line: 2, desc: "Claude Code version", primaryColor: "Dim", render: renderVersion},
 		{id: "duration", line: 2, desc: "Elapsed session duration", primaryColor: "Dur", render: renderDuration},
+		{id: "cost-rate", line: 2, desc: "Cost burn rate $/h over recent session history", primaryColor: "Cost", settings: costRateSpecs(), needsState: true, render: renderCostRate},
 		{id: "api-efficiency", line: 2, desc: "API efficiency percentage", primaryColor: "Dim", render: renderAPIEfficiency},
 		{id: "tokens", line: 2, desc: "Input / output token counts", primaryColor: "Dim", render: renderTokens},
-		{id: "context-window", line: 3, desc: "Context window usage bar with configurable width, iconset, thresholds, and colors", primaryColor: "Dim", settings: barSettingSpecs(false, true, true), render: renderContextWindow},
-		{id: "rate-limit-5h", line: 3, desc: "5-hour quota bar with reset countdown", primaryColor: "Dim", settings: barSettingSpecs(true, false, true), render: renderRateLimit5h},
-		{id: "rate-limit-7d", line: 3, desc: "7-day quota bar with reset countdown", primaryColor: "Dim", settings: barSettingSpecs(true, false, true), render: renderRateLimit7d},
+		{id: "context-window", line: 3, desc: "Context window usage bar with growth trend and time-to-compact estimate", primaryColor: "Dim", settings: barSettingSpecs(false, true, true, trendSpecs()...), needsState: true, render: renderContextWindow},
+		{id: "rate-limit-5h", line: 3, desc: "5-hour quota bar with reset countdown and burn-rate projection", primaryColor: "Dim", settings: barSettingSpecs(true, false, true, projectionSpecs(30)...), needsState: true, render: renderRateLimit5h},
+		{id: "rate-limit-7d", line: 3, desc: "7-day quota bar with reset countdown and burn-rate projection", primaryColor: "Dim", settings: barSettingSpecs(true, false, true, projectionSpecs(180)...), needsState: true, render: renderRateLimit7d},
 	}
 }
 
@@ -371,7 +447,7 @@ func formatTokens(n int64) string {
 	}
 }
 
-func rateLimitSegment(label string, window limitWindow, windowSecs int64, ctx renderCtx) (string, bool) {
+func rateLimitSegment(label string, window limitWindow, windowSecs int64, seriesKey string, ctx renderCtx) (string, bool) {
 	if window.UsedPercentage == nil {
 		return "", false
 	}
@@ -398,7 +474,48 @@ func rateLimitSegment(label string, window limitWindow, windowSecs int64, ctx re
 		result += " (" + countdown + ")"
 	}
 	result += c.Rst
+	if proj := rateLimitProjection(window, seriesKey, ctx); proj != "" {
+		result += " " + proj
+	}
 	return result, true
+}
+
+// rateLimitProjection extrapolates the recent burn rate to the reset instant:
+// →58% in dim, warn-colored past crit_at, crit-colored at or beyond 100%.
+// Renders nothing when usage is flat or falling, history is too short, or no
+// reset time is known.
+func rateLimitProjection(window limitWindow, seriesKey string, ctx renderCtx) string {
+	if !ctx.S.Bool("show_projection") || ctx.State == nil || window.ResetsAt == nil {
+		return ""
+	}
+	win := time.Duration(ctx.S.Int("projection_window_min")) * time.Minute
+	series := ctx.State.Series(seriesKey)
+	// Demand history proportional to the projection window — extrapolating a
+	// short burst across a long window (7d especially) is noise, not signal.
+	minSpan := win / 4
+	if minSpan < stateMinTrendSpan {
+		minSpan = stateMinTrendSpan
+	}
+	if series.Span(win, ctx.Now) < minSpan {
+		return ""
+	}
+	rate, ok := series.Rate(win, ctx.Now)
+	if !ok || rate <= 0 {
+		return ""
+	}
+	proj, ok := series.ProjectAt(time.Unix(*window.ResetsAt, 0), win, ctx.Now)
+	if !ok {
+		return ""
+	}
+	pct := int(proj)
+	color := ctx.C.Dim
+	switch {
+	case pct >= 100:
+		color = pctColorWithSettings(101, ctx.C, ctx.S) // crit
+	case pct >= ctx.S.Int("crit_at"):
+		color = pctColorWithSettings(ctx.S.Int("warn_at"), ctx.C, ctx.S) // warn
+	}
+	return color + "→" + strconv.Itoa(pct) + "%" + ctx.C.Rst
 }
 
 func resetCountdown(resetUnix int64, now time.Time) string {
