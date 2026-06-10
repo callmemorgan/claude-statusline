@@ -57,12 +57,22 @@ func defaultConfig() config {
 	}
 }
 
-func configPath() string {
+// configDirOverride redirects the config directory; set only by tests.
+var configDirOverride string
+
+func configDir() string {
+	if configDirOverride != "" {
+		return configDirOverride
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		home = "~"
 	}
-	return filepath.Join(home, ".config", "claude-statusline", "config.json")
+	return filepath.Join(home, ".config", "claude-statusline")
+}
+
+func configPath() string {
+	return filepath.Join(configDir(), "config.json")
 }
 
 func loadConfig() config {

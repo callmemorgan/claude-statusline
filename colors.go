@@ -127,8 +127,13 @@ func pickColor(override *string, natural string) string {
 
 // resolveColor maps a color name to its ANSI escape code. Returns the palette's
 // ok color if the name is unknown or unset, so callers never have to handle the
-// "no code found" case inline.
+// "no code found" case inline. When colors are disabled (NO_COLOR / TERM=dumb,
+// signalled by an empty palette), it returns "" so settings-driven bar colors
+// respect the disable too.
 func resolveColor(name string, c palette) string {
+	if c.Rst == "" {
+		return ""
+	}
 	if code := colorCodes[name]; code != "" {
 		return code
 	}

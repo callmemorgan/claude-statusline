@@ -1,0 +1,2 @@
+ my-project │ feature/test (my-project) │ ctx ##############------ 72% >200k
+ $1.23 │ [Claude Sonnet 4.6 ⬆]

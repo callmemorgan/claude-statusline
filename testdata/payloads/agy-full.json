@@ -1,0 +1,12 @@
+{
+  "conversation_id": "fbce29fe-0688-4fba-8cc1-0b769834c6d7",
+  "product": "antigravity",
+  "version": "1.0.2",
+  "model": {"display_name": "Gemini 3.5 Flash (High)"},
+  "workspace": {"current_dir": "/Users/me/code/my-project", "project_dir": "file:///Users/me/code/my-project"},
+  "context_window": {"total_input_tokens": 116778, "total_output_tokens": 35463, "context_window_size": 1048576, "used_percentage": 11.1},
+  "agent_state": "tool_use",
+  "sandbox": {"enabled": false},
+  "artifact_count": 2,
+  "plan_tier": "Google AI Pro"
+}
