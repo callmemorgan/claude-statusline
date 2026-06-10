@@ -27,7 +27,7 @@ var keymap = []keyBinding{
 	{Keys: "t", Action: "theme", Desc: "Pick a color theme with live preview", Context: "main"},
 	{Keys: "p", Action: "presets", Desc: "Apply a named layout preset", Context: "main"},
 	{Keys: "/", Action: "find", Desc: "Filter the segment list", Context: "main"},
-	{Keys: "w", Action: "width", Desc: "Cycle the preview width (auto/80/60/40) to test reflow", Context: "main"},
+	{Keys: "w", Action: "width", Desc: "Cycle the preview width (auto/80/60/40) to test reflow", Context: "main", Footer: true},
 	{Keys: "r", Action: "reset", Desc: "Reset the configuration to defaults (asks first)", Context: "main", Footer: true},
 	{Keys: "s", Action: "save", Desc: "Save to config.toml and keep editing", Context: "main", Footer: true},
 	{Keys: "q", Action: "quit", Desc: "Quit (asks if there are unsaved changes)", Context: "main", Footer: true},

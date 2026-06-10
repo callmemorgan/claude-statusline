@@ -353,6 +353,50 @@ func runConfigure() {
 		descView.SetText(text)
 	}
 
+	// previewWidth is the user's width override for testing reflow: 0 = auto
+	// (track the preview panel's real width), else a fixed column count.
+	previewWidth := 0
+
+	// refreshPreview re-renders the preview text at the effective width. With
+	// an override, lines render verbatim with a dim ruler at the constraint
+	// column; in auto mode they're left-trimmed to sit flush in the panel.
+	refreshPreview := func() {
+		width := previewWidth
+		_, _, panelW, _ := preview.GetInnerRect()
+		if width == 0 && panelW > 0 {
+			width = panelW
+		}
+		p := samplePayload()
+		lines := buildStatusline(buildInput{P: p, C: currentPalette(cfg), Cfg: cfg, Width: width, Now: time.Now()})
+		var previewText string
+		if previewWidth > 0 {
+			for i, l := range lines {
+				pad := previewWidth - visibleWidth(l)
+				if pad < 0 {
+					pad = 0
+				}
+				lines[i] = l + strings.Repeat(" ", pad) + "\x1b[90m│\x1b[0m"
+			}
+			previewText = strings.Join(lines, "\n")
+		} else {
+			for i, l := range lines {
+				lines[i] = strings.TrimLeft(l, " ")
+			}
+			previewText = strings.TrimSpace(strings.Join(lines, "\n"))
+		}
+		if strings.TrimSpace(previewText) == "" {
+			previewText = "(statusline hidden — no segments enabled)"
+		} else {
+			previewText = ansiToTview(previewText)
+		}
+		preview.SetText(previewText)
+		if previewWidth > 0 {
+			previewBox.SetTitle(fmt.Sprintf(" Preview (%d cols — w to cycle) ", previewWidth))
+		} else if panelW > 0 {
+			previewBox.SetTitle(fmt.Sprintf(" Preview (auto · %d cols) ", panelW))
+		}
+	}
+
 	// Update list items and preview from current cfg.
 	updateUI = func() {
 		currentIdx := list.GetCurrentItem()
@@ -406,21 +450,22 @@ func runConfigure() {
 		}
 		list.SetTitle(fmt.Sprintf(" Segments (%d/%d) ", len(cfg.Segments), len(registeredSegments)))
 
-		// Refresh preview with colours converted to tview tags.
-		p := samplePayload()
-		lines := buildStatusline(buildInput{P: p, C: currentPalette(cfg), Cfg: cfg, Now: time.Now()})
-		for i, l := range lines {
-			lines[i] = strings.TrimLeft(l, " ")
-		}
-		previewText := strings.TrimSpace(strings.Join(lines, "\n"))
-		if previewText == "" {
-			previewText = "(statusline hidden — no segments enabled)"
-		} else {
-			previewText = ansiToTview(previewText)
-		}
-		preview.SetText(previewText)
+		refreshPreview()
 		updateStrip()
 	}
+
+	// Re-render the preview when the terminal (and so the panel) resizes;
+	// only the text is recomputed, never the list, to avoid re-entrancy.
+	lastAutoWidth := -1
+	app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
+		if previewWidth == 0 {
+			if _, _, w, _ := preview.GetInnerRect(); w != lastAutoWidth {
+				lastAutoWidth = w
+				refreshPreview()
+			}
+		}
+		return false
+	})
 
 	updateUI()
 
@@ -611,6 +656,19 @@ func runConfigure() {
 					})
 					return nil
 				}
+			case 'w', 'W':
+				switch previewWidth {
+				case 0:
+					previewWidth = 80
+				case 80:
+					previewWidth = 60
+				case 60:
+					previewWidth = 40
+				default:
+					previewWidth = 0
+				}
+				refreshPreview()
+				return nil
 			case 'r', 'R':
 				pages.SwitchToPage("reset")
 				app.SetFocus(resetModal)
