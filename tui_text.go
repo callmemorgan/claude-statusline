@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/rivo/tview"
@@ -64,51 +65,69 @@ func markdownToTview(md string) string {
 	return b.String()
 }
 
-// ansiToTview converts ANSI color codes in s to tview color tags.
-// It escapes literal '[' characters so they are not interpreted as tags.
-// Only the specific SGR codes emitted by currentPalette() are mapped; any
-// other ANSI sequences (bold, 256-color, etc.) will pass through as raw bytes.
+// sgrFgHex maps the basic ANSI foreground codes to representative hex values
+// (standard xterm defaults), so TUI previews render them via tview hex tags.
+var sgrFgHex = map[int]string{
+	30: "#000000", 31: "#cd0000", 32: "#00cd00", 33: "#cdcd00",
+	34: "#5c5cff", 35: "#cd00cd", 36: "#00cdcd", 37: "#e5e5e5",
+	90: "#7f7f7f", 91: "#ff0000", 92: "#00ff00", 93: "#ffff00",
+	94: "#8787ff", 95: "#ff00ff", 96: "#00ffff", 97: "#ffffff",
+}
+
+// sgrToTag converts one SGR parameter string ("32", "38;5;208",
+// "38;2;187;154;247", "0") to a tview color tag. Unknown sequences map to
+// the empty string and disappear from the preview.
+func sgrToTag(params string) string {
+	if params == "" || params == "0" {
+		return "[-:-:-]"
+	}
+	parts := strings.Split(params, ";")
+	if parts[0] == "38" && len(parts) >= 3 && parts[1] == "5" {
+		if n, err := strconv.Atoi(parts[2]); err == nil && n >= 0 && n <= 255 {
+			r, g, b := index256ToRGB(n)
+			return "[" + hexFromRGB(r, g, b) + "]"
+		}
+		return ""
+	}
+	if parts[0] == "38" && len(parts) >= 5 && parts[1] == "2" {
+		r, err1 := strconv.Atoi(parts[2])
+		g, err2 := strconv.Atoi(parts[3])
+		b, err3 := strconv.Atoi(parts[4])
+		if err1 == nil && err2 == nil && err3 == nil {
+			return "[" + hexFromRGB(r&0xff, g&0xff, b&0xff) + "]"
+		}
+		return ""
+	}
+	if n, err := strconv.Atoi(parts[0]); err == nil {
+		if hex, ok := sgrFgHex[n]; ok {
+			return "[" + hex + "]"
+		}
+	}
+	return ""
+}
+
+// ansiToTview converts ANSI SGR escapes \u2014 16-color, 256-color, and truecolor
+// \u2014 into tview color tags, escaping literal '[' characters so they are not
+// interpreted as tags. Escapes are swapped to private-use placeholders before
+// tview.Escape runs and substituted with tags afterwards, so the generated
+// tags themselves never get escaped.
 func ansiToTview(s string) string {
-	// Step 1: replace ANSI codes with Unicode private-use placeholders.
-	s = strings.ReplaceAll(s, "\x1b[0m", "\uE000")
-	s = strings.ReplaceAll(s, "\x1b[30m", "\uE010")
-	s = strings.ReplaceAll(s, "\x1b[31m", "\uE011")
-	s = strings.ReplaceAll(s, "\x1b[32m", "\uE012")
-	s = strings.ReplaceAll(s, "\x1b[33m", "\uE013")
-	s = strings.ReplaceAll(s, "\x1b[34m", "\uE014")
-	s = strings.ReplaceAll(s, "\x1b[35m", "\uE015")
-	s = strings.ReplaceAll(s, "\x1b[36m", "\uE016")
-	s = strings.ReplaceAll(s, "\x1b[37m", "\uE017")
-	s = strings.ReplaceAll(s, "\x1b[90m", "\uE020")
-	s = strings.ReplaceAll(s, "\x1b[91m", "\uE021")
-	s = strings.ReplaceAll(s, "\x1b[92m", "\uE022")
-	s = strings.ReplaceAll(s, "\x1b[93m", "\uE023")
-	s = strings.ReplaceAll(s, "\x1b[94m", "\uE024")
-	s = strings.ReplaceAll(s, "\x1b[95m", "\uE025")
-	s = strings.ReplaceAll(s, "\x1b[96m", "\uE026")
-	s = strings.ReplaceAll(s, "\x1b[97m", "\uE027")
-
-	// Step 2: escape literal '[' for tview.
+	placeholders := map[string]string{}
+	next := rune(0xE000)
+	for _, seq := range reANSI.FindAllString(s, -1) {
+		if _, ok := placeholders[seq]; ok {
+			continue
+		}
+		placeholders[seq] = string(next)
+		next++
+	}
+	for seq, ph := range placeholders {
+		s = strings.ReplaceAll(s, seq, ph)
+	}
 	s = tview.Escape(s)
-
-	// Step 3: replace placeholders with tview color tags.
-	s = strings.ReplaceAll(s, "\uE000", "[-]")
-	s = strings.ReplaceAll(s, "\uE010", "[black]")
-	s = strings.ReplaceAll(s, "\uE011", "[red]")
-	s = strings.ReplaceAll(s, "\uE012", "[green]")
-	s = strings.ReplaceAll(s, "\uE013", "[yellow]")
-	s = strings.ReplaceAll(s, "\uE014", "[blue]")
-	s = strings.ReplaceAll(s, "\uE015", "[magenta]")
-	s = strings.ReplaceAll(s, "\uE016", "[cyan]")
-	s = strings.ReplaceAll(s, "\uE017", "[white]")
-	s = strings.ReplaceAll(s, "\uE020", "[gray]")
-	s = strings.ReplaceAll(s, "\uE021", "[red::b]")
-	s = strings.ReplaceAll(s, "\uE022", "[green::b]")
-	s = strings.ReplaceAll(s, "\uE023", "[yellow::b]")
-	s = strings.ReplaceAll(s, "\uE024", "[blue::b]")
-	s = strings.ReplaceAll(s, "\uE025", "[magenta::b]")
-	s = strings.ReplaceAll(s, "\uE026", "[cyan::b]")
-	s = strings.ReplaceAll(s, "\uE027", "[white::b]")
-
+	for seq, ph := range placeholders {
+		params := strings.TrimSuffix(strings.TrimPrefix(seq, "\x1b["), "m")
+		s = strings.ReplaceAll(s, ph, sgrToTag(params))
+	}
 	return s
 }

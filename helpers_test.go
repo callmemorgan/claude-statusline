@@ -224,3 +224,26 @@ func TestFilterSegments(t *testing.T) {
 		t.Errorf("expected no matches, got %d", len(got))
 	}
 }
+
+func TestAnsiToTview(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"\x1b[32mok\x1b[0m", "[#00cd00]ok[-:-:-]"},
+		{"\x1b[91mcrit\x1b[0m", "[#ff0000]crit[-:-:-]"},
+		{"\x1b[38;5;208morange\x1b[0m", "[#ff8700]orange[-:-:-]"},
+		{"\x1b[38;2;187;154;247mtokyo\x1b[0m", "[#bb9af7]tokyo[-:-:-]"},
+		{"plain", "plain"},
+	}
+	for _, tc := range cases {
+		if got := ansiToTview(tc.in); got != tc.want {
+			t.Errorf("ansiToTview(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	// Literal brackets must be escaped, not parsed as tags.
+	got := ansiToTview("[normal]")
+	if got == "[normal]" {
+		t.Errorf("literal bracket text should be escaped, got %q", got)
+	}
+	if !strings.Contains(got, "normal") {
+		t.Errorf("escaped text lost content: %q", got)
+	}
+}
