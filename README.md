@@ -2,6 +2,8 @@
 
 A fast statusline renderer for [Claude Code](https://claude.ai/code) and [Antigravity CLI](https://antigravity.dev) (`agy`).
 
+![claude-statusline rendering a live session with the Tokyo Night theme — git branch, lines changed, cost, burn rate, context-window trend, and rate-limit projections](assets/claude-tokyo-night.png)
+
 Both tools pipe a JSON payload to this binary on every turn. It renders a colored, multi-line summary in your terminal:
 
 - **Six built-in themes** — classic, Catppuccin Mocha, Nord, Dracula, Gruvbox Dark, Tokyo Night — in truecolor with automatic 256/16-color fallback.
@@ -99,24 +101,17 @@ The binary auto-detects which tool is calling it via the `product` field in the 
 
 ## What it looks like
 
-**Claude Code (default config, after a few minutes of session history):**
+**Claude Code (default `classic` theme, after an hour of session history):**
 
-```
- my-project │ feature/test │ +128/-45 │ cache:12.34% │ $1.23 │ 0.3ms
- [Claude Sonnet 4.6 ⬆] │ ✎ Explanatory │ v2.1.90 │ 01:00:41 │ $1.84/h │ (API:65%) │ ↑1.2M ↓89k
- ctx ##############------ 72% ↗ ~35m >200k
- 5h ########--|--------- 45% (2h30m) →58% │ 7d ###-------|--------- 12% (3d4h)
-```
+![Claude Code statusline with the classic theme: session name, directory, git branch, lines changed, cache percentage, cost, model with effort badge, output style, duration, cost burn rate, API efficiency, tokens, context-window bar with trend, and both rate-limit bars with projections](assets/claude-classic.png)
 
 **agy (default config):**
 
-```
- fbce29fe │ my-project │ artifacts:2 │ Google AI Pro
- [Gemini 3.5 Flash (High)] │ v1.0.2 │ ↑116.7k ↓35.4k
- ctx #------------------- 11%
-```
+![agy statusline: conversation ID, agent state, directory, artifact count, plan tier, model, version, tokens, and context-window bar](assets/agy-classic.png)
 
-Segments that receive no data from the active tool hide themselves automatically — no configuration needed.
+Segments that receive no data from the active tool hide themselves automatically — no configuration needed. The burn rate (`$1.44/h`), context trend (`↗ ~13m`), and rate-limit projections (`→79%`, `→125%`) above are computed from the session's own history — see [Burn rates, projections, and trends](#burn-rates-projections-and-trends).
+
+> Screenshots are generated from real renderer output by `scripts/screenshots.py`.
 
 ---
 
@@ -162,6 +157,36 @@ theme = "tokyo-night"   # classic | catppuccin-mocha | nord | dracula | gruvbox-
 ```
 
 Themes map fifteen semantic roles (model, dir, git, ok/warn/crit, accent, sep, …) to colors. On truecolor terminals you get the real hex palette; 256-color and 16-color terminals get automatic nearest-match fallbacks. `classic` (the default — `original` is an accepted alias) reproduces the pre-1.0 ANSI look exactly, so existing installs keep their colors unless they opt into a theme. The in-TUI preview approximates colors; press `v` in the configurator to render against your real terminal.
+
+<details>
+<summary><strong>Theme gallery</strong> — the same session in all six themes</summary>
+<br>
+
+**classic**
+
+![classic theme](assets/claude-classic.png)
+
+**catppuccin-mocha**
+
+![catppuccin-mocha theme](assets/claude-catppuccin-mocha.png)
+
+**nord**
+
+![nord theme](assets/claude-nord.png)
+
+**dracula**
+
+![dracula theme](assets/claude-dracula.png)
+
+**gruvbox-dark**
+
+![gruvbox-dark theme](assets/claude-gruvbox-dark.png)
+
+**tokyo-night**
+
+![tokyo-night theme](assets/claude-tokyo-night.png)
+
+</details>
 
 - **Color depth** is auto-detected from `COLORTERM`/`TERM`/terminal program; override with `color_depth = "truecolor" | "256" | "16" | "none"`. `NO_COLOR=1` always wins.
 - **Per-role overrides** layer on top of any theme:
