@@ -46,6 +46,7 @@ Line 1 segments — Session & workspace:
   agent-state   Agent working status [working] (agy only)
   agent-name    Agent name when using --agent (Claude Code only)
   directory     Current / project directory (both)
+  added-dirs    Count of /add-dir directories +2 dirs (Claude Code only)
   git-branch    Git branch and worktree name (both)
   artifact-count  Number of artifacts (agy only)
   lines-changed   All lines added/removed by the agent in the session +N/-M (Claude Code only)
@@ -55,6 +56,8 @@ Line 1 segments — Session & workspace:
 
 Line 2 segments — Model & metrics:
   model         Model name with effort badge (both)
+  output-style  Output style name ✎ Explanatory, hidden when default (Claude Code only)
+  email         Account email, user part only — off by default (agy only)
   version       Tool version (both)
   duration      Elapsed session time HH:MM:SS (Claude Code only)
   api-efficiency  API time / total time % (Claude Code only)

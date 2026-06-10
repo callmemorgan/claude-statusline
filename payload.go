@@ -25,22 +25,23 @@ func terminalWidth(p payload) int {
 // ─── Payload ─────────────────────────────────────────────────────────
 
 type payload struct {
-	SessionID      string     `json:"session_id"`
-	SessionName    string     `json:"session_name"`
-	ConversationID string     `json:"conversation_id"`
-	Cwd            string     `json:"cwd"`
-	Version        string     `json:"version"`
-	TranscriptPath string     `json:"transcript_path"`
-	Exceeds200K    *bool      `json:"exceeds_200k_tokens"`
-	Model          model      `json:"model"`
-	Workspace      workspace  `json:"workspace"`
-	Cost           cost       `json:"cost"`
-	ContextWindow  contextWin `json:"context_window"`
-	RateLimits     rateLimits `json:"rate_limits"`
-	Agent          agent      `json:"agent"`
-	Worktree       worktree   `json:"worktree"`
-	Vim            vim        `json:"vim"`
-	Effort         effort     `json:"effort"`
+	SessionID      string      `json:"session_id"`
+	SessionName    string      `json:"session_name"`
+	ConversationID string      `json:"conversation_id"`
+	Cwd            string      `json:"cwd"`
+	Version        string      `json:"version"`
+	TranscriptPath string      `json:"transcript_path"`
+	Exceeds200K    *bool       `json:"exceeds_200k_tokens"`
+	Model          model       `json:"model"`
+	Workspace      workspace   `json:"workspace"`
+	Cost           cost        `json:"cost"`
+	ContextWindow  contextWin  `json:"context_window"`
+	RateLimits     rateLimits  `json:"rate_limits"`
+	Agent          agent       `json:"agent"`
+	Worktree       worktree    `json:"worktree"`
+	Vim            vim         `json:"vim"`
+	Effort         effort      `json:"effort"`
+	OutputStyle    outputStyle `json:"output_style"`
 
 	// agy additions
 	Product       string  `json:"product"`
@@ -62,9 +63,14 @@ type model struct {
 }
 
 type workspace struct {
-	CurrentDir  string `json:"current_dir"`
-	ProjectDir  string `json:"project_dir"`
-	GitWorktree string `json:"git_worktree"`
+	CurrentDir  string   `json:"current_dir"`
+	ProjectDir  string   `json:"project_dir"`
+	GitWorktree string   `json:"git_worktree"`
+	AddedDirs   []string `json:"added_dirs"`
+}
+
+type outputStyle struct {
+	Name string `json:"name"`
 }
 
 type effort struct {

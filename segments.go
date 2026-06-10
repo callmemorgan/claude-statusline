@@ -198,6 +198,37 @@ func renderPlanTier(ctx renderCtx) (string, bool) {
 	return ctx.C.Purple + ctx.P.PlanTier + ctx.C.Rst, true
 }
 
+func renderOutputStyle(ctx renderCtx) (string, bool) {
+	name := ctx.P.OutputStyle.Name
+	if name == "" || strings.EqualFold(name, "default") {
+		return "", false
+	}
+	return ctx.C.Purple + "✎ " + name + ctx.C.Rst, true
+}
+
+func renderAddedDirs(ctx renderCtx) (string, bool) {
+	n := len(ctx.P.Workspace.AddedDirs)
+	if n == 0 {
+		return "", false
+	}
+	label := "dirs"
+	if n == 1 {
+		label = "dir"
+	}
+	return ctx.C.Dim + fmt.Sprintf("+%d %s", n, label) + ctx.C.Rst, true
+}
+
+func renderEmail(ctx renderCtx) (string, bool) {
+	e := ctx.P.Email
+	if e == "" {
+		return "", false
+	}
+	if i := strings.IndexByte(e, '@'); i >= 0 {
+		e = e[:i+1] + "…"
+	}
+	return ctx.C.Dim + e + ctx.C.Rst, true
+}
+
 // ─── Segment Registry ────────────────────────────────────────────────
 
 type segmentInfo struct {
@@ -218,6 +249,7 @@ func allSegmentInfos() []segmentInfo {
 		{id: "agent-state", line: 1, desc: "Agent working status", primaryColor: "Git", render: renderAgentState},
 		{id: "agent-name", line: 1, desc: "Agent name", primaryColor: "Agent", render: renderAgentName},
 		{id: "directory", line: 1, desc: "Current / project directory", primaryColor: "Dir", render: renderDirectory},
+		{id: "added-dirs", line: 1, desc: "Number of extra directories added with /add-dir", primaryColor: "Dim", render: renderAddedDirs},
 		{id: "git-branch", line: 1, desc: "Git branch and worktree name", primaryColor: "Git", render: renderGitBranch},
 		{id: "artifact-count", line: 1, desc: "Artifact count", primaryColor: "Chg", render: renderArtifactCount},
 		{id: "lines-changed", line: 1, desc: "All lines added / removed by the agent in the session", primaryColor: "Chg", render: renderLinesChanged},
@@ -225,6 +257,8 @@ func allSegmentInfos() []segmentInfo {
 		{id: "plan-tier", line: 1, desc: "Subscription plan tier", primaryColor: "Purple", render: renderPlanTier},
 		{id: "cost", line: 1, desc: "Total session cost", primaryColor: "Cost", render: renderCost},
 		{id: "model", line: 2, desc: "Model name and effort badge", primaryColor: "Model", render: renderModel},
+		{id: "output-style", line: 2, desc: "Output style name (hidden when default)", primaryColor: "Purple", render: renderOutputStyle},
+		{id: "email", line: 2, desc: "Account email, user part only (off by default)", primaryColor: "Dim", render: renderEmail},
 		{id: "version", line: 2, desc: "Claude Code version", primaryColor: "Dim", render: renderVersion},
 		{id: "duration", line: 2, desc: "Elapsed session duration", primaryColor: "Dur", render: renderDuration},
 		{id: "api-efficiency", line: 2, desc: "API efficiency percentage", primaryColor: "Dim", render: renderAPIEfficiency},

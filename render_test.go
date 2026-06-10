@@ -127,3 +127,49 @@ func TestBuildStatuslineColorCodes(t *testing.T) {
 		t.Errorf("visibleWidth differs: %d vs %d", visibleWidth(colored[0]), visibleWidth(plain[0]))
 	}
 }
+
+// TestNewPayloadSegments covers output-style, added-dirs, and email.
+func TestNewPayloadSegments(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	initSegments(nil)
+	render := func(p payload, id string) (string, bool) {
+		seg, ok := segmentByID(id)
+		if !ok {
+			t.Fatalf("segment %q not registered", id)
+		}
+		return seg.render(renderCtx{P: p, Now: testNow})
+	}
+
+	var p payload
+	if _, show := render(p, "output-style"); show {
+		t.Error("output-style should hide with no payload data")
+	}
+	p.OutputStyle.Name = "default"
+	if _, show := render(p, "output-style"); show {
+		t.Error("output-style should hide when style is default")
+	}
+	p.OutputStyle.Name = "Explanatory"
+	if got, show := render(p, "output-style"); !show || got != "✎ Explanatory" {
+		t.Errorf("output-style = %q, %v", got, show)
+	}
+
+	if _, show := render(p, "added-dirs"); show {
+		t.Error("added-dirs should hide when empty")
+	}
+	p.Workspace.AddedDirs = []string{"/a"}
+	if got, _ := render(p, "added-dirs"); got != "+1 dir" {
+		t.Errorf("added-dirs singular = %q", got)
+	}
+	p.Workspace.AddedDirs = []string{"/a", "/b"}
+	if got, _ := render(p, "added-dirs"); got != "+2 dirs" {
+		t.Errorf("added-dirs plural = %q", got)
+	}
+
+	if _, show := render(p, "email"); show {
+		t.Error("email should hide when empty")
+	}
+	p.Email = "morgan@skyslope.com"
+	if got, _ := render(p, "email"); got != "morgan@…" {
+		t.Errorf("email = %q", got)
+	}
+}
