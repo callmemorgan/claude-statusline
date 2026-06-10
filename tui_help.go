@@ -1,0 +1,42 @@
+package main
+
+// ─── In-TUI Help ─────────────────────────────────────────────────────
+//
+// The ? overlay is generated from the keymap table, so it always matches the
+// real bindings. The full README remains available behind it (press r).
+
+import (
+	"fmt"
+	"strings"
+)
+
+func buildHelpText() string {
+	var b strings.Builder
+	b.WriteString("[yellow::b]claude-statusline configure[-::-]\n\n")
+	b.WriteString("Segments are the building blocks of the statusline. Toggle them on or\n")
+	b.WriteString("off, assign them to lines 1-9, recolor them, and tune per-segment\n")
+	b.WriteString("settings in the flyout (o). The preview reflows live at your terminal\n")
+	b.WriteString("width. Nothing touches disk until you press s — changes save to\n")
+	b.WriteString(fmt.Sprintf("[green]%s[-].\n", configPath()))
+
+	section := func(title, context string) {
+		b.WriteString(fmt.Sprintf("\n[cyan::b]%s[-::-]\n", title))
+		for _, kb := range keymap {
+			if kb.Context != context {
+				continue
+			}
+			b.WriteString(fmt.Sprintf("  [::b]%-12s[-:-:-] %s\n", kb.Keys, kb.Desc))
+		}
+	}
+	section("Main screen", "main")
+	section("Settings flyout", "flyout")
+
+	b.WriteString("\n[cyan::b]Concepts[-::-]\n")
+	b.WriteString("  [::b]themes[-:-:-]       6 built-in palettes; truecolor with automatic 256/16 fallback\n")
+	b.WriteString("  [::b]presets[-:-:-]      named layouts — applying one replaces segments, lines, settings\n")
+	b.WriteString("  [::b]plugins[-:-:-]      executable segments defined in config.toml ([[plugins]])\n")
+	b.WriteString("  [::b]projections[-:-:-]  →58% burn-rate forecasts appear after ~5 minutes of session history\n")
+
+	b.WriteString("\n[gray]r full README · q/esc close[-]\n")
+	return b.String()
+}

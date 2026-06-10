@@ -140,13 +140,21 @@ func runConfigure() {
 		SetTextAlign(tview.AlignCenter).
 		SetText(footerText("main"))
 
-	// Help page — full README rendered with markdown formatting.
+	// Help overlay — generated from the keymap table.
 	helpView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetScrollable(true).
+		SetWrap(false).
+		SetText(buildHelpText())
+	helpView.SetBorder(true).SetTitle(" Help (r README • q/Esc close) ")
+
+	// Full README behind the help overlay.
+	readmeView := tview.NewTextView().
 		SetDynamicColors(true).
 		SetScrollable(true).
 		SetWrap(true).
 		SetText(markdownToTview(readmeContent))
-	helpView.SetBorder(true).SetTitle(" Help — README (↑/↓ scroll • q/Esc close) ")
+	readmeView.SetBorder(true).SetTitle(" README (↑/↓ scroll • q/Esc back) ")
 
 	// ─── Flyout Panel ────────────────────────────────────────────────────
 
@@ -631,9 +639,29 @@ func runConfigure() {
 				app.SetFocus(list)
 				return nil
 			case tcell.KeyRune:
-				if event.Rune() == 'q' || event.Rune() == 'Q' {
+				switch event.Rune() {
+				case 'q', 'Q':
 					pages.SwitchToPage("configure")
 					app.SetFocus(list)
+					return nil
+				case 'r', 'R':
+					pages.SwitchToPage("readme")
+					app.SetFocus(readmeView)
+					return nil
+				}
+			}
+			return event
+		}
+		if pageName == "readme" {
+			switch event.Key() {
+			case tcell.KeyEscape:
+				pages.SwitchToPage("help")
+				app.SetFocus(helpView)
+				return nil
+			case tcell.KeyRune:
+				if event.Rune() == 'q' || event.Rune() == 'Q' {
+					pages.SwitchToPage("help")
+					app.SetFocus(helpView)
 					return nil
 				}
 			}
@@ -1011,6 +1039,7 @@ func runConfigure() {
 
 	pages.AddPage("configure", flex, true, true)
 	pages.AddPage("help", helpView, true, false)
+	pages.AddPage("readme", readmeView, true, false)
 	pages.AddPage("flyout", flyoutFlex, true, false)
 
 	confirmModal = tview.NewModal().
