@@ -23,6 +23,22 @@ func effectiveLine(id string, cfg config) int {
 	return 1
 }
 
+// filterSegments returns the segments whose id or description contains the
+// query (case-insensitive). An empty query returns everything.
+func filterSegments(all []segmentInfo, query string) []segmentInfo {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return all
+	}
+	var out []segmentInfo
+	for _, s := range all {
+		if strings.Contains(strings.ToLower(s.id), q) || strings.Contains(strings.ToLower(s.desc), q) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 func runConfigure() {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		fmt.Fprintln(os.Stderr, "claude-statusline configure requires an interactive terminal.")
@@ -56,6 +72,11 @@ func runConfigure() {
 		}
 		return visible[idx], true
 	}
+
+	// Filter input, hidden until / is pressed.
+	filterInput := tview.NewInputField().
+		SetLabel(" / ").
+		SetFieldBackgroundColor(tcell.ColorDefault)
 
 	// Description panel — shows the description of the currently selected segment.
 	descView := tview.NewTextView().SetWrap(true).SetDynamicColors(true)
@@ -448,7 +469,11 @@ func runConfigure() {
 		if currentIdx >= 0 && currentIdx < len(visible) {
 			list.SetCurrentItem(currentIdx)
 		}
-		list.SetTitle(fmt.Sprintf(" Segments (%d/%d) ", len(cfg.Segments), len(registeredSegments)))
+		title := fmt.Sprintf(" Segments (%d/%d) ", len(cfg.Segments), len(registeredSegments))
+		if q := filterInput.GetText(); q != "" {
+			title = fmt.Sprintf(" Segments (%d/%d) — /%s ", len(cfg.Segments), len(registeredSegments), q)
+		}
+		list.SetTitle(title)
 
 		refreshPreview()
 		updateStrip()
@@ -480,6 +505,48 @@ func runConfigure() {
 	if len(visible) > 0 {
 		describeSegment(visible[0])
 	}
+
+	// ─── Filter wiring ───────────────────────────────────────────────────
+
+	var leftCol *tview.Flex // assigned below with the layout
+
+	showFilter := func(show bool) {
+		h := 0
+		if show {
+			h = 1
+		}
+		leftCol.ResizeItem(filterInput, h, 0)
+	}
+
+	applyFilter := func(query string) {
+		visible = filterSegments(registeredSegments, query)
+		updateUI()
+		if len(visible) > 0 {
+			list.SetCurrentItem(0)
+			describeSegment(visible[0])
+		} else {
+			descView.SetText("(no segments match)")
+		}
+	}
+
+	clearFilter := func() {
+		filterInput.SetText("")
+		applyFilter("")
+		showFilter(false)
+		app.SetFocus(list)
+	}
+
+	filterInput.SetChangedFunc(func(text string) {
+		applyFilter(text)
+	})
+	filterInput.SetDoneFunc(func(key tcell.Key) {
+		switch key {
+		case tcell.KeyEnter:
+			app.SetFocus(list)
+		case tcell.KeyEscape:
+			clearFilter()
+		}
+	})
 	// Surface config warnings once on open.
 	if len(cfgWarns) > 0 {
 		flash("yellow", fmt.Sprintf("config: %s", cfgWarns[0]))
@@ -590,9 +657,18 @@ func runConfigure() {
 			return event
 		}
 
+		// While typing in the filter, every key belongs to the input field.
+		if app.GetFocus() == filterInput {
+			return event
+		}
+
 		switch event.Key() {
 		case tcell.KeyRune:
 			switch event.Rune() {
+			case '/':
+				showFilter(true)
+				app.SetFocus(filterInput)
+				return nil
 			case 'o', 'O':
 				if seg, ok := selectedSegment(); ok {
 					openFlyout(seg.id)
@@ -681,6 +757,10 @@ func runConfigure() {
 				return nil
 			}
 		case tcell.KeyEscape:
+			if filterInput.GetText() != "" {
+				clearFilter()
+				return nil
+			}
 			requestQuit()
 			return nil
 		case tcell.KeyUp, tcell.KeyDown:
@@ -772,9 +852,14 @@ func runConfigure() {
 		return event
 	})
 
+	leftCol = tview.NewFlex().
+		SetDirection(tview.FlexRow).
+		AddItem(filterInput, 0, 0, false).
+		AddItem(list, 0, 1, true)
+
 	topRow := tview.NewFlex().
 		SetDirection(tview.FlexColumn).
-		AddItem(list, 0, 1, true).
+		AddItem(leftCol, 0, 1, true).
 		AddItem(descView, 0, 3, false)
 
 	flex := tview.NewFlex().

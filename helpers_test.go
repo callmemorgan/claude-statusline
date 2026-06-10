@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -198,5 +199,28 @@ func TestProgressBarFractional(t *testing.T) {
 				t.Errorf("iconset %q at %d%% has width %d, want 20", name, pct, w)
 			}
 		}
+	}
+}
+
+func TestFilterSegments(t *testing.T) {
+	initSegments(nil)
+	all := registeredSegments
+	if got := filterSegments(all, ""); len(got) != len(all) {
+		t.Errorf("empty query should return all, got %d/%d", len(got), len(all))
+	}
+	got := filterSegments(all, "rate")
+	for _, s := range got {
+		if !strings.Contains(s.id, "rate") && !strings.Contains(strings.ToLower(s.desc), "rate") {
+			t.Errorf("unexpected match %q", s.id)
+		}
+	}
+	if len(got) < 3 { // rate-limit-5h, rate-limit-7d, cost-rate
+		t.Errorf("expected at least 3 'rate' matches, got %d", len(got))
+	}
+	if got := filterSegments(all, "GIT"); len(got) == 0 {
+		t.Error("filter should be case-insensitive")
+	}
+	if got := filterSegments(all, "zzzznope"); len(got) != 0 {
+		t.Errorf("expected no matches, got %d", len(got))
 	}
 }
