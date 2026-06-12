@@ -333,10 +333,31 @@ Each field ID is an independent segment — independently togglable, positionabl
 - `command` — path to the executable; `~` is expanded
 - `line` — default line (1–9); overridable via TUI or `[lines]`
 - `desc` — shown in the TUI description panel
-- `timeout_ms` — kill the process after this many ms (default: 200); hidden if it times out or exits non-zero
+- `timeout_ms` — kill the process after this many ms (default: 200 sync, 10000 async); hidden if it times out or exits non-zero
+- `async` — opt into stale-while-revalidate caching (default: `false`)
+- `refresh_ms` — how stale the cache may get before a background refresh (default: 5000; minimum: 500); ignored when `async = false`
 - `fields` — multi-field mode; output must use `key:value` lines; mutually exclusive with top-level `id`
 
 Plugin IDs are **auto-appended** to `segments` if not already present, so they appear immediately without editing the list manually.
+
+### Async plugins
+
+Plugins that talk to slow external services (`kubectl`, `gh api`, a weather fetch, …) can opt into **stale-while-revalidate** mode so they never delay a render:
+
+```toml
+[[plugins]]
+id = "k8s-context"
+command = "~/.config/claude-statusline/plugins/k8s.sh"
+async = true
+refresh_ms = 10000   # consider cache stale after 10s
+timeout_ms = 8000    # kill the background run after 8s
+```
+
+When `async = true`, the renderer immediately shows the last cached value and spawns a detached background refresher only when the cache is older than `refresh_ms`. The next render picks up the fresh output. Trade-offs:
+
+- The value is **one refresh cycle behind** the live state.
+- The cache is **shared across sessions** (keyed by `command`), which is intentional for environment-level data.
+- The segment hides until the first refresh completes and writes a cache file.
 
 ### Environment variables
 
@@ -352,6 +373,21 @@ The binary exposes these to every plugin:
 | `STATUSLINE_COLUMNS` | Terminal width (`COLUMNS` or `terminal_width`) |
 | `STATUSLINE_LINES` | Terminal height (`LINES`) |
 | `STATUSLINE_PAYLOAD` | Full JSON payload (for advanced use) |
+
+### Example: current PR (async, cwd-aware)
+
+A full working example lives at [`examples/plugins/current-pr.sh`](examples/plugins/current-pr.sh). It detects the current GitHub PR for the repository at `STATUSLINE_DIR`, caches the result, and invalidates its own cache when the working directory changes. Configure it as async so slow `gh` calls never block a render:
+
+```toml
+[[plugins]]
+id = "current-pr"
+command = "~/.config/claude-statusline/plugins/current-pr.sh"
+async = true
+refresh_ms = 10000   # how often the binary asks for a refresh
+timeout_ms = 8000    # how long the background gh call may run
+```
+
+`STATUSLINE_PR_TTL` (seconds, default 60) controls how long the plugin keeps its own cached value across invocations. Because the binary's async cache is keyed by command, a cwd change is reflected at the next `refresh_ms` boundary; the plugin clears its own cache immediately so the refresh fetches the correct value.
 
 ### Example: memory + swap (cross-platform, multi-field)
 

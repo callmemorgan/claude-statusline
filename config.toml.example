@@ -120,3 +120,13 @@ timeout_ms = 200
 #   id = "swap"
 #   line = 2
 #   desc = "Swap usage"
+
+# Async plugin — never blocks the render; shows the last cached value and
+# refreshes it in the background at most every refresh_ms. The cache is shared
+# across sessions (keyed by command), so environment-level data is consistent.
+# [[plugins]]
+# id = "k8s-context"
+# command = "~/.config/claude-statusline/plugins/k8s.sh"
+# async = true
+# refresh_ms = 10000   # consider cache stale after 10s
+# timeout_ms = 8000    # kill the background run after 8s
