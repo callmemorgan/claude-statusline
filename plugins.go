@@ -242,15 +242,19 @@ func trySpawnRefresher(def pluginDef, p payload, cachePath, lockPath string) {
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return
 	}
-	if tryAcquireLock(lockPath, def.TimeoutMS) {
+	timeout := time.Duration(def.TimeoutMS) * time.Millisecond
+	if timeout <= 0 {
+		timeout = 10000 * time.Millisecond
+	}
+	if tryAcquireLock(lockPath, timeout+5*time.Second) {
 		spawnRefresher(def, p, cachePath, lockPath)
 	}
 }
 
 // tryAcquireLock attempts to create the lock file with O_CREATE|O_EXCL. If the
-// lock already exists and is older than timeout+5s, it is removed and the
+// lock already exists and is older than staleAfter, it is removed and the
 // acquisition is retried once (handles crashed/killed refreshers).
-func tryAcquireLock(lockPath string, timeoutMS int) bool {
+func tryAcquireLock(lockPath string, staleAfter time.Duration) bool {
 	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL, 0o644)
 	if err == nil {
 		_ = f.Close()
@@ -263,11 +267,7 @@ func tryAcquireLock(lockPath string, timeoutMS int) bool {
 	if err != nil {
 		return false
 	}
-	timeout := time.Duration(timeoutMS) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 10000 * time.Millisecond
-	}
-	if time.Since(info.ModTime()) <= timeout+5*time.Second {
+	if time.Since(info.ModTime()) <= staleAfter {
 		return false
 	}
 	_ = os.Remove(lockPath)
