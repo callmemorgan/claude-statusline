@@ -128,6 +128,40 @@ func renderVersion(ctx renderCtx) (string, bool) {
 	return ctx.C.Dim + "v" + ctx.P.Version + ctx.C.Rst, true
 }
 
+// renderUpdate shows the available-release notice. Self-hides when
+// [update].mode is off, when the cache is missing, when the latest is not
+// strictly newer, or when the current version is not a clean release (dev,
+// +dirty, or Go pseudo-version). Two forms: expanded for ~5 min after each
+// check, compact the rest of the day.
+func renderUpdate(ctx renderCtx) (string, bool) {
+	if ctx.Cfg.Update.mode() == "off" {
+		return "", false
+	}
+	cur, _, _ := versionString()
+	// isReleaseVersion's ^N.N.N$ regex already rejects "dev", "+dirty", and
+	// pseudo-versions, so this single guard covers every non-release shape.
+	if !isReleaseVersion(cur) {
+		return "", false
+	}
+	cache, ok := loadUpdateCheck()
+	if !ok {
+		return "", false
+	}
+	if cache.Latest == "" {
+		return "", false
+	}
+	if compareVersions(cache.Latest, cur) <= 0 {
+		return "", false
+	}
+	expanded := ctx.Now.Unix()-cache.CheckedAt < int64(expandedWindow.Seconds())
+	body := "⬆ v" + cache.Latest
+	if expanded {
+		hint := ctx.C.Dim + " · run: claude-statusline update · disable: [update] in config.toml" + ctx.C.Rst
+		return ctx.C.Dim + body + ctx.C.Rst + hint, true
+	}
+	return ctx.C.Dim + body + ctx.C.Rst, true
+}
+
 func renderDuration(ctx renderCtx) (string, bool) {
 	if ctx.P.Cost.TotalDurationMS == 0 {
 		return "", false
@@ -354,6 +388,7 @@ func allSegmentInfos() []segmentInfo {
 		{id: "output-style", line: 2, desc: "Output style name (hidden when default)", primaryColor: "Purple", render: renderOutputStyle},
 		{id: "email", line: 2, desc: "Account email, user part only (off by default)", primaryColor: "Dim", render: renderEmail},
 		{id: "version", line: 2, desc: "Claude Code version", primaryColor: "Dim", render: renderVersion},
+		{id: "update", line: 1, desc: "Update available notice (self-hides when current, dev, or [update].mode = off)", primaryColor: "Dim", render: renderUpdate},
 		{id: "duration", line: 2, desc: "Elapsed session duration", primaryColor: "Dur", render: renderDuration},
 		{id: "cost-rate", line: 2, desc: "Cost burn rate $/h over recent session history", primaryColor: "Cost", settings: costRateSpecs(), needsState: true, render: renderCostRate},
 		{id: "api-efficiency", line: 2, desc: "API efficiency percentage", primaryColor: "Dim", render: renderAPIEfficiency},

@@ -41,6 +41,7 @@ segments = [
   "model",
   "output-style",
   "version",
+  "update",
   "duration",
   "cost-rate",
   "api-efficiency",
@@ -136,3 +137,10 @@ timeout_ms = 200
 # [release_notes]
 # announce = true
 # duration_seconds = 25   # 0 disables the takeover entirely
+
+# Update checking: "notify" shows an ⬆ segment when a new release exists,
+# "auto" additionally installs it in the background (non-Homebrew installs),
+# "off" disables checks entirely (no network, ever).
+# [update]
+# mode = "notify"
+# check_hours = 24

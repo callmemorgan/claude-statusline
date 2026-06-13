@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // useTempConfigDir points configDir at a temp dir for the duration of a test.
@@ -204,6 +205,102 @@ func TestApplyPresetKeepsPluginsAndColors(t *testing.T) {
 	}
 	if cfg.Segments[len(cfg.Segments)-1] != "mem" {
 		t.Errorf("plugin segment dropped by preset: %v", cfg.Segments)
+	}
+}
+
+func TestUpdateConfigRoundTripAndValidation(t *testing.T) {
+	dir := useTempConfigDir(t)
+	h24 := 24
+	h12 := 12
+	h200 := 200
+	h0 := 0
+	writeConfigFile(t, dir, `
+[update]
+mode = "auto"
+check_hours = 12
+`)
+	cfg := loadConfig()
+	if cfg.Update.Mode != "auto" {
+		t.Errorf("mode not loaded: %q", cfg.Update.Mode)
+	}
+	if cfg.Update.CheckHours == nil || *cfg.Update.CheckHours != 12 {
+		t.Errorf("check_hours not loaded: %v", cfg.Update.CheckHours)
+	}
+	if got := cfg.Update.mode(); got != "auto" {
+		t.Errorf("mode() = %q, want auto", got)
+	}
+	if got := cfg.Update.checkEvery(); got != 12*time.Hour {
+		t.Errorf("checkEvery() = %v, want 12h", got)
+	}
+	if got := (updateConfig{}).mode(); got != "notify" {
+		t.Errorf("default mode() = %q, want notify", got)
+	}
+	if got := (updateConfig{}).checkEvery(); got != 24*time.Hour {
+		t.Errorf("default checkEvery() = %v, want 24h", got)
+	}
+
+	if err := saveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	loaded := loadConfig()
+	if loaded.Update.Mode != "auto" || loaded.Update.CheckHours == nil || *loaded.Update.CheckHours != 12 {
+		t.Errorf("round-trip lost [update]: %+v", loaded.Update)
+	}
+
+	warns := validateConfig(&cfg)
+	for _, w := range warns {
+		if strings.HasPrefix(w.String(), "update.") {
+			t.Errorf("valid [update] produced a warning: %v", warns)
+		}
+	}
+
+	cases := []struct {
+		name      string
+		in        updateConfig
+		wantMode  string
+		wantH     *int
+		wantWarn  bool
+	}{
+		{"bad-mode-warns", updateConfig{Mode: "loud", CheckHours: &h24}, "", &h24, true},
+		{"hours-too-low", updateConfig{Mode: "notify", CheckHours: &h0}, "notify", nil, true},
+		{"hours-too-high", updateConfig{Mode: "auto", CheckHours: &h200}, "auto", nil, true},
+		{"valid-no-warn", updateConfig{Mode: "off", CheckHours: &h12}, "off", &h12, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config{Update: tc.in}
+			warns := validateConfig(&cfg)
+			if cfg.Update.Mode != tc.wantMode {
+				t.Errorf("mode = %q, want %q", cfg.Update.Mode, tc.wantMode)
+			}
+			if (cfg.Update.CheckHours == nil) != (tc.wantH == nil) {
+				t.Errorf("CheckHours nil=%v, want nil=%v", cfg.Update.CheckHours == nil, tc.wantH == nil)
+			}
+			if tc.wantH != nil && cfg.Update.CheckHours != nil && *cfg.Update.CheckHours != *tc.wantH {
+				t.Errorf("CheckHours = %d, want %d", *cfg.Update.CheckHours, *tc.wantH)
+			}
+			found := false
+			for _, w := range warns {
+				if strings.HasPrefix(w.String(), "update.") {
+					found = true
+				}
+			}
+			if found != tc.wantWarn {
+				t.Errorf("[update] warning present=%v, want=%v (warns=%v)", found, tc.wantWarn, warns)
+			}
+		})
+	}
+}
+
+func TestUpdateConfigMergePreserves(t *testing.T) {
+	h6 := 6
+	loaded := config{Update: updateConfig{Mode: "off", CheckHours: &h6}}
+	cfg := mergeWithDefaults(loaded)
+	if cfg.Update.Mode != "off" {
+		t.Errorf("merge dropped mode: %q", cfg.Update.Mode)
+	}
+	if cfg.Update.CheckHours == nil || *cfg.Update.CheckHours != 6 {
+		t.Errorf("merge dropped check_hours: %v", cfg.Update.CheckHours)
 	}
 }
 

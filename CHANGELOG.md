@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.1 — 2026-06-13
+- Background update checks: `notify` (default) shows an `⬆ vX.Y.Z` segment when a newer release exists; `auto` downloads, verifies, and atomically swaps the binary for manual installs; `off` disables all network activity.
+- New `claude-statusline update` subcommand for explicit foreground updates, plus `update --check` to report without installing.
+- Homebrew installs are upgraded via `brew upgrade claude-statusline` instead of self-swap.
+- Render path does no network I/O: one cache read per render, with a detached worker spawned after printing at most once per `check_hours` interval.
+
 ## v1.1.0 — 2026-06-12
 - `release-notes` subcommand: print notes for the current or any past version (`vX.Y.Z`, `--all`)
 - Post-upgrade announcement: the statusline shows what's new for 25s after an update, then returns to normal (configurable via `[release_notes]` in config.toml; `announce = false` or `duration_seconds = 0` disables)

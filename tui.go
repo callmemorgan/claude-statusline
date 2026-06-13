@@ -282,6 +282,7 @@ func runConfigure() {
 				P:     p,
 				C:     segPalette,
 				S:     settingsFor(cfg, s),
+				Cfg:   cfg,
 				State: pvState,
 				Now:   time.Now(),
 			}

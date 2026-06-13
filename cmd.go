@@ -41,6 +41,12 @@ func dispatch() {
 		case "release-notes":
 			runReleaseNotes(os.Args[2:])
 			return
+		case "update":
+			runUpdate(os.Args[2:])
+			return
+		case "update-check":
+			runUpdateCheck()
+			return
 		default:
 			fmt.Fprintf(os.Stderr, "unknown command %q (try: claude-statusline --help)\n", os.Args[1])
 			os.Exit(2)
@@ -96,4 +102,9 @@ func runRender(debug bool) {
 
 	// Persist state after printing so disk I/O never delays output.
 	_ = st.Save()
+
+	// Spawn the update-check worker after output. This is the only
+	// post-render side effect, and it never blocks: the worker is
+	// detached, returns immediately, and respects `mode = "off"`.
+	maybeSpawnUpdateCheck(cfg.Update, start)
 }

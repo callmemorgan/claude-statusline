@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -51,6 +52,29 @@ type config struct {
 	State         stateConfig               `toml:"state,omitempty"`
 	ReleaseNotes  releaseNotesConfig        `toml:"release_notes,omitempty"`
 	Plugins       []pluginDef               `toml:"plugins,omitempty"`
+	Update        updateConfig              `toml:"update,omitempty"`
+}
+
+// updateConfig is the [update] table in config.toml. Mode "" or unset means
+// the default ("notify"); CheckHours nil means 24h. Validation lives in
+// validateConfig and mirrors the [release_notes] warn-and-normalize style.
+type updateConfig struct {
+	Mode       string `toml:"mode,omitempty"`        // notify|auto|off
+	CheckHours *int   `toml:"check_hours,omitempty"` // 1..168, default 24
+}
+
+func (u updateConfig) mode() string {
+	if u.Mode == "" {
+		return "notify"
+	}
+	return u.Mode
+}
+
+func (u updateConfig) checkEvery() time.Duration {
+	if u.CheckHours == nil {
+		return 24 * time.Hour
+	}
+	return time.Duration(*u.CheckHours) * time.Hour
 }
 
 // styleConfig is the [style] table: separator glyph and line padding.
@@ -64,7 +88,7 @@ func defaultConfig() config {
 	return config{
 		Segments: []string{
 			"vim-mode", "sandbox", "session-name", "agent-state", "directory",
-			"added-dirs", "git-branch", "artifact-count", "lines-changed", "cache-percent", "cost",
+			"added-dirs", "git-branch", "artifact-count", "lines-changed", "cache-percent", "cost", "update",
 			"model", "output-style", "version", "duration", "cost-rate", "api-efficiency", "tokens",
 			"context-window", "rate-limit-5h", "rate-limit-7d", "plan-tier",
 		},
@@ -189,6 +213,7 @@ func mergeWithDefaults(loaded config) config {
 	cfg.Style = loaded.Style
 	cfg.State = loaded.State
 	cfg.ReleaseNotes = loaded.ReleaseNotes
+	cfg.Update = loaded.Update
 	if loaded.Segments == nil {
 		inSegments := make(map[string]bool, len(cfg.Segments))
 		for _, id := range cfg.Segments {
@@ -322,6 +347,16 @@ func validateConfig(cfg *config) []configWarning {
 	if d := cfg.ReleaseNotes.DurationSeconds; d != nil && (*d < 0 || *d > 600) {
 		warns = append(warns, configWarning{Path: "release_notes.duration_seconds", Msg: fmt.Sprintf("%d out of range 0-600 (using %d)", *d, defaultAnnounceSeconds)})
 		cfg.ReleaseNotes.DurationSeconds = nil
+	}
+	switch cfg.Update.Mode {
+	case "", "notify", "auto", "off":
+	default:
+		warns = append(warns, configWarning{Path: "update.mode", Msg: fmt.Sprintf("%q is not notify/auto/off (using notify)", cfg.Update.Mode)})
+		cfg.Update.Mode = ""
+	}
+	if h := cfg.Update.CheckHours; h != nil && (*h < 1 || *h > 168) {
+		warns = append(warns, configWarning{Path: "update.check_hours", Msg: fmt.Sprintf("%d out of range 1-168 (using 24)", *h)})
+		cfg.Update.CheckHours = nil
 	}
 	return warns
 }

@@ -54,6 +54,7 @@ type renderCtx struct {
 	C     palette
 	S     settings
 	State *sessionState // nil unless the segment declares needsState
+	Cfg   config        // resolved config, rarely needed (e.g. update segment)
 	Width int
 	Now   time.Time
 }
@@ -120,6 +121,7 @@ func buildStatusline(in buildInput) []string {
 				P:     in.P,
 				C:     segPalette,
 				S:     settingsFor(in.Cfg, s),
+				Cfg:   in.Cfg,
 				Width: in.Width,
 				Now:   in.Now,
 			}

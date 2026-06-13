@@ -408,6 +408,7 @@ func verifyInstall(t installTarget) {
 	fmt.Println()
 	fmt.Println("Restart Claude Code to pick it up.")
 	fmt.Println("Customize anytime:  claude-statusline configure")
+	fmt.Println("Update checks:      notify (configure via [update] in config.toml)")
 }
 
 func runUninstall(args []string) {

@@ -27,6 +27,9 @@ Commands:
   debug        Read JSON from stdin and print a schema-comparison table plus
                any config warnings.
   release-notes  Show what changed in this version (also: vX.Y.Z, --all).
+  update       Check for a new release and install it. Foreground,
+               honors the same safety rails as the background worker.
+               Flags: --check (resolve + report only, never install).
   help         Show this message.
   (none)       Read the JSON payload from stdin and print the statusline —
                this is how Claude Code invokes the binary.
@@ -56,6 +59,8 @@ Configuration:
                (enabled, retention_hours)
   [release_notes]  post-upgrade announcement: announce (default true),
                duration_seconds (default 25, 0 = off)
+  [update]     background update check + segment: mode (notify|auto|off,
+               default notify), check_hours (1-168, default 24)
   [[plugins]]  custom executable segments — see README.md
 
 Line 1 segments — Session & workspace:
