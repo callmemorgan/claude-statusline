@@ -1,6 +1,6 @@
 # Spec: Auto-update (background check + self-swap)
 
-Status: planned — decisions below settled by interview 2026-06-12
+Status: in progress — handed off for implementation 2026-06-12 (decisions settled by interview)
 Target: claude-statusline (this repo), Go, `package main`
 
 ## Problem
