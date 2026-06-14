@@ -25,6 +25,12 @@ jobs:
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
+        with:
+          # Pinned: the signing flags in .goreleaser.yaml (--bundle,
+          # --use-signing-config, --tlog-upload) are validated against this
+          # version. The installer's default drifts (v3.0.6 lacked
+          # --use-signing-config); bump deliberately after re-validating.
+          cosign-release: 'v3.1.1'
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
