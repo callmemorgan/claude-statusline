@@ -4,7 +4,13 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -359,17 +365,33 @@ func TestVerifyChecksum(t *testing.T) {
 		t.Error("missing entry should return ok=false")
 	}
 
-	// verifyChecksum: stub fetchChecksumsFn to return our sums file.
+	// verifyChecksum: stub fetchChecksumsFn to return our sums file, stub the
+	// bundle fetch, and no-op the signature check (its own logic is covered by
+	// TestVerifyChecksumsSig) so this test isolates the sha256-matching path.
 	old := fetchChecksumsFn
-	t.Cleanup(func() { fetchChecksumsFn = old })
-	fetchChecksumsFn = func(url string) (string, error) {
-		sumsPath := filepath.Join(dir, "checksums.txt")
+	oldBundle := fetchChecksumsBundleFn
+	oldSig := verifyChecksumsSig
+	t.Cleanup(func() {
+		fetchChecksumsFn = old
+		fetchChecksumsBundleFn = oldBundle
+		verifyChecksumsSig = oldSig
+	})
+	fetchChecksumsFn = func(d, url string) (string, error) {
+		sumsPath := filepath.Join(d, "checksums.txt")
 		if err := os.WriteFile(sumsPath, []byte(sums), 0o644); err != nil {
 			return "", err
 		}
 		return sumsPath, nil
 	}
-	if err := verifyChecksum(archivePath, "claude-statusline_Darwin_x86_64.tar.gz", "1.2.0"); err != nil {
+	fetchChecksumsBundleFn = func(d, url string) (string, error) {
+		p := filepath.Join(d, "checksums.txt.bundle")
+		if err := os.WriteFile(p, []byte("{}"), 0o644); err != nil {
+			return "", err
+		}
+		return p, nil
+	}
+	verifyChecksumsSig = func(blob, bundle []byte) error { return nil }
+	if err := verifyChecksum(dir, archivePath, "claude-statusline_Darwin_x86_64.tar.gz", "1.2.0"); err != nil {
 		t.Errorf("verifyChecksum: %v", err)
 	}
 
@@ -380,21 +402,33 @@ func TestVerifyChecksum(t *testing.T) {
 	if err := os.WriteFile(archiveFlipped, flipped, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := verifyChecksum(archiveFlipped, "claude-statusline_Darwin_x86_64.tar.gz", "1.2.0"); err == nil {
+	if err := verifyChecksum(dir, archiveFlipped, "claude-statusline_Darwin_x86_64.tar.gz", "1.2.0"); err == nil {
 		t.Error("flipped checksum should fail")
 	}
 
 	// Missing entry in checksums.txt → fail.
 	sumsMissing := "abc  other-file.tar.gz\n"
-	fetchChecksumsFn = func(url string) (string, error) {
-		sumsPath := filepath.Join(dir, "checksums.txt")
+	fetchChecksumsFn = func(d, url string) (string, error) {
+		sumsPath := filepath.Join(d, "checksums.txt")
 		if err := os.WriteFile(sumsPath, []byte(sumsMissing), 0o644); err != nil {
 			return "", err
 		}
 		return sumsPath, nil
 	}
-	if err := verifyChecksum(archivePath, "claude-statusline_Darwin_x86_64.tar.gz", "1.2.0"); err == nil {
+	if err := verifyChecksum(dir, archivePath, "claude-statusline_Darwin_x86_64.tar.gz", "1.2.0"); err == nil {
 		t.Error("missing entry should fail")
+	}
+
+	// Signature failure → verifyChecksum fails closed even when the sha256
+	// matches (the digest is never trusted past an invalid signature).
+	fetchChecksumsFn = func(d, url string) (string, error) {
+		sumsPath := filepath.Join(d, "checksums.txt")
+		_ = os.WriteFile(sumsPath, []byte(sums), 0o644)
+		return sumsPath, nil
+	}
+	verifyChecksumsSig = func(blob, bundle []byte) error { return errors.New("bad sig") }
+	if err := verifyChecksum(dir, archivePath, "claude-statusline_Darwin_x86_64.tar.gz", "1.2.0"); err == nil {
+		t.Error("invalid signature should fail verifyChecksum")
 	}
 }
 
@@ -511,9 +545,10 @@ func TestAtomicSwap(t *testing.T) {
 	if string(data) != "updated binary" {
 		t.Errorf("post-swap content = %q", string(data))
 	}
+	pid := os.Getpid()
 	for _, p := range []string{
-		filepath.Join(dir, ".claude-statusline.old"),
-		filepath.Join(dir, ".claude-statusline.new"),
+		filepath.Join(dir, fmt.Sprintf(".claude-statusline.old.%d", pid)),
+		filepath.Join(dir, fmt.Sprintf(".claude-statusline.new.%d", pid)),
 	} {
 		if _, err := os.Stat(p); err == nil {
 			t.Errorf("leftover %q should be cleaned up", p)
@@ -550,14 +585,14 @@ func TestAtomicSwap(t *testing.T) {
 	if err := os.WriteFile(staged2, []byte("never installed"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Create a directory at .new so the .new → exe rename fails (rename
+	// Create a directory at .new.<pid> so the .new → exe rename fails (rename
 	// over a non-empty directory is not allowed by os.Rename).
-	_ = os.Mkdir(filepath.Join(dir2, ".claude-statusline.new"), 0o755)
-	_ = os.WriteFile(filepath.Join(dir2, ".claude-statusline.new", "blocker"), nil, 0o644)
+	_ = os.Mkdir(filepath.Join(dir2, fmt.Sprintf(".claude-statusline.new.%d", pid)), 0o755)
+	_ = os.WriteFile(filepath.Join(dir2, fmt.Sprintf(".claude-statusline.new.%d", pid), "blocker"), nil, 0o644)
 	// Pre-existing .old → this is what would have been written by step
 	// 1 of the swap (current → .old), and the rollback should restore it.
 	oldContent := []byte("stale .old, should not be left over")
-	_ = os.WriteFile(filepath.Join(dir2, ".claude-statusline.old"), oldContent, 0o644)
+	_ = os.WriteFile(filepath.Join(dir2, fmt.Sprintf(".claude-statusline.old.%d", pid)), oldContent, 0o644)
 	err = atomicSwap(exe2, staged2)
 	// The error depends on the platform (rename-over-dir behavior
 	// varies). On macOS/Linux the second rename fails; on Windows it
@@ -967,4 +1002,152 @@ func driveWorkerBrew(t *testing.T, kind installKind, latest, current string, cfg
 	}
 	env, _ := brewRunner(brewPath, false, updateBrewTimeout)
 	return env
+}
+
+// ─── signature verification + extraction-safety hardening ─────────────
+
+func TestEmbeddedCosignKey(t *testing.T) {
+	// The embedded cosign.pub must parse, or every manual self-swap would fail
+	// closed on the "no embedded verification key" path.
+	if mustParseCosignKey(cosignPubPEM) == nil {
+		t.Error("embedded cosign.pub must parse as an ECDSA public key")
+	}
+}
+
+func TestVerifyChecksumsSig(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := checksumsVerifyKey
+	checksumsVerifyKey = &key.PublicKey
+	t.Cleanup(func() { checksumsVerifyKey = old })
+
+	blob := []byte("hash1  asset_a\nhash2  asset_b\n")
+	sum := sha256.Sum256(blob)
+	sig, err := ecdsa.SignASN1(rand.Reader, key, sum[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle := func(b64 string) []byte {
+		return []byte(`{"messageSignature":{"messageDigest":{"algorithm":"SHA2_256","digest":"x"},"signature":"` + b64 + `"}}`)
+	}
+	good := bundle(base64.StdEncoding.EncodeToString(sig))
+
+	if err := verifyChecksumsSigReal(blob, good); err != nil {
+		t.Errorf("valid signature should verify: %v", err)
+	}
+	if err := verifyChecksumsSigReal([]byte("tampered checksums"), good); err == nil {
+		t.Error("tampered blob should be rejected")
+	}
+	if err := verifyChecksumsSigReal(blob, bundle(base64.StdEncoding.EncodeToString([]byte("not-a-real-sig")))); err == nil {
+		t.Error("garbage signature should be rejected")
+	}
+	if err := verifyChecksumsSigReal(blob, []byte(`{"messageSignature":{"signature":""}}`)); err == nil {
+		t.Error("empty signature should be rejected")
+	}
+	if err := verifyChecksumsSigReal(blob, []byte("not json")); err == nil {
+		t.Error("malformed bundle should be rejected")
+	}
+	checksumsVerifyKey = nil
+	if err := verifyChecksumsSigReal(blob, good); err == nil {
+		t.Error("nil verification key should fail closed")
+	}
+}
+
+// TestExtractConfinedToDir locks the extraction defense: even a tar entry whose
+// name encodes path traversal lands inside the per-run dir (we never honor
+// hdr.Name as a path — filepath.Base + a temp file in dir), and a symlink entry
+// for the binary name is skipped (TypeReg-only).
+func TestExtractConfinedToDir(t *testing.T) {
+	dir := t.TempDir()
+	tarGzPath := filepath.Join(dir, "evil.tar.gz")
+	f, _ := os.Create(tarGzPath)
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+	// A symlink entry masquerading as the binary — must be ignored.
+	_ = tw.WriteHeader(&tar.Header{Name: "claude-statusline", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd", Mode: 0o777})
+	// A traversal-named regular file whose base still matches the binary name.
+	body := []byte("real binary")
+	_ = tw.WriteHeader(&tar.Header{Name: "../../../../tmp/claude-statusline", Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg})
+	_, _ = tw.Write(body)
+	_ = tw.Close()
+	_ = gz.Close()
+	_ = f.Close()
+
+	staged, err := extractAsset(tarGzPath, "evil.tar.gz")
+	if err != nil {
+		t.Fatalf("extractAsset: %v", err)
+	}
+	if got := filepath.Dir(staged); got != dir {
+		t.Errorf("extracted outside staging dir: %q (want dir %q)", staged, dir)
+	}
+	data, _ := os.ReadFile(staged)
+	if string(data) != "real binary" {
+		t.Errorf("extracted content = %q", string(data))
+	}
+}
+
+func TestExtractRejectsDecompressionBomb(t *testing.T) {
+	old := updateMaxExtractBytes
+	updateMaxExtractBytes = 10
+	t.Cleanup(func() { updateMaxExtractBytes = old })
+
+	dir := t.TempDir()
+	tarGzPath := filepath.Join(dir, "bomb.tar.gz")
+	f, _ := os.Create(tarGzPath)
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+	body := make([]byte, 1000) // well over the lowered cap
+	_ = tw.WriteHeader(&tar.Header{Name: "claude-statusline", Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg})
+	_, _ = tw.Write(body)
+	_ = tw.Close()
+	_ = gz.Close()
+	_ = f.Close()
+
+	if _, err := extractAsset(tarGzPath, "bomb.tar.gz"); err == nil {
+		t.Error("oversized decompressed payload should be rejected")
+	}
+}
+
+// TestGoreleaserInjectsBareVersion guards the smokeTest invariant: smokeTest
+// requires the staged binary's `version` output to contain the bare tag, which
+// only holds if GoReleaser injects {{.Version}} (no leading v) into main.version.
+func TestGoreleaserInjectsBareVersion(t *testing.T) {
+	data, err := os.ReadFile(".goreleaser.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "main.version={{.Version}}") {
+		t.Error(".goreleaser.yaml must inject the bare {{.Version}} into main.version (smokeTest depends on it)")
+	}
+}
+
+// TestPreCleanExeStagingStaleOnly verifies the reaper removes stale swap debris
+// but leaves fresh files (a concurrent live swap) untouched.
+func TestPreCleanExeStagingStaleOnly(t *testing.T) {
+	dir := t.TempDir()
+	exe := filepath.Join(dir, "claude-statusline")
+	if err := os.WriteFile(exe, []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := osExecutable
+	osExecutable = func() (string, error) { return exe, nil }
+	t.Cleanup(func() { osExecutable = old })
+
+	fresh := filepath.Join(dir, ".claude-statusline.new.99999")
+	stale := filepath.Join(dir, ".claude-statusline.old.12345")
+	_ = os.WriteFile(fresh, nil, 0o644)
+	_ = os.WriteFile(stale, nil, 0o644)
+	oldTime := time.Now().Add(-2 * exeStagingStaleAfter)
+	_ = os.Chtimes(stale, oldTime, oldTime)
+
+	preCleanExeStaging()
+
+	if _, err := os.Stat(fresh); err != nil {
+		t.Error("fresh swap file should be preserved")
+	}
+	if _, err := os.Stat(stale); err == nil {
+		t.Error("stale swap file should be reaped")
+	}
 }

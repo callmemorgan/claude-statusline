@@ -7,9 +7,14 @@ import (
 	"archive/zip"
 	"compress/gzip"
 	"context"
+	"crypto/ecdsa"
 	"crypto/sha256"
+	"crypto/x509"
+	_ "embed"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -42,6 +47,39 @@ const (
 	updateRepoOwner = "callmemorgan"
 	updateRepoName  = "claude-statusline"
 )
+
+// cosignPubPEM is the release-signing public key, embedded at build time. The
+// release pipeline signs checksums.txt with the matching private key (held only
+// in CI secrets), and the self-swap path verifies that signature in-process
+// before trusting any checksum — so a tampered release can't be installed even
+// if an attacker can replace the published asset and its checksums.txt.
+// Embedding (rather than shelling out to `cosign`) means no runtime dependency:
+// verification is pure crypto/ecdsa and works on every install target.
+//
+//go:embed cosign.pub
+var cosignPubPEM []byte
+
+// checksumsVerifyKey is parsed once from cosignPubPEM. It is a package var (not
+// a const) so signature tests can swap in an in-test key without needing the
+// production private key. nil means the embedded key failed to parse — verify
+// then fails closed.
+var checksumsVerifyKey = mustParseCosignKey(cosignPubPEM)
+
+func mustParseCosignKey(pemBytes []byte) *ecdsa.PublicKey {
+	blk, _ := pem.Decode(pemBytes)
+	if blk == nil {
+		return nil
+	}
+	pub, err := x509.ParsePKIXPublicKey(blk.Bytes)
+	if err != nil {
+		return nil
+	}
+	ec, ok := pub.(*ecdsa.PublicKey)
+	if !ok {
+		return nil
+	}
+	return ec
+}
 
 // updateCheck is the on-disk cache. Stale-or-missing is the only signal the
 // render path needs; the worker writes {now, ""} on network failure so a dead
@@ -88,9 +126,16 @@ func detectInstallKind(exePath, version string) installKind {
 	if version == "dev" {
 		return kindDev
 	}
-	low := strings.ToLower(exePath)
-	if strings.Contains(low, "/cellar/") || strings.Contains(low, "/homebrew/") {
-		return kindBrew
+	// Match "cellar"/"homebrew" as whole slash-delimited path components, not
+	// free substrings, so a manual install under e.g. ~/homebrew-fan/ isn't
+	// misclassified as brew (which in auto mode would silently no-op when brew
+	// isn't on PATH). filepath.ToSlash normalizes Windows separators; brew is
+	// Unix-only, so a backslash Windows path simply has no matching component.
+	low := strings.ToLower(filepath.ToSlash(exePath))
+	for _, seg := range strings.Split(low, "/") {
+		if seg == "cellar" || seg == "homebrew" {
+			return kindBrew
+		}
 	}
 	return kindManual
 }
@@ -197,6 +242,14 @@ func maybeSpawnUpdateCheck(cfg updateConfig, now time.Time) {
 	if !isReleaseVersion(current) {
 		return
 	}
+	// Cheap freshness gate first: if the cache is fresh we're done, and we skip
+	// the os.Executable()+EvalSymlinks syscalls that resolving the install kind
+	// would cost. Only a stale/missing cache pays for path resolution.
+	if cache, ok := loadUpdateCheck(); ok {
+		if elapsed := now.Unix() - cache.CheckedAt; elapsed >= 0 && elapsed < int64(cfg.checkEvery().Seconds()) {
+			return
+		}
+	}
 	exe := currentExePath()
 	maybeSpawnUpdateCheckFor(cfg, now, detectInstallKind(exe, current))
 }
@@ -246,11 +299,12 @@ const updateStaleLockTolerance = updateBrewTimeout + 2*time.Minute
 // runUpdate is the foreground, explicit subcommand. It ignores [update].mode
 // (explicit intent) but not the safety rails (kind, version compare, checksum,
 // smoke-test). Behavior:
-//   kindDev        → hint to go install; exit 0.
-//   kindBrew       → brew upgrade (live output); missing brew → exit 1.
-//   newer exists   → download + swap, share the worker's pipeline.
-//   already current → "up to date"; exit 0.
-//   --check        → resolve + report; never install.
+//
+//	kindDev        → hint to go install; exit 0.
+//	kindBrew       → brew upgrade (live output); missing brew → exit 1.
+//	newer exists   → download + swap, share the worker's pipeline.
+//	already current → "up to date"; exit 0.
+//	--check        → resolve + report; never install.
 func runUpdate(args []string) {
 	checkOnly := false
 	for _, a := range args {
@@ -298,10 +352,23 @@ func runUpdateFor(args []string, checkOnly bool, current string, kind installKin
 		return
 	}
 
+	// Serialize the actual install with the detached worker through the same
+	// lock, so a foreground `update` and a background `update-check` can't run
+	// overlapping swaps. If the worker (or another `update`) holds it, bail
+	// cleanly rather than racing.
+	if !tryAcquireLock(updateLockPath(), updateStaleLockTolerance) {
+		fmt.Fprintln(os.Stderr, "claude-statusline update: another update is already in progress; try again shortly.")
+		osExit(1)
+		return
+	}
+	releaseLock := func() { _ = os.Remove(updateLockPath()) }
+	defer releaseLock()
+
 	switch kind {
 	case kindBrew:
 		brewPath := findBrewExe()
 		if brewPath == "" {
+			releaseLock()
 			fmt.Fprintln(os.Stderr, "claude-statusline update: brew not found; please run `brew upgrade claude-statusline` manually.")
 			osExit(1)
 			return
@@ -310,12 +377,14 @@ func runUpdateFor(args []string, checkOnly bool, current string, kind installKin
 		// live output) so tests can stub one seam for both call sites.
 		_, err := brewRunner(brewPath, true, 0)
 		if err != nil {
+			releaseLock()
 			fmt.Fprintf(os.Stderr, "claude-statusline update: brew upgrade failed: %v\n", err)
 			osExit(1)
 			return
 		}
 	case kindManual:
 		if err := downloadAndSwapFn(latest, current); err != nil {
+			releaseLock()
 			fmt.Fprintf(os.Stderr, "claude-statusline update: %v\n", err)
 			osExit(1)
 			return
@@ -347,7 +416,7 @@ func updateUserAgent() string {
 // and parses the tag from the 302 Location header. Returns "" on any
 // failure (network, non-302, unparseable tag).
 func resolveLatestTag() (string, error) {
-	url := "https://github.com/" + updateRepoOwner + "/" + updateRepoName + "/releases/latest"
+	url := releaseBaseURL() + "/latest"
 	client := &http.Client{
 		Timeout: 10 * time.Second,
 		CheckRedirect: func(*http.Request, []*http.Request) error {
@@ -407,28 +476,60 @@ func assetName(goos, goarch string) string {
 	return "claude-statusline_" + osTitle + "_" + arch + "." + ext
 }
 
+// releaseBaseURL is the GitHub releases base shared by tag resolution and
+// every asset-download URL.
+func releaseBaseURL() string {
+	return "https://github.com/" + updateRepoOwner + "/" + updateRepoName + "/releases"
+}
+
 func assetURL(tag, name string) string {
-	return "https://github.com/" + updateRepoOwner + "/" + updateRepoName + "/releases/download/v" + tag + "/" + name
+	return releaseBaseURL() + "/download/v" + tag + "/" + name
 }
 
-func checksumsURL(tag string) string {
-	return "https://github.com/" + updateRepoOwner + "/" + updateRepoName + "/releases/download/v" + tag + "/checksums.txt"
-}
+func checksumsURL(tag string) string { return assetURL(tag, "checksums.txt") }
 
-// fetchToTemp downloads url to a fresh file in stateBaseDir()/staging/,
-// bounded by updateMaxDownloadBytes. Returns the path to the file. The
-// caller is responsible for cleaning up the staging dir.
-func fetchToTemp(url, name string) (string, error) {
-	if err := os.MkdirAll(stagingDir(), 0o755); err != nil {
-		return "", err
+// checksumsBundleURL is the cosign signing bundle over checksums.txt. The
+// GoReleaser signs block writes it alongside the checksums as
+// checksums.txt.bundle; the self-swap path verifies it before trusting any
+// digest in checksums.txt.
+func checksumsBundleURL(tag string) string { return assetURL(tag, "checksums.txt.bundle") }
+
+// updateHTTPClient builds the download client. CheckRedirect pins every hop to
+// HTTPS on github.com / *.githubusercontent.com — GitHub's release downloads
+// 302 across to objects.githubusercontent.com, which we must allow, but an
+// attacker-injected redirect to another host or an https→http downgrade is
+// refused. resolveLatestTag uses its own no-follow client; this one is for the
+// asset/checksums/bundle fetches.
+func updateHTTPClient() *http.Client {
+	return &http.Client{
+		Timeout: 60 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			if req.URL.Scheme != "https" {
+				return fmt.Errorf("refusing non-HTTPS redirect to %s", req.URL.Redacted())
+			}
+			h := strings.ToLower(req.URL.Hostname())
+			if h != "github.com" && !strings.HasSuffix(h, ".githubusercontent.com") {
+				return fmt.Errorf("refusing redirect to untrusted host %q", h)
+			}
+			return nil
+		},
 	}
-	client := &http.Client{Timeout: 60 * time.Second}
+}
+
+// fetchToTemp downloads url into dir (a per-run staging directory the caller
+// owns and removes), bounded by updateMaxDownloadBytes. Returns the path to the
+// file. Per-run dirs — not a shared staging dir — so a concurrent run's cleanup
+// can never wipe this download mid-flight.
+func fetchToTemp(dir, url, name string) (string, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return "", err
 	}
 	req.Header.Set("User-Agent", updateUserAgent())
-	resp, err := client.Do(req)
+	resp, err := updateHTTPClient().Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -437,7 +538,7 @@ func fetchToTemp(url, name string) (string, error) {
 		return "", fmt.Errorf("HTTP %d fetching %s", resp.StatusCode, url)
 	}
 	limited := io.LimitReader(resp.Body, updateMaxDownloadBytes+1)
-	out, err := os.CreateTemp(stagingDir(), name+".*")
+	out, err := os.CreateTemp(dir, name+".*")
 	if err != nil {
 		return "", err
 	}
@@ -458,18 +559,23 @@ func fetchToTemp(url, name string) (string, error) {
 	return out.Name(), nil
 }
 
-func stagingDir() string {
-	return filepath.Join(stateBaseDir(), "staging")
+// newStagingDir creates a fresh per-run staging directory under the state dir.
+// os.MkdirTemp makes it 0o700, so staged artifacts aren't world-readable on a
+// shared host. The caller defers os.RemoveAll on the returned path.
+func newStagingDir() (string, error) {
+	if err := os.MkdirAll(stateBaseDir(), 0o755); err != nil {
+		return "", err
+	}
+	return os.MkdirTemp(stateBaseDir(), "staging-*")
 }
 
-func cleanupStaging() {
-	_ = os.RemoveAll(stagingDir())
-}
-
-// verifyChecksum fetches checksums.txt, finds the line for name, and
-// confirms the file at path has the expected sha256.
-func verifyChecksum(path, name, tag string) error {
-	sumsPath, err := fetchChecksumsFn(checksumsURL(tag))
+// verifyChecksum authenticates checksums.txt, then confirms the file at path
+// matches its listed sha256. Order matters: the cosign signature over
+// checksums.txt is verified *before* any digest is trusted, and a missing or
+// invalid signature fails closed — so a tampered release (matching asset +
+// matching checksums.txt) cannot be installed. dir is the per-run staging dir.
+func verifyChecksum(dir, path, name, tag string) error {
+	sumsPath, err := fetchChecksumsFn(dir, checksumsURL(tag))
 	if err != nil {
 		return fmt.Errorf("download checksums: %w", err)
 	}
@@ -478,6 +584,20 @@ func verifyChecksum(path, name, tag string) error {
 	if err != nil {
 		return err
 	}
+
+	bundlePath, err := fetchChecksumsBundleFn(dir, checksumsBundleURL(tag))
+	if err != nil {
+		return fmt.Errorf("download checksums signature: %w", err)
+	}
+	defer os.Remove(bundlePath)
+	bundle, err := os.ReadFile(bundlePath)
+	if err != nil {
+		return err
+	}
+	if err := verifyChecksumsSig(data, bundle); err != nil {
+		return fmt.Errorf("checksums signature: %w", err)
+	}
+
 	want, ok := parseChecksumLine(string(data), name)
 	if !ok {
 		return fmt.Errorf("no checksum for %q in checksums.txt", name)
@@ -492,20 +612,60 @@ func verifyChecksum(path, name, tag string) error {
 	return nil
 }
 
-// parseChecksumLine finds the line for name and returns the leading hex
-// digest. GoReleaser writes "<sha256-hex>  claude-statusline_Darwin_x86_64.tar.gz".
-// Tolerates binary-mode "*name" and CRLF.
+// verifyChecksumsSigReal verifies that bundleJSON (a cosign signing bundle, the
+// offline key-based form) is a valid signature over blob, using the embedded
+// release public key. It parses only the messageSignature — no Rekor tlog, no
+// timestamps, no cert chain — and checks ecdsa(P-256) over sha256(blob).
+func verifyChecksumsSigReal(blob, bundleJSON []byte) error {
+	if checksumsVerifyKey == nil {
+		return errors.New("no embedded verification key")
+	}
+	var b struct {
+		MessageSignature struct {
+			Signature string `json:"signature"`
+		} `json:"messageSignature"`
+	}
+	if err := json.Unmarshal(bundleJSON, &b); err != nil {
+		return fmt.Errorf("parse bundle: %w", err)
+	}
+	if b.MessageSignature.Signature == "" {
+		return errors.New("bundle has no message signature")
+	}
+	sig, err := base64.StdEncoding.DecodeString(b.MessageSignature.Signature)
+	if err != nil {
+		return fmt.Errorf("decode signature: %w", err)
+	}
+	sum := sha256.Sum256(blob)
+	if !ecdsa.VerifyASN1(checksumsVerifyKey, sum[:], sig) {
+		return errors.New("signature does not verify against release key")
+	}
+	return nil
+}
+
+// verifyChecksumsSig is the seam: signature tests drive verifyChecksumsSigReal
+// with an in-test key (via checksumsVerifyKey), while pipeline/checksum tests
+// stub it to a no-op to isolate the sha256-matching logic.
+var verifyChecksumsSig = verifyChecksumsSigReal
+
+// parseChecksumLine finds the line for name and returns the leading sha256 hex
+// digest (lowercased). GoReleaser writes "<64-hex>  <name>" (two spaces);
+// binary-mode "*name" and CRLF are tolerated. Anchored on a 64-char hex prefix
+// rather than the last double-space, so a filename containing two spaces can't
+// shift the split onto the wrong bytes.
 func parseChecksumLine(sums, name string) (string, bool) {
 	for _, line := range strings.Split(sums, "\n") {
 		line = strings.TrimRight(line, "\r")
-		idx := strings.LastIndex(line, "  ")
-		if idx < 0 {
+		if len(line) < 64 {
 			continue
 		}
-		left, right := line[:idx], line[idx+2:]
-		right = strings.TrimPrefix(right, "*")
-		if right == name {
-			return strings.TrimSpace(left), true
+		digest := line[:64]
+		if _, err := hex.DecodeString(digest); err != nil {
+			continue
+		}
+		rest := strings.TrimLeft(line[64:], " \t")
+		rest = strings.TrimPrefix(rest, "*")
+		if rest == name {
+			return strings.ToLower(digest), true
 		}
 	}
 	return "", false
@@ -524,11 +684,16 @@ func sha256File(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// fetchChecksumsFn is the test seam for verifyChecksum. The real
-// implementation downloads checksums.txt; tests stub it with a precomputed
-// sums file. Mirrors the spawnRefresher pattern.
-var fetchChecksumsFn = func(url string) (string, error) {
-	return fetchToTemp(url, "checksums.txt")
+// fetchChecksumsFn / fetchChecksumsBundleFn are the test seams for
+// verifyChecksum. The real implementations download checksums.txt and its
+// cosign bundle into the per-run staging dir; tests stub them with precomputed
+// files. Mirrors the spawnRefresher pattern.
+var fetchChecksumsFn = func(dir, url string) (string, error) {
+	return fetchToTemp(dir, url, "checksums.txt")
+}
+
+var fetchChecksumsBundleFn = func(dir, url string) (string, error) {
+	return fetchToTemp(dir, url, "checksums.txt.bundle")
 }
 
 // resolveLatestTagFn is the test seam for the worker and the `update`
@@ -548,8 +713,19 @@ var downloadAndSwapFn = downloadAndSwap
 // exit codes without terminating the test runner.
 var osExit = os.Exit
 
-// extractAsset pulls the inner claude-statusline binary out of a .tar.gz
-// or .zip archive, returning the path to the extracted file (chmod 0755).
+// osExecutable is a seam so preCleanExeStaging's reaper can be tested against a
+// temp directory rather than the real test-binary path.
+var osExecutable = os.Executable
+
+// updateMaxExtractBytes caps the *decompressed* size of the extracted binary.
+// The download cap bounds only the compressed archive; without this a crafted
+// gzip/zip bomb could decompress to an unbounded size. Generous (a real binary
+// is ~15 MiB). A var (not const) so tests can lower it without a 128 MiB fixture.
+var updateMaxExtractBytes int64 = 128 * 1024 * 1024
+
+// extractAsset pulls the inner claude-statusline binary out of a .tar.gz or
+// .zip archive into the archive's own (per-run) directory, returning the path
+// to the extracted file (chmod 0755).
 func extractAsset(archivePath, name string) (string, error) {
 	if strings.HasSuffix(name, ".zip") {
 		return extractZip(archivePath)
@@ -557,10 +733,44 @@ func extractAsset(archivePath, name string) (string, error) {
 	return extractTarGz(archivePath)
 }
 
-func extractTarGz(archivePath string) (string, error) {
-	if err := os.MkdirAll(stagingDir(), 0o755); err != nil {
+// writeExtractedBinary copies the inner binary from src into a fresh uniquely
+// named file in dir, capped at updateMaxExtractBytes, chmod 0755. On Windows
+// the staged file keeps a .exe suffix so it is recognized as an executable by
+// the OS (and by the smoke test that runs it). Shared by both extractors; the
+// unique name means two concurrent runs never collide on a fixed path.
+func writeExtractedBinary(dir string, src io.Reader) (string, error) {
+	pattern := "claude-statusline-*.extracted"
+	if runtime.GOOS == "windows" {
+		pattern = "claude-statusline-*.exe"
+	}
+	out, err := os.CreateTemp(dir, pattern)
+	if err != nil {
 		return "", err
 	}
+	outPath := out.Name()
+	written, err := io.Copy(out, io.LimitReader(src, updateMaxExtractBytes+1))
+	if err != nil {
+		out.Close()
+		os.Remove(outPath)
+		return "", err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(outPath)
+		return "", err
+	}
+	if written > updateMaxExtractBytes {
+		os.Remove(outPath)
+		return "", fmt.Errorf("extracted binary exceeded %d bytes", updateMaxExtractBytes)
+	}
+	if err := os.Chmod(outPath, 0o755); err != nil {
+		os.Remove(outPath)
+		return "", err
+	}
+	return outPath, nil
+}
+
+func extractTarGz(archivePath string) (string, error) {
+	dir := filepath.Dir(archivePath)
 	f, err := os.Open(archivePath)
 	if err != nil {
 		return "", err
@@ -580,6 +790,8 @@ func extractTarGz(archivePath string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		// TypeReg-only + filepath.Base together neutralize symlink entries and
+		// any ../ path traversal: we never honor hdr.Name as a path.
 		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
@@ -587,63 +799,32 @@ func extractTarGz(archivePath string) (string, error) {
 		if base != "claude-statusline" && base != "claude-statusline.exe" {
 			continue
 		}
-		outPath := filepath.Join(stagingDir(), "claude-statusline.extracted")
-		out, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
-		if err != nil {
-			return "", err
-		}
-		if _, err := io.Copy(out, tr); err != nil {
-			out.Close()
-			os.Remove(outPath)
-			return "", err
-		}
-		if err := out.Close(); err != nil {
-			os.Remove(outPath)
-			return "", err
-		}
-		return outPath, nil
+		return writeExtractedBinary(dir, tr)
 	}
 }
 
 func extractZip(archivePath string) (string, error) {
-	if err := os.MkdirAll(stagingDir(), 0o755); err != nil {
-		return "", err
-	}
+	dir := filepath.Dir(archivePath)
 	r, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return "", err
 	}
 	defer r.Close()
 	for _, f := range r.File {
-		base := filepath.Base(f.Name)
-		if base != "claude-statusline" && base != "claude-statusline.exe" {
+		if f.FileInfo().IsDir() {
 			continue
 		}
-		if f.FileInfo().IsDir() {
+		base := filepath.Base(f.Name)
+		if base != "claude-statusline" && base != "claude-statusline.exe" {
 			continue
 		}
 		src, err := f.Open()
 		if err != nil {
 			return "", err
 		}
-		outPath := filepath.Join(stagingDir(), "claude-statusline.extracted")
-		out, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
-		if err != nil {
-			src.Close()
-			return "", err
-		}
-		if _, err := io.Copy(out, src); err != nil {
-			out.Close()
-			src.Close()
-			os.Remove(outPath)
-			return "", err
-		}
+		outPath, err := writeExtractedBinary(dir, src)
 		src.Close()
-		if err := out.Close(); err != nil {
-			os.Remove(outPath)
-			return "", err
-		}
-		return outPath, nil
+		return outPath, err
 	}
 	return "", errors.New("claude-statusline binary not found in archive")
 }
@@ -736,14 +917,18 @@ func downloadAndSwap(latest, current string) error {
 	if err := checkDirWritable(filepath.Dir(exe)); err != nil {
 		return fmt.Errorf("cannot update in place (%s): %w", filepath.Dir(exe), err)
 	}
-	defer cleanupStaging()
+	dir, err := newStagingDir()
+	if err != nil {
+		return fmt.Errorf("staging dir: %w", err)
+	}
+	defer os.RemoveAll(dir)
 	preCleanExeStaging()
 
-	archivePath, err := fetchToTemp(assetURL(latest, want), want)
+	archivePath, err := fetchToTemp(dir, assetURL(latest, want), want)
 	if err != nil {
 		return fmt.Errorf("download asset: %w", err)
 	}
-	if err := verifyChecksum(archivePath, want, latest); err != nil {
+	if err := verifyChecksum(dir, archivePath, want, latest); err != nil {
 		return fmt.Errorf("checksum: %w", err)
 	}
 	stagedPath, err := extractAsset(archivePath, want)
@@ -772,29 +957,65 @@ func checkDirWritable(dir string) error {
 	return os.Remove(name)
 }
 
-// preCleanExeStaging removes any leftover .old / .new in the exe's
-// directory from a previous interrupted run. Runs at the start of every
-// swap so a crashed worker can't pile up.
+// exeStagingStaleAfter is how old a leftover .old/.new swap file must be before
+// preCleanExeStaging reaps it. Comfortably longer than any single swap, so a
+// concurrent in-flight swap's files are never mistaken for crash debris.
+const exeStagingStaleAfter = 10 * time.Minute
+
+// exeStagingPrefixes are the swap-file name prefixes preCleanExeStaging reaps.
+// Covers both the per-PID names this version writes and the fixed legacy names
+// an older binary may have left behind.
+var exeStagingPrefixes = []string{".claude-statusline.new", ".claude-statusline.old"}
+
+// preCleanExeStaging reaps *stale* leftover swap files (.old/.new) in the exe's
+// directory from a previously crashed run. It only removes files older than
+// exeStagingStaleAfter, so a concurrent live swap (which uses per-PID names) is
+// never disturbed.
 func preCleanExeStaging() {
-	exe, err := os.Executable()
+	exe, err := osExecutable()
 	if err != nil {
 		return
 	}
 	dir := filepath.Dir(exe)
-	_ = os.Remove(filepath.Join(dir, ".claude-statusline.old"))
-	_ = os.Remove(filepath.Join(dir, ".claude-statusline.new"))
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		stale := false
+		for _, p := range exeStagingPrefixes {
+			if strings.HasPrefix(name, p) {
+				stale = true
+				break
+			}
+		}
+		if !stale {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if time.Since(info.ModTime()) > exeStagingStaleAfter {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
 }
 
 // atomicSwap copies the staged binary into the exe's directory as
-// .claude-statusline.new, then renames current→.old and .new→current in
-// the same directory (atomic). On failure, .old is restored; .old is
-// removed at the end (Windows can keep it alive while the old process is
-// still running, so on Windows the cleanup is best-effort and the next-run
-// preCleanExeStaging will retry).
+// .claude-statusline.new.<pid>, then renames current→.old.<pid> and
+// .new.<pid>→current in the same directory (atomic). Per-PID names mean two
+// concurrent swaps (e.g. the worker and a foreground `update`) never collide on
+// a shared path. On failure, .old is restored; .old is removed at the end
+// (Windows can keep it alive while the old process is still running, so on
+// Windows the cleanup is best-effort and the next-run preCleanExeStaging will
+// retry).
 func atomicSwap(exePath, stagedPath string) error {
 	dir := filepath.Dir(exePath)
-	newPath := filepath.Join(dir, ".claude-statusline.new")
-	oldPath := filepath.Join(dir, ".claude-statusline.old")
+	pid := os.Getpid()
+	newPath := filepath.Join(dir, fmt.Sprintf(".claude-statusline.new.%d", pid))
+	oldPath := filepath.Join(dir, fmt.Sprintf(".claude-statusline.old.%d", pid))
 
 	// Stage: copy (not rename) stagedPath into newPath, because the
 	// staging dir may be on a different filesystem than the exe.

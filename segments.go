@@ -153,7 +153,12 @@ func renderUpdate(ctx renderCtx) (string, bool) {
 	if compareVersions(cache.Latest, cur) <= 0 {
 		return "", false
 	}
-	expanded := ctx.Now.Unix()-cache.CheckedAt < int64(expandedWindow.Seconds())
+	// Guard the lower bound like the spawn gate does: a future CheckedAt (clock
+	// skew, restored backup, hand-edited cache) makes elapsed negative, which
+	// without >= 0 would read as "always within the window" and pin the verbose
+	// hint on screen forever.
+	elapsed := ctx.Now.Unix() - cache.CheckedAt
+	expanded := elapsed >= 0 && elapsed < int64(expandedWindow.Seconds())
 	body := "⬆ v" + cache.Latest
 	if expanded {
 		hint := ctx.C.Dim + " · run: claude-statusline update · disable: [update] in config.toml" + ctx.C.Rst

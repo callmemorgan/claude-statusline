@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.2 — 2026-06-14
+- Auto-update now cryptographically verifies releases: `checksums.txt` is signed with a key-based cosign bundle and verified in-process against an embedded public key before any binary is installed. Verification is pure stdlib — no `cosign` needed at runtime — and fails closed on a missing or invalid signature.
+- Hardened the self-swap pipeline: per-run staging directories and per-PID swap filenames so a foreground `claude-statusline update` and the background worker can never corrupt each other's swap; the foreground `update` now serializes through the same lock.
+- Download client pins redirects to HTTPS on `github.com`/`*.githubusercontent.com`; archive extraction is bounded against decompression bombs; the staged binary keeps a `.exe` suffix on Windows.
+- Hardened checksum parsing (anchored on the hex digest) and install-kind detection (path-component match, so `~/homebrew-fan/` is no longer misread as a Homebrew install).
+- The update-available segment no longer pins its verbose hint on a future cache timestamp (clock-skew guard).
+
 ## v1.1.1 — 2026-06-13
 - Background update checks: `notify` (default) shows an `⬆ vX.Y.Z` segment when a newer release exists; `auto` downloads, verifies, and atomically swaps the binary for manual installs; `off` disables all network activity.
 - New `claude-statusline update` subcommand for explicit foreground updates, plus `update --check` to report without installing.

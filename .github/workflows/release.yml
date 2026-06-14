@@ -33,3 +33,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
+          # Key-based cosign signing of checksums.txt (verified in-process by the
+          # self-update path). COSIGN_PRIVATE_KEY is the cosign.key contents;
+          # COSIGN_PASSWORD decrypts it. The matching cosign.pub is committed.
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}

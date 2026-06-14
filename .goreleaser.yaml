@@ -36,16 +36,24 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+# Key-based cosign signature over checksums.txt only. The binary embeds the
+# matching public key (cosign.pub) and verifies this bundle in-process before
+# trusting any digest, so the self-update path needs no cosign at runtime.
+# --tlog-upload=false + --use-signing-config=false keep it an offline bundle (no
+# public Rekor dependency); the in-process verifier reads only messageSignature.
+# Requires COSIGN_PRIVATE_KEY and COSIGN_PASSWORD in the release env.
 signs:
   - cmd: cosign
-    certificate: "${artifact}.cert"
+    signature: "${artifact}.bundle"
     args:
       - sign-blob
-      - "--output-certificate=${certificate}"
-      - "--output-signature=${signature}"
+      - "--key=env://COSIGN_PRIVATE_KEY"
+      - "--bundle=${signature}"
+      - "--tlog-upload=false"
+      - "--use-signing-config=false"
       - "${artifact}"
       - "--yes"
-    artifacts: all
+    artifacts: checksum
 
 brews:
   - name: claude-statusline

@@ -39,16 +39,18 @@ Requires Go 1.22+. Make sure `$(go env GOPATH)/bin` is on your `$PATH`.
 
 **Prebuilt binaries:**
 
-Download a signed binary from the [releases page](https://github.com/callmemorgan/claude-statusline/releases). Each asset includes a cosign certificate and signature:
+Download a binary from the [releases page](https://github.com/callmemorgan/claude-statusline/releases). Each release ships a `checksums.txt` signed with a key-based cosign bundle (`checksums.txt.bundle`); the public key is [`cosign.pub`](cosign.pub) in this repo. Verify the signature, then the asset's checksum:
 
 ```bash
 cosign verify-blob \
-  --certificate claude-statusline_Darwin_arm64.tar.gz.cert \
-  --signature claude-statusline_Darwin_arm64.tar.gz.sig \
-  --certificate-identity-regexp="^https://github.com/callmemorgan/claude-statusline/.github/workflows/release.yml@" \
-  --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
-  claude-statusline_Darwin_arm64.tar.gz
+  --key cosign.pub \
+  --bundle checksums.txt.bundle \
+  --insecure-ignore-tlog \
+  checksums.txt
+shasum -a 256 -c checksums.txt --ignore-missing
 ```
+
+`--insecure-ignore-tlog` is expected: the bundle is signed with a key offline, so there's no public transparency-log entry to check — the flag only skips that auditability step, not the signature itself. The self-update path performs this same key-based verification in-process — no `cosign` needed at runtime.
 
 > **macOS note:** Downloaded binaries are not notarized. If Gatekeeper blocks the binary on first run, run `xattr -d com.apple.quarantine /path/to/claude-statusline`, or use Homebrew/`go install` instead.
 
@@ -540,7 +542,7 @@ mode = "notify"   # default: show segment only
 check_hours = 24  # 1..168, default 24
 ```
 
-`auto` mode **crosses MAJOR versions** — it's a one-way door that downloads, sha256-verifies against the release's `checksums.txt`, smoke-tests the staged binary, and atomically swaps the on-disk exe. Homebrew installs run `brew upgrade claude-statusline` instead of touching the binary directly (Cellar bookkeeping fights self-swap). Failures are silent on the next interval retries; a checksum mismatch or a failed smoke-test leaves the old binary in place.
+`auto` mode **crosses MAJOR versions** — it's a one-way door that downloads, verifies the cosign signature on `checksums.txt` against the embedded public key, sha256-verifies the asset against it, smoke-tests the staged binary, and atomically swaps the on-disk exe. Homebrew installs run `brew upgrade claude-statusline` instead of touching the binary directly (Cellar bookkeeping fights self-swap). Failures are silent on the next interval retries; an invalid signature, a checksum mismatch, or a failed smoke-test leaves the old binary in place (it fails closed).
 
 `mode = "off"` is the right choice for air-gapped or centrally-managed deployments — it produces zero spawns and zero reads beyond the config.
 

@@ -1,3 +1,7 @@
 claude-statusline
 claude-statusline.exe
 .worktrees/
+
+# cosign signing key — must never be committed (only cosign.pub is tracked).
+cosign.key
+*.pem
