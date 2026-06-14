@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.1.2 — 2026-06-14
+## v1.2.0 — 2026-06-14
 - Auto-update now cryptographically verifies releases: `checksums.txt` is signed with a key-based cosign bundle and verified in-process against an embedded public key before any binary is installed. Verification is pure stdlib — no `cosign` needed at runtime — and fails closed on a missing or invalid signature.
 - Hardened the self-swap pipeline: per-run staging directories and per-PID swap filenames so a foreground `claude-statusline update` and the background worker can never corrupt each other's swap; the foreground `update` now serializes through the same lock.
 - Download client pins redirects to HTTPS on `github.com`/`*.githubusercontent.com`; archive extraction is bounded against decompression bombs; the staged binary keeps a `.exe` suffix on Windows.
