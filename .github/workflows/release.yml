@@ -24,13 +24,12 @@ jobs:
           go-version: stable
 
       - name: Install cosign
+        # No cosign-release pin: requesting a custom version trips the action's
+        # release-pubkey digest self-check (exit 22). The installer default
+        # installs cleanly, and the .goreleaser.yaml signing uses only
+        # default-stable flags (--key/--bundle/--yes) that work across the
+        # cosign 3.x versions the default may resolve to.
         uses: sigstore/cosign-installer@v3
-        with:
-          # Pinned for deterministic signing behavior. v3.0.6 is the
-          # cosign-installer default (so the action can verify it) and the
-          # version the .goreleaser.yaml signing flags are validated against.
-          # Bump deliberately after re-validating the bundle output.
-          cosign-release: 'v3.0.6'
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
