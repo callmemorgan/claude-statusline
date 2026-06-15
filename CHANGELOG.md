@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.2.1 — 2026-06-14
+- **Fix: signed auto-update now verifies real releases.** The in-process verifier read only the newer sigstore bundle shape (`messageSignature.signature`), but a release's `checksums.txt.bundle` may instead carry the signature under the legacy `base64Signature` field depending on the cosign version CI resolves — so v1.2.0 could fail closed on its own release and never self-update (manual installs only; Homebrew was unaffected). The verifier now accepts either field, and the release pipeline normalizes the published bundle to a version-stable shape so already-installed binaries can always verify the next release.
+- The `update` segment briefly shows `✓ updated to vX` after a self-update lands (reads `update-result.json`, written by the worker/foreground install paths; self-hides once the short window passes or when the running version doesn't match).
+- New `claude-statusline update verify`: fetches the latest release's `checksums.txt` and signature and checks them against the embedded key on demand, printing the key fingerprint. Installs nothing; fails closed.
+
 ## v1.2.0 — 2026-06-14
 - Auto-update now cryptographically verifies releases: `checksums.txt` is signed with a key-based cosign bundle and verified in-process against an embedded public key before any binary is installed. Verification is pure stdlib — no `cosign` needed at runtime — and fails closed on a missing or invalid signature.
 - Hardened the self-swap pipeline: per-run staging directories and per-PID swap filenames so a foreground `claude-statusline update` and the background worker can never corrupt each other's swap; the foreground `update` now serializes through the same lock.

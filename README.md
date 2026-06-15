@@ -523,7 +523,10 @@ The binary checks GitHub for new releases in the background. Default is `notify`
 ```bash
 claude-statusline update          # check + install
 claude-statusline update --check  # check + report only, never install
+claude-statusline update verify   # verify the latest release's signature, then exit (installs nothing)
 ```
+
+`update verify` runs the same in-process signature check the self-swap path uses — it fetches the latest release's `checksums.txt` and its cosign bundle, checks them against the embedded public key, and prints the key fingerprint. It installs nothing and fails closed (non-zero exit) on any error.
 
 **The render path never touches the network.** The check is a detached worker spawned *after* the print loop, identical in shape to the async plugin refresh. It writes its result to a tiny cache file (`update.json` under the state dir) and the next render reads it. One `os.ReadFile` on the happy path, one detached `exec.Command` spawn at most once per check interval.
 
@@ -531,6 +534,8 @@ The notify segment has two forms:
 
 - **Compact** (`⬆ v1.2.0`) the rest of the day.
 - **Expanded** for ~5 minutes after each check: `⬆ v1.2.0 · run: claude-statusline update · disable: [update] in config.toml`. The disclosure window is derived from the cache's `checked_at`, so no extra state is needed.
+
+After a self-update lands, the same segment shows `✓ updated to vX.Y.Z` for ~5 minutes (read from `update-result.json`, written by the install path). It self-hides once the window passes or when the running binary's version doesn't match the recorded target, so a no-op `brew upgrade` or a stale record never confirms.
 
 Modes:
 
