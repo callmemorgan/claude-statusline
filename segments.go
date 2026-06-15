@@ -132,12 +132,26 @@ func renderVersion(ctx renderCtx) (string, bool) {
 // [update].mode is off, when the cache is missing, when the latest is not
 // strictly newer, or when the current version is not a clean release (dev,
 // +dirty, or Go pseudo-version). Two forms: expanded for ~5 min after each
-// check, compact the rest of the day.
+// check, compact the rest of the day. Before any of that, it shows a brief
+// "✓ updated to vX" confirmation right after a self-update lands.
 func renderUpdate(ctx renderCtx) (string, bool) {
+	cur, _, _ := versionString()
+	// Confirmation comes first, before the mode==off guard: a manual
+	// `update` should still confirm even when auto-update is disabled. Show
+	// only when the running binary IS the one the update targeted (so a
+	// no-op brew upgrade or stale record can't fire) and we're inside the
+	// window. The elapsed >= 0 guard mirrors the spawn gate against a future
+	// timestamp pinning the message on screen.
+	if res, ok := loadUpdateResult(); ok && res.To == cur && cur != "" {
+		elapsed := ctx.Now.Unix() - res.At
+		if elapsed >= 0 && elapsed < int64(expandedWindow.Seconds()) {
+			return ctx.C.ROK + "✓ updated to v" + res.To + ctx.C.Rst, true
+		}
+	}
+
 	if ctx.Cfg.Update.mode() == "off" {
 		return "", false
 	}
-	cur, _, _ := versionString()
 	// isReleaseVersion's ^N.N.N$ regex already rejects "dev", "+dirty", and
 	// pseudo-versions, so this single guard covers every non-release shape.
 	if !isReleaseVersion(cur) {

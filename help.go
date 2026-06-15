@@ -30,6 +30,8 @@ Commands:
   update       Check for a new release and install it. Foreground,
                honors the same safety rails as the background worker.
                Flags: --check (resolve + report only, never install).
+               Subcommand: verify (check the latest release's signature
+               against the embedded key, then exit; installs nothing).
   help         Show this message.
   (none)       Read the JSON payload from stdin and print the statusline —
                this is how Claude Code invokes the binary.

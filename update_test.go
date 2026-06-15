@@ -1037,6 +1037,17 @@ func TestVerifyChecksumsSig(t *testing.T) {
 	if err := verifyChecksumsSigReal(blob, good); err != nil {
 		t.Errorf("valid signature should verify: %v", err)
 	}
+
+	// Legacy cosign bundle shape: the same signature under top-level
+	// base64Signature must also verify (the format CI may emit depending on the
+	// resolved cosign version).
+	legacy := []byte(`{"base64Signature":"` + base64.StdEncoding.EncodeToString(sig) + `","rekorBundle":{}}`)
+	if err := verifyChecksumsSigReal(blob, legacy); err != nil {
+		t.Errorf("legacy base64Signature bundle should verify: %v", err)
+	}
+	if err := verifyChecksumsSigReal([]byte("tampered"), legacy); err == nil {
+		t.Error("legacy bundle over tampered blob should be rejected")
+	}
 	if err := verifyChecksumsSigReal([]byte("tampered checksums"), good); err == nil {
 		t.Error("tampered blob should be rejected")
 	}
@@ -1149,5 +1160,134 @@ func TestPreCleanExeStagingStaleOnly(t *testing.T) {
 	}
 	if _, err := os.Stat(stale); err == nil {
 		t.Error("stale swap file should be reaped")
+	}
+}
+
+// ─── update-result instrumentation + verify subcommand ────────────────
+
+func TestUpdateResultRoundTrip(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	if _, ok := loadUpdateResult(); ok {
+		t.Error("no file should load as !ok")
+	}
+
+	recordUpdateResult("1.2.0", "1.2.1", "swap", true)
+	got, ok := loadUpdateResult()
+	if !ok {
+		t.Fatal("recorded result should load")
+	}
+	if got.From != "1.2.0" || got.To != "1.2.1" || got.Method != "swap" || !got.Verified {
+		t.Errorf("round-trip mismatch: %+v", got)
+	}
+	if got.At <= 0 {
+		t.Errorf("At should be stamped, got %d", got.At)
+	}
+}
+
+// TestRenderUpdateConfirmation covers the post-update "✓ updated" branch added
+// before the available-notice logic.
+func TestRenderUpdateConfirmation(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	initUpdateSegment()
+	withTestVersion(t, "1.2.1")
+	now := time.Unix(1750000000, 0)
+	c := palette{ROK: "", Rst: ""}
+
+	// Result targets the running version, recorded just now → confirmation shows.
+	_ = saveUpdateResult(updateResult{From: "1.2.0", To: "1.2.1", Method: "swap", Verified: true, At: now.Unix()})
+	got, show := renderUpdate(renderCtx{Now: now, C: c})
+	if !show || !strings.Contains(got, "✓ updated to v1.2.1") {
+		t.Errorf("fresh matching result should confirm, got %q show=%v", got, show)
+	}
+	// Confirmation precedes the mode==off guard (a manual update still confirms).
+	if _, show := renderUpdate(renderCtx{Now: now, C: c, Cfg: config{Update: updateConfig{Mode: "off"}}}); !show {
+		t.Error("confirmation should show even with mode=off")
+	}
+
+	// Expired window → falls through (no update.json cache → hidden).
+	if got, show := renderUpdate(renderCtx{Now: now.Add(10 * time.Minute), C: c}); show {
+		t.Errorf("expired confirmation should not show, got %q", got)
+	}
+
+	// Result targets a different version (e.g. brew no-op / stale) → no confirm.
+	_ = saveUpdateResult(updateResult{From: "1.2.0", To: "9.9.9", Method: "brew", At: now.Unix()})
+	if got, show := renderUpdate(renderCtx{Now: now, C: c}); show {
+		t.Errorf("non-matching To should not confirm, got %q", got)
+	}
+
+	// Future At (clock skew) → guarded, no confirm.
+	_ = saveUpdateResult(updateResult{From: "1.2.0", To: "1.2.1", Method: "swap", At: now.Add(time.Hour).Unix()})
+	if got, show := renderUpdate(renderCtx{Now: now, C: c}); show {
+		t.Errorf("future At should be guarded, got %q", got)
+	}
+}
+
+func TestCosignKeyFingerprint(t *testing.T) {
+	fp := cosignKeyFingerprint()
+	if len(fp) != 64 {
+		t.Errorf("fingerprint should be a 64-hex sha256, got %q (len %d)", fp, len(fp))
+	}
+	if fp != cosignKeyFingerprint() {
+		t.Error("fingerprint should be stable")
+	}
+}
+
+func TestRunUpdateVerify(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+
+	oldResolve := resolveLatestTagFn
+	oldSums := fetchChecksumsFn
+	oldBundle := fetchChecksumsBundleFn
+	oldSig := verifyChecksumsSig
+	oldExit := osExit
+	t.Cleanup(func() {
+		resolveLatestTagFn = oldResolve
+		fetchChecksumsFn = oldSums
+		fetchChecksumsBundleFn = oldBundle
+		verifyChecksumsSig = oldSig
+		osExit = oldExit
+	})
+
+	resolveLatestTagFn = func() (string, error) { return "1.2.3", nil }
+	fetchChecksumsFn = func(dir, url string) (string, error) {
+		p := filepath.Join(dir, "checksums.txt")
+		return p, os.WriteFile(p, []byte("hash  asset\n"), 0o644)
+	}
+	fetchChecksumsBundleFn = func(dir, url string) (string, error) {
+		p := filepath.Join(dir, "checksums.txt.bundle")
+		return p, os.WriteFile(p, []byte("{}"), 0o644)
+	}
+
+	exitCode := -1
+	osExit = func(c int) { exitCode = c; panic("exit") }
+	run := func() {
+		defer func() { recover() }()
+		runUpdateVerify()
+	}
+
+	// Valid signature → no exit.
+	verifyChecksumsSig = func(blob, bundle []byte) error { return nil }
+	exitCode = -1
+	run()
+	if exitCode != -1 {
+		t.Errorf("valid signature should not exit, got code %d", exitCode)
+	}
+
+	// Invalid signature → fail closed (exit 1).
+	verifyChecksumsSig = func(blob, bundle []byte) error { return errors.New("bad") }
+	exitCode = -1
+	run()
+	if exitCode != 1 {
+		t.Errorf("invalid signature should exit 1, got %d", exitCode)
+	}
+
+	// Resolve failure → exit 1.
+	verifyChecksumsSig = func(blob, bundle []byte) error { return nil }
+	resolveLatestTagFn = func() (string, error) { return "", errors.New("net down") }
+	exitCode = -1
+	run()
+	if exitCode != 1 {
+		t.Errorf("resolve failure should exit 1, got %d", exitCode)
 	}
 }

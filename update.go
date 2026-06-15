@@ -117,6 +117,59 @@ func saveUpdateCheck(c updateCheck) error {
 	return writeFileAtomic(updateCheckPath(), data)
 }
 
+// updateResult records the outcome of the last completed update so the next
+// invocation (the freshly-installed binary) can show a brief confirmation. The
+// running binary that performed the update writes this; the new binary reads it
+// and confirms only when its own version matches To (see renderUpdate).
+type updateResult struct {
+	From     string `json:"from"`
+	To       string `json:"to"`
+	Method   string `json:"method"`   // "swap" | "brew"
+	Verified bool   `json:"verified"` // true only when our embedded-key check gated the install
+	At       int64  `json:"at"`       // unix seconds
+}
+
+// updateResultPath is a sibling of update.json inside the state dir.
+func updateResultPath() string {
+	return filepath.Join(stateBaseDir(), "update-result.json")
+}
+
+func loadUpdateResult() (updateResult, bool) {
+	data, err := os.ReadFile(updateResultPath())
+	if err != nil {
+		return updateResult{}, false
+	}
+	var r updateResult
+	if err := json.Unmarshal(data, &r); err != nil {
+		return updateResult{}, false
+	}
+	return r, true
+}
+
+func saveUpdateResult(r updateResult) error {
+	if err := os.MkdirAll(stateBaseDir(), 0o755); err != nil {
+		return err
+	}
+	data, err := json.Marshal(r)
+	if err != nil {
+		return err
+	}
+	return writeFileAtomic(updateResultPath(), data)
+}
+
+// recordUpdateResult stamps the current time and persists the outcome. Called
+// only on the worker/foreground install paths (never the render path), so the
+// time.Now() is safe. Best-effort: a write failure just means no confirmation.
+func recordUpdateResult(from, to, method string, verified bool) {
+	_ = saveUpdateResult(updateResult{
+		From:     from,
+		To:       to,
+		Method:   method,
+		Verified: verified,
+		At:       time.Now().Unix(),
+	})
+}
+
 // detectInstallKind classifies the running binary. Pure on its inputs
 // (exePath is the resolved path; "" + version "dev" → kindDev without any
 // filesystem call) so the table test needs no real symlinks. The caller
@@ -308,8 +361,12 @@ const updateStaleLockTolerance = updateBrewTimeout + 2*time.Minute
 func runUpdate(args []string) {
 	checkOnly := false
 	for _, a := range args {
-		if a == "--check" {
+		switch a {
+		case "--check":
 			checkOnly = true
+		case "verify", "--verify":
+			runUpdateVerify()
+			return
 		}
 	}
 
@@ -382,6 +439,9 @@ func runUpdateFor(args []string, checkOnly bool, current string, kind installKin
 			osExit(1)
 			return
 		}
+		// Verified=false: Homebrew runs its own bottle integrity check; our
+		// embedded-key cosign verifier doesn't gate this path.
+		recordUpdateResult(current, latest, "brew", false)
 	case kindManual:
 		if err := downloadAndSwapFn(latest, current); err != nil {
 			releaseLock()
@@ -391,6 +451,71 @@ func runUpdateFor(args []string, checkOnly bool, current string, kind installKin
 		}
 		fmt.Printf("Updated v%s → v%s. Run `claude-statusline release-notes` to see what changed.\n", current, latest)
 	}
+}
+
+// runUpdateVerify fetches the latest release's checksums.txt and its cosign
+// bundle and checks the signature against the embedded public key — the same
+// in-process verification the self-swap path runs, exposed on demand. Installs
+// nothing and reads nothing local; fails closed (exit 1) on any error, matching
+// the install path.
+func runUpdateVerify() {
+	tag, err := resolveLatestTagFn()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claude-statusline update verify: could not resolve latest release: %v\n", err)
+		osExit(1)
+		return
+	}
+	dir, err := newStagingDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claude-statusline update verify: staging dir: %v\n", err)
+		osExit(1)
+		return
+	}
+	defer os.RemoveAll(dir)
+
+	sumsPath, err := fetchChecksumsFn(dir, checksumsURL(tag))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claude-statusline update verify: download checksums: %v\n", err)
+		osExit(1)
+		return
+	}
+	sums, err := os.ReadFile(sumsPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claude-statusline update verify: read checksums: %v\n", err)
+		osExit(1)
+		return
+	}
+	bundlePath, err := fetchChecksumsBundleFn(dir, checksumsBundleURL(tag))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claude-statusline update verify: download signature: %v\n", err)
+		osExit(1)
+		return
+	}
+	bundle, err := os.ReadFile(bundlePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claude-statusline update verify: read signature: %v\n", err)
+		osExit(1)
+		return
+	}
+	if err := verifyChecksumsSig(sums, bundle); err != nil {
+		fmt.Fprintf(os.Stderr, "claude-statusline update verify: signature INVALID for v%s: %v\n", tag, err)
+		osExit(1)
+		return
+	}
+	fmt.Printf("✓ checksums.txt for v%s verified against the embedded release key.\n", tag)
+	fmt.Printf("  key fingerprint (sha256): %s\n", cosignKeyFingerprint())
+}
+
+// cosignKeyFingerprint returns the sha256 of the embedded public key's DER
+// bytes as hex — a stable identifier for the release-signing key, shown by
+// `update verify`. Returns "" if the embedded key can't be decoded.
+func cosignKeyFingerprint() string {
+	blk, _ := pem.Decode(cosignPubPEM)
+	if blk == nil {
+		return ""
+	}
+	sum := sha256.Sum256(blk.Bytes)
+	return hex.EncodeToString(sum[:])
 }
 
 // ─── Worker: tag resolution, brew upgrade, self-swap ──────────────────
@@ -612,15 +737,22 @@ func verifyChecksum(dir, path, name, tag string) error {
 	return nil
 }
 
-// verifyChecksumsSigReal verifies that bundleJSON (a cosign signing bundle, the
-// offline key-based form) is a valid signature over blob, using the embedded
-// release public key. It parses only the messageSignature — no Rekor tlog, no
-// timestamps, no cert chain — and checks ecdsa(P-256) over sha256(blob).
+// verifyChecksumsSigReal verifies that bundleJSON (a cosign signing bundle) is a
+// valid signature over blob, using the embedded release public key. It checks
+// ecdsa(P-256) over sha256(blob) — no Rekor tlog, no timestamps, no cert chain.
+//
+// cosign's --bundle output carries the signature under different keys depending
+// on the cosign version: the newer sigstore bundle nests it under
+// messageSignature.signature, while the legacy cosign bundle puts it under the
+// top-level base64Signature. The signature bytes are identical (base64 ASN.1-DER
+// ECDSA), so we accept whichever field is present. This makes the verifier
+// robust to the cosign-version drift that decides the format in CI.
 func verifyChecksumsSigReal(blob, bundleJSON []byte) error {
 	if checksumsVerifyKey == nil {
 		return errors.New("no embedded verification key")
 	}
 	var b struct {
+		Base64Signature  string `json:"base64Signature"`
 		MessageSignature struct {
 			Signature string `json:"signature"`
 		} `json:"messageSignature"`
@@ -628,10 +760,14 @@ func verifyChecksumsSigReal(blob, bundleJSON []byte) error {
 	if err := json.Unmarshal(bundleJSON, &b); err != nil {
 		return fmt.Errorf("parse bundle: %w", err)
 	}
-	if b.MessageSignature.Signature == "" {
-		return errors.New("bundle has no message signature")
+	sigB64 := b.MessageSignature.Signature
+	if sigB64 == "" {
+		sigB64 = b.Base64Signature
 	}
-	sig, err := base64.StdEncoding.DecodeString(b.MessageSignature.Signature)
+	if sigB64 == "" {
+		return errors.New("bundle has no signature (neither messageSignature nor base64Signature)")
+	}
+	sig, err := base64.StdEncoding.DecodeString(sigB64)
 	if err != nil {
 		return fmt.Errorf("decode signature: %w", err)
 	}
@@ -901,7 +1037,6 @@ var brewRunner = func(brewPath string, live bool, timeout time.Duration) ([]stri
 // verify checksum, extract, smoke-test, then atomically swap. Used by both
 // the worker (silent) and the foreground `update` subcommand (loud).
 func downloadAndSwap(latest, current string) error {
-	_ = current // unused; kept for signature parity with downloadAndSwapFn.
 	want := assetName(runtime.GOOS, runtime.GOARCH)
 	if !strings.HasSuffix(want, ".tar.gz") && !strings.HasSuffix(want, ".zip") {
 		return fmt.Errorf("asset name %q has unknown format", want)
@@ -941,6 +1076,8 @@ func downloadAndSwap(latest, current string) error {
 	if err := atomicSwap(exe, stagedPath); err != nil {
 		return fmt.Errorf("swap: %w", err)
 	}
+	// Verified=true: the cosign signature over checksums.txt gated this install.
+	recordUpdateResult(current, latest, "swap", true)
 	return nil
 }
 
@@ -1115,7 +1252,10 @@ func runUpdateCheck() {
 		}
 		// Brew upgrade is slow; the runner discards output. Failure is
 		// silent — the next interval retries.
-		_, _ = brewRunner(brewPath, false, updateBrewTimeout)
+		if _, err := brewRunner(brewPath, false, updateBrewTimeout); err == nil {
+			// Verified=false: Homebrew does its own integrity check.
+			recordUpdateResult(current, latest, "brew", false)
+		}
 	case kindManual:
 		_ = downloadAndSwapFn(latest, current)
 	}

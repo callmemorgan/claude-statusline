@@ -38,22 +38,23 @@ checksum:
 
 # Key-based cosign signature over checksums.txt only. The binary embeds the
 # matching public key (cosign.pub) and verifies this bundle in-process before
-# trusting any digest, so the self-update path needs no cosign at runtime — the
-# in-process verifier reads only bundle.messageSignature (it ignores the Rekor
-# tlog entry cosign also records). Default flags only: the offline-bundle flags
-# drift across cosign versions (--use-signing-config landed after the pinned
-# v3.0.6; --tlog-upload=false needs a custom signing-config there), so we accept
-# cosign's default hashedrekord upload for cross-version stability.
+# trusting any digest, so the self-update path needs no cosign at runtime.
+#
+# scripts/sign-checksums.sh runs cosign, then NORMALIZES the bundle to the lean
+# {"messageSignature":{"signature":"<base64 DER ECDSA>"}} shape. cosign's own
+# --bundle output puts the signature under .base64Signature (legacy bundle) or
+# .messageSignature.signature (newer sigstore bundle) depending on the resolved
+# cosign version — a drift that has broken releases before. Normalizing makes the
+# published bundle byte-stable across cosign versions AND readable by the
+# already-deployed v1.2.0 verifier (which reads .messageSignature.signature).
+# The in-process verifier ignores the Rekor tlog entry cosign records.
 # Requires COSIGN_PRIVATE_KEY and COSIGN_PASSWORD in the release env.
 signs:
-  - cmd: cosign
+  - cmd: ./scripts/sign-checksums.sh
     signature: "${artifact}.bundle"
     args:
-      - sign-blob
-      - "--key=env://COSIGN_PRIVATE_KEY"
-      - "--bundle=${signature}"
       - "${artifact}"
-      - "--yes"
+      - "${signature}"
     artifacts: checksum
 
 brews:
