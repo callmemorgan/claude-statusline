@@ -549,7 +549,7 @@ mode = "notify"   # default: show segment only
 check_hours = 24  # 1..168, default 24
 ```
 
-`auto` mode **crosses MAJOR versions** — it's a one-way door that downloads, verifies the cosign signature on `checksums.txt` against the embedded public key, sha256-verifies the asset against it, smoke-tests the staged binary, and atomically swaps the on-disk exe. Homebrew installs run `brew upgrade claude-statusline` instead of touching the binary directly (Cellar bookkeeping fights self-swap). Failures are silent on the next interval retries; an invalid signature, a checksum mismatch, or a failed smoke-test leaves the old binary in place (it fails closed).
+`auto` mode **crosses MAJOR versions** — it's a one-way door that downloads, verifies the cosign signature on `checksums.txt` against the embedded public key, sha256-verifies the asset against it, smoke-tests the staged binary, and atomically swaps the on-disk exe. Homebrew installs run `brew upgrade claude-statusline` instead of touching the binary directly (Cellar bookkeeping fights self-swap); the tap's git checkout is refreshed first (a targeted `git pull`, not a global `brew update`) so brew sees the newly-published formula despite `HOMEBREW_NO_AUTO_UPDATE`. Failures are silent on the next interval retries; an invalid signature, a checksum mismatch, or a failed smoke-test leaves the old binary in place (it fails closed).
 
 `mode = "off"` is the right choice for air-gapped or centrally-managed deployments — it produces zero spawns and zero reads beyond the config.
 
