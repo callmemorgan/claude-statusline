@@ -36,7 +36,7 @@ config.toml → loadConfigWarn() ───────────┼→ buildSt
 state file  → loadState()/Record() ───────┘            └→ st.Save() after printing
 ```
 
-`buildStatusline` (render.go) iterates `cfg.Segments`, builds a `renderCtx` per segment (payload, override-applied palette, resolved settings, optional state, injected clock), groups results by line (1–9), then reflows (`cascade` spills across line boundaries; `group` wraps each logical line independently).
+`buildStatusline` (render.go) iterates `cfg.Segments`, builds a `renderCtx` per segment (payload, override-applied palette, resolved settings, optional state, injected clock), groups results by line (1–9), then reflows. Wrapping is **opt-in**: the default (`off`/`""`, via `buildStatuslineNoWrap` = cascade with no column budget) emits each logical line as-is and lets the terminal soft-wrap; `cascade` spills segments across line boundaries; `group` wraps each logical line independently.
 
 ### Key subsystems and their files
 

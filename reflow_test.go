@@ -64,6 +64,35 @@ func TestReflowCascadeNoColumns(t *testing.T) {
 	}
 }
 
+// TestReflowOptIn: wrapping is off by default. The default ("" / "off") output
+// is width-independent (no reflow), while an explicit mode wraps at a narrow
+// width.
+func TestReflowOptIn(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	p := loadPayload(t, "claude-full.json")
+	initSegments(nil)
+
+	for _, mode := range []string{"", "off"} {
+		cfg := defaultConfig()
+		cfg.Reflow = mode
+		wide := buildStatusline(buildInput{P: p, Cfg: cfg, Width: 0, Now: testNow})
+		narrow := buildStatusline(buildInput{P: p, Cfg: cfg, Width: 40, Now: testNow})
+		if strings.Join(wide, "\n") != strings.Join(narrow, "\n") {
+			t.Errorf("reflow %q must be width-independent (no wrapping)\nwidth0=%q\nwidth40=%q", mode, wide, narrow)
+		}
+	}
+
+	// Explicit cascade at a narrow width produces more physical lines than the
+	// no-wrap default — i.e. it actually wraps.
+	def := buildStatusline(buildInput{P: p, Cfg: defaultConfig(), Width: 40, Now: testNow})
+	casc := defaultConfig()
+	casc.Reflow = "cascade"
+	wrapped := buildStatusline(buildInput{P: p, Cfg: casc, Width: 40, Now: testNow})
+	if len(wrapped) <= len(def) {
+		t.Errorf("cascade should wrap to more lines than no-wrap default: default=%d cascade=%d", len(def), len(wrapped))
+	}
+}
+
 // TestReflowGroupKeepsLogicalLineBoundaries: group mode never mixes segments
 // from different logical lines onto one physical line.
 func TestReflowGroupKeepsLogicalLineBoundaries(t *testing.T) {

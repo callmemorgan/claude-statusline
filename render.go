@@ -142,11 +142,25 @@ func buildStatusline(in buildInput) []string {
 	}
 
 	st := styleFor(in.Cfg, in.C)
-	if in.Width > 0 && in.Cfg.Reflow == "group" {
+	switch {
+	case in.Width > 0 && in.Cfg.Reflow == "group":
 		return buildStatuslineGroup(parts, in.Width, st)
+	case in.Cfg.Reflow == "cascade":
+		return buildStatuslineCascade(parts, in.Width, st)
+	default:
+		// Default (and explicit "off"): line wrapping is opt-in. Emit each
+		// logical line as-is and let the terminal soft-wrap anything too wide,
+		// rather than reflowing segments across lines.
+		return buildStatuslineNoWrap(parts, st)
 	}
+}
 
-	return buildStatuslineCascade(parts, in.Width, st)
+// buildStatuslineNoWrap emits each logical line as-is with no width-based
+// reflow — the default. A line wider than the terminal is left for the terminal
+// to soft-wrap. Equivalent to cascade with no column budget (so its trailing
+// segments never spill); see TestReflowCascadeNoColumns.
+func buildStatuslineNoWrap(parts map[int][]string, st lineStyle) []string {
+	return buildStatuslineCascade(parts, 0, st)
 }
 
 // buildStatuslineCascade is the original reflow behaviour: segments spill

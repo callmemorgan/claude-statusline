@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.2.4 — 2026-06-14
+- **Line wrapping is now opt-in.** The default `reflow` is `"off"`: a line wider than the terminal is left as-is for the terminal to soft-wrap, instead of reflowing segments across physical lines. Set `reflow = "cascade"` (greedy spill) or `reflow = "group"` (each logical line wraps independently) to opt back in. Only affects narrow terminals; output that already fit is unchanged.
+
 ## v1.2.3 — 2026-06-14
 - **Fix: Homebrew updates now pick up new releases.** `brew upgrade` runs with `HOMEBREW_NO_AUTO_UPDATE=1` (to stay fast), which meant a stale local tap made it report "already installed" against an old formula — so `claude-statusline update` on a Homebrew install could never actually upgrade even when the segment showed a newer version available. The brew path now refreshes just our tap (`git pull` on its checkout) before upgrading, keeping it fast while letting brew see the published release. (Note: this self-heals from v1.2.3 onward — the first hop onto v1.2.3 still needs a one-time `brew update`/tap refresh.)
 

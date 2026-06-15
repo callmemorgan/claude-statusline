@@ -15,7 +15,7 @@ func buildHelpText() string {
 	b.WriteString("[yellow::b]claude-statusline configure[-::-]\n\n")
 	b.WriteString("Segments are the building blocks of the statusline. Toggle them on or\n")
 	b.WriteString("off, assign them to lines 1-9, recolor them, and tune per-segment\n")
-	b.WriteString("settings in the flyout (o). The preview reflows live at your terminal\n")
+	b.WriteString("settings in the flyout (o). The preview renders live at your terminal\n")
 	b.WriteString("width. Nothing touches disk until you press s — changes save to\n")
 	b.WriteString(fmt.Sprintf("[green]%s[-].\n", configPath()))
 

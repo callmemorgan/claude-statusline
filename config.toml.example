@@ -14,10 +14,11 @@ theme = "classic"
 #   auto | truecolor | 256 | 16 | none
 #color_depth = "auto"
 
-# reflow: how segments wrap on narrow terminals.
-#   "cascade" (default) — segments spill greedily across line boundaries
-#   "group"             — each logical line wraps independently
-reflow = "group"
+# reflow: how segments wrap on narrow terminals. Wrapping is opt-in.
+#   "off" (default) — no wrapping; long lines are left for the terminal to soft-wrap
+#   "cascade"       — segments spill greedily across line boundaries
+#   "group"         — each logical line wraps independently
+#reflow = "cascade"
 
 # preset: named layout used only when `segments` is absent.
 #   classic | minimal | zen | cost-tracker | git-focus | vim-coder |
