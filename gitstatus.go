@@ -159,3 +159,101 @@ func gitStatusFor(dir string, ttl, timeout time.Duration, now time.Time) (gitSta
 	saveGitCache(cache, now)
 	return info, true
 }
+
+// ─── Git Stash Count (opt-in) ────────────────────────────────────────
+//
+// A separate cached counter mirroring gitStatusFor: at most one bounded `git`
+// exec per TTL window per repo root, with fallback to the last cached value on
+// error. Kept in its own cache file so enabling both the git-stash and the rich
+// git-branch segments never costs two uncached execs per render.
+
+type gitStashInfo struct {
+	TS    int64 `json:"ts"`
+	Count int   `json:"count"`
+}
+
+func gitStashCachePath() string {
+	return filepath.Join(gitCacheDir(), "git-stash.json")
+}
+
+// runGitStashCmd counts stash entries. `git rev-list --walk-reflogs --count
+// refs/stash` prints a single integer; it exits non-zero when no stash ref
+// exists, which gitStashFor treats as zero. A var so tests can stub it.
+var runGitStashCmd = func(root string, timeout time.Duration) (int, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "rev-list", "--walk-reflogs", "--count", "refs/stash")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(out)))
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+func loadGitStashCache() map[string]gitStashInfo {
+	data, err := os.ReadFile(gitStashCachePath())
+	if err != nil {
+		return map[string]gitStashInfo{}
+	}
+	cache := map[string]gitStashInfo{}
+	if err := json.Unmarshal(data, &cache); err != nil {
+		return map[string]gitStashInfo{}
+	}
+	return cache
+}
+
+func saveGitStashCache(cache map[string]gitStashInfo, now time.Time) {
+	cutoff := now.Add(-24 * time.Hour).Unix()
+	for k, v := range cache {
+		if v.TS < cutoff {
+			delete(cache, k)
+		}
+	}
+	if err := os.MkdirAll(gitCacheDir(), 0o755); err != nil {
+		return
+	}
+	data, err := json.Marshal(cache)
+	if err != nil {
+		return
+	}
+	_ = writeFileAtomic(gitStashCachePath(), data)
+}
+
+// gitStashPreview, when non-nil, short-circuits gitStashFor so the configure
+// TUI can demonstrate the stash count without the sample payload pointing at a
+// real repo. Never set on the render path.
+var gitStashPreview *int
+
+// gitStashFor returns the stash count for the repo containing dir, cached like
+// gitStatusFor. A missing stash ref (git exits non-zero) is treated as zero and
+// cached, so a repo that has never stashed doesn't re-exec every render. A
+// stale cached value beats nothing on a transient error.
+func gitStashFor(dir string, ttl, timeout time.Duration, now time.Time) (int, bool) {
+	if gitStashPreview != nil {
+		return *gitStashPreview, true
+	}
+	root := repoRoot(dir)
+	if root == "" {
+		return 0, false
+	}
+	cache := loadGitStashCache()
+	cached, hasCached := cache[root]
+	if hasCached && now.Unix()-cached.TS < int64(ttl/time.Second) {
+		return cached.Count, true
+	}
+	n, err := runGitStashCmd(root, timeout)
+	if err != nil {
+		if hasCached {
+			return cached.Count, true // stale beats nothing
+		}
+		n = 0 // no stash ref (or git unavailable) → zero
+	}
+	cache[root] = gitStashInfo{TS: now.Unix(), Count: n}
+	saveGitStashCache(cache, now)
+	return n, true
+}

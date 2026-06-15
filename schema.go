@@ -167,6 +167,13 @@ func gitBranchSettingSpecs() []settingSpec {
 	}
 }
 
+func gitStashSettingSpecs() []settingSpec {
+	return []settingSpec{
+		{Key: "git_stash_ttl_sec", Name: "Cache TTL (s)", Desc: "Seconds a stash count is reused before running git again", Kind: kindInt, Default: 10, Min: 1, Max: 300, Step: 5},
+		{Key: "git_timeout_ms", Name: "Timeout (ms)", Desc: "Hard limit on a single stash-count run; on timeout the last cached value is shown", Kind: kindInt, Default: 150, Min: 50, Max: 2000, Step: 50},
+	}
+}
+
 // barSettingSpecs generates the shared schema for progress-bar segments.
 // countdown/warning toggle the segment-specific extras; extra specs slot in
 // before the ephemeral rows; syncToAll appends the "copy to all bars" action.

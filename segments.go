@@ -82,6 +82,20 @@ func renderGitBranch(ctx renderCtx) (string, bool) {
 	return ctx.C.Git + display + ctx.C.Rst, true
 }
 
+// renderGitStash shows the git stash count (⚑N). Self-hides when not in a repo,
+// when there are no stashes, or on git error with no cached value. Runs a
+// bounded, cached `git rev-list` like the rich git-branch status.
+func renderGitStash(ctx renderCtx) (string, bool) {
+	currentDir := firstNonEmpty(ctx.P.Workspace.CurrentDir, ctx.P.Cwd, "~")
+	ttl := time.Duration(ctx.S.Int("git_stash_ttl_sec")) * time.Second
+	timeout := time.Duration(ctx.S.Int("git_timeout_ms")) * time.Millisecond
+	n, ok := gitStashFor(currentDir, ttl, timeout, ctx.Now)
+	if !ok || n == 0 {
+		return "", false
+	}
+	return ctx.C.Git + "⚑" + strconv.Itoa(n) + ctx.C.Rst, true
+}
+
 func renderLinesChanged(ctx renderCtx) (string, bool) {
 	if ctx.P.Cost.TotalLinesAdded == 0 && ctx.P.Cost.TotalLinesRemoved == 0 {
 		return "", false
@@ -398,6 +412,7 @@ func allSegmentInfos() []segmentInfo {
 		{id: "directory", line: 1, desc: "Current / project directory", primaryColor: "Dir", render: renderDirectory},
 		{id: "added-dirs", line: 1, desc: "Number of extra directories added with /add-dir", primaryColor: "Dim", render: renderAddedDirs},
 		{id: "git-branch", line: 1, desc: "Git branch and worktree name, with optional dirty marker and ahead/behind counts", primaryColor: "Git", settings: gitBranchSettingSpecs(), render: renderGitBranch},
+		{id: "git-stash", line: 1, desc: "Git stash count (⚑N), hidden when there are no stashes", primaryColor: "Git", settings: gitStashSettingSpecs(), render: renderGitStash},
 		{id: "artifact-count", line: 1, desc: "Artifact count", primaryColor: "Chg", render: renderArtifactCount},
 		{id: "lines-changed", line: 1, desc: "All lines added / removed by the agent in the session", primaryColor: "Chg", render: renderLinesChanged},
 		{id: "cache-percent", line: 1, desc: "Cache read percentage", primaryColor: "Dim", render: renderCachePercent},

@@ -75,6 +75,7 @@ Line 1 segments — Session & workspace:
   added-dirs    Count of /add-dir directories +2 dirs (Claude Code only)
   git-branch    Git branch and worktree; optional dirty marker and
                 ahead/behind counts, e.g. main* ↑1↓2 (both)
+  git-stash     Git stash count ⚑N, hidden at zero; off by default (both)
   artifact-count  Number of artifacts (agy only)
   lines-changed   Lines added/removed in the session +N/-M (Claude Code only)
   cache-percent   Cache read percentage (Claude Code only)

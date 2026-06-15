@@ -89,6 +89,10 @@ iconset = "smooth"
 #[settings.git-branch]
 #git_status = true
 
+# Git stash count (⚑N) is an opt-in segment — add "git-stash" to segments above:
+#[settings.git-stash]
+#git_stash_ttl_sec = 10
+
 # Session history store — powers $/h burn rates, →NN% rate-limit projections,
 # and the context growth trend. Files live under
 # ${XDG_STATE_HOME:-~/.local/state}/claude-statusline/sessions/.

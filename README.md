@@ -129,6 +129,7 @@ Segments that receive no data from the active tool hide themselves automatically
 | `directory` | 1 | both | Current / project directory. Shows `project→subdir` when inside a project subdirectory |
 | `added-dirs` | 1 | Claude Code | Count of extra directories added with `/add-dir`, e.g. `+2 dirs` |
 | `git-branch` | 1 | both | Git branch and worktree name. Optional rich status (settings): dirty marker and ahead/behind counts, e.g. `main* ↑1↓2` |
+| `git-stash` | 1 | both | Git stash count (`⚑N`), hidden when there are no stashes. Off by default (runs a cached, bounded `git`); add it in `configure` |
 | `artifact-count` | 1 | agy | Number of generated artifacts |
 | `lines-changed` | 1 | Claude Code | Session cumulative lines added/removed, e.g. `+128/-45` |
 | `cache-percent` | 1 | Claude Code | Cache read percentage from `context_window.current_usage` |
@@ -288,6 +289,7 @@ retention_hours = 48
   - context trend: `show_trend`, `compact_at`
   - `cost-rate`: `window_min`
   - `git-branch`: `git_status` (off by default), `git_status_ttl_sec`, `git_timeout_ms`
+  - `git-stash`: `git_stash_ttl_sec`, `git_timeout_ms`
 - `reflow` — `"cascade"` (default: segments spill greedily across line boundaries) or `"group"` (each logical line wraps independently).
 - Invalid values never break rendering — they're normalized with warnings, visible in `debug` output and the TUI.
 

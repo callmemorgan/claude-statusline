@@ -99,6 +99,9 @@ func runConfigure() {
 	pvState := previewState(time.Now())
 	gitStatusPreview = &gitStatusInfo{Dirty: true, Ahead: 1, Behind: 2}
 	defer func() { gitStatusPreview = nil }()
+	stashPreview := 3
+	gitStashPreview = &stashPreview
+	defer func() { gitStashPreview = nil }()
 
 	// demoActive animates the whole preview through all states (d). Session-
 	// only, like the per-segment stress test.

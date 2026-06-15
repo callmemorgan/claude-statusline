@@ -184,3 +184,123 @@ func TestGitStatusRealRepo(t *testing.T) {
 		t.Errorf("dirty repo: %+v ok=%v", info, ok)
 	}
 }
+
+// ─── git-stash ────────────────────────────────────────────────────────
+
+func stubGitStash(t *testing.T, fn func(root string, timeout time.Duration) (int, error)) *int {
+	t.Helper()
+	calls := 0
+	orig := runGitStashCmd
+	runGitStashCmd = func(root string, timeout time.Duration) (int, error) {
+		calls++
+		return fn(root, timeout)
+	}
+	t.Cleanup(func() { runGitStashCmd = orig })
+	return &calls
+}
+
+func TestGitStashCacheTTL(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	root := fakeRepo(t)
+	now := time.Unix(1750000000, 0)
+	calls := stubGitStash(t, func(string, time.Duration) (int, error) { return 3, nil })
+
+	if n, ok := gitStashFor(root, 10*time.Second, time.Second, now); !ok || n != 3 {
+		t.Fatalf("first call: n=%d ok=%v", n, ok)
+	}
+	// Within TTL: served from cache, no exec.
+	if n, ok := gitStashFor(root, 10*time.Second, time.Second, now.Add(5*time.Second)); !ok || n != 3 {
+		t.Fatalf("cached read: n=%d ok=%v", n, ok)
+	}
+	if *calls != 1 {
+		t.Errorf("expected 1 git exec, got %d", *calls)
+	}
+	// Past TTL: refreshed.
+	if _, ok := gitStashFor(root, 10*time.Second, time.Second, now.Add(30*time.Second)); !ok {
+		t.Fatal("refresh failed")
+	}
+	if *calls != 2 {
+		t.Errorf("expected 2 git execs, got %d", *calls)
+	}
+}
+
+func TestGitStashNoRefIsZero(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	root := fakeRepo(t)
+	now := time.Unix(1750000000, 0)
+	// git rev-list refs/stash exits non-zero when no stash ref exists.
+	calls := stubGitStash(t, func(string, time.Duration) (int, error) {
+		return 0, errors.New("fatal: ambiguous argument 'refs/stash'")
+	})
+
+	n, ok := gitStashFor(root, 10*time.Second, time.Second, now)
+	if !ok || n != 0 {
+		t.Errorf("no stash ref should be zero: n=%d ok=%v", n, ok)
+	}
+	// Result is cached, so a repo that never stashed doesn't re-exec every render.
+	if _, _ = gitStashFor(root, 10*time.Second, time.Second, now.Add(time.Second)); *calls != 1 {
+		t.Errorf("zero result should be cached, got %d execs", *calls)
+	}
+}
+
+func TestGitStashStaleFallbackOnError(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	root := fakeRepo(t)
+	now := time.Unix(1750000000, 0)
+	fail := false
+	stubGitStash(t, func(string, time.Duration) (int, error) {
+		if fail {
+			return 0, errors.New("timeout")
+		}
+		return 5, nil
+	})
+
+	if n, ok := gitStashFor(root, 10*time.Second, time.Second, now); !ok || n != 5 {
+		t.Fatalf("prime: n=%d ok=%v", n, ok)
+	}
+	fail = true
+	// Past TTL but git fails → stale cached count returned, not zero.
+	if n, ok := gitStashFor(root, 10*time.Second, time.Second, now.Add(time.Minute)); !ok || n != 5 {
+		t.Errorf("stale fallback missing: n=%d ok=%v", n, ok)
+	}
+}
+
+func TestGitStashNonRepo(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	calls := stubGitStash(t, func(string, time.Duration) (int, error) { return 0, nil })
+	if _, ok := gitStashFor(t.TempDir(), time.Second, time.Second, time.Now()); ok {
+		t.Error("non-repo dir should not report stash count")
+	}
+	if *calls != 0 {
+		t.Error("git must not run outside a repo")
+	}
+}
+
+func TestRenderGitStash(t *testing.T) {
+	initSegments(nil)
+	seg, ok := segmentByID("git-stash")
+	if !ok {
+		t.Fatal("no git-stash segment")
+	}
+	render := func() (string, bool) {
+		return seg.render(renderCtx{
+			P:   payload{Workspace: workspace{CurrentDir: "/whatever"}},
+			S:   settingsFor(config{}, seg),
+			C:   palette{Git: "", Rst: ""},
+			Now: time.Unix(1750000000, 0),
+		})
+	}
+
+	n := 3
+	gitStashPreview = &n
+	t.Cleanup(func() { gitStashPreview = nil })
+	out, show := render()
+	if !show || !strings.Contains(out, "⚑3") {
+		t.Errorf("count 3 should show ⚑3, got %q show=%v", out, show)
+	}
+
+	n = 0
+	if out, show := render(); show {
+		t.Errorf("zero stashes should hide, got %q", out)
+	}
+}
