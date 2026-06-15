@@ -640,11 +640,26 @@ func TestBrewBranch(t *testing.T) {
 	t.Cleanup(func() { findBrewExe = oldFind })
 	findBrewExe = func() string { return "/opt/homebrew/bin/brew" }
 
+	// Stub the tap refresh so the branch never shells out to brew/git, and
+	// track that it precedes the upgrade.
+	refreshed := 0
+	oldRefresh := refreshBrewTapFn
+	t.Cleanup(func() { refreshBrewTapFn = oldRefresh })
+	refreshBrewTapFn = func(brewPath string) {
+		if len(calls) != 0 {
+			t.Error("tap refresh must run before brew upgrade")
+		}
+		refreshed++
+	}
+
 	// Auto + brew → runs upgrade, no live output, with the right env.
 	calls = nil
 	env := driveWorkerBrew(t, kindBrew, "9.9.9", "1.0.0", updateConfig{Mode: "auto"})
 	if len(calls) != 1 {
 		t.Fatalf("auto+brew should run upgrade, got %d calls", len(calls))
+	}
+	if refreshed != 1 {
+		t.Errorf("auto+brew should refresh the tap once, got %d", refreshed)
 	}
 	if calls[0].brewPath != "/opt/homebrew/bin/brew" {
 		t.Errorf("brewPath = %q", calls[0].brewPath)
@@ -852,11 +867,16 @@ func TestUpdateSubcommand(t *testing.T) {
 	oldResolve := resolveLatestTagFn
 	oldSwap := downloadAndSwapFn
 	oldFind := findBrewExe
+	oldRefresh := refreshBrewTapFn
 	t.Cleanup(func() {
 		resolveLatestTagFn = oldResolve
 		downloadAndSwapFn = oldSwap
 		findBrewExe = oldFind
+		refreshBrewTapFn = oldRefresh
 	})
+	// Stub the tap refresh so the foreground brew branch never shells out.
+	refreshed := 0
+	refreshBrewTapFn = func(string) { refreshed++ }
 
 	swapCalls := []struct{ latest, current string }{}
 	downloadAndSwapFn = func(latest, current string) error {
@@ -903,12 +923,16 @@ func TestUpdateSubcommand(t *testing.T) {
 	swapCalls = nil
 	brewCalls = nil
 	findBrewExe = func() string { return "/opt/homebrew/bin/brew" }
+	refreshed = 0
 	runUpdateFor(nil, false, "1.0.0", kindBrew)
 	if len(swapCalls) != 0 {
 		t.Error("brew install should not call downloadAndSwap")
 	}
 	if len(brewCalls) != 1 {
 		t.Errorf("brew install should call brewRunner, got %d calls", len(brewCalls))
+	}
+	if refreshed != 1 {
+		t.Errorf("brew install should refresh the tap once, got %d", refreshed)
 	}
 	if brewCalls[0].timeout != 0 {
 		t.Errorf("foreground brew should have no timeout, got %v", brewCalls[0].timeout)
@@ -1000,6 +1024,7 @@ func driveWorkerBrew(t *testing.T, kind installKind, latest, current string, cfg
 	if brewPath == "" {
 		return nil
 	}
+	refreshBrewTapFn(brewPath)
 	env, _ := brewRunner(brewPath, false, updateBrewTimeout)
 	return env
 }

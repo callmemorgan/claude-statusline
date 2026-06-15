@@ -48,6 +48,12 @@ const (
 	updateRepoName  = "claude-statusline"
 )
 
+// updateBrewTap is the Homebrew tap hosting the formula (the "homebrew-"
+// prefix is implicit in tap names). The brew upgrade path refreshes this tap
+// before upgrading so brew sees newly-published formula versions even with
+// HOMEBREW_NO_AUTO_UPDATE set.
+const updateBrewTap = updateRepoOwner + "/tap"
+
 // cosignPubPEM is the release-signing public key, embedded at build time. The
 // release pipeline signs checksums.txt with the matching private key (held only
 // in CI secrets), and the self-swap path verifies that signature in-process
@@ -430,6 +436,9 @@ func runUpdateFor(args []string, checkOnly bool, current string, kind installKin
 			osExit(1)
 			return
 		}
+		// Refresh our tap first so brew sees a freshly-published formula
+		// despite HOMEBREW_NO_AUTO_UPDATE.
+		refreshBrewTapFn(brewPath)
 		// The subcommand path uses the same runner the worker uses (with
 		// live output) so tests can stub one seam for both call sites.
 		_, err := brewRunner(brewPath, true, 0)
@@ -1000,6 +1009,40 @@ func resolveBrew() string {
 // path via this package var. Mirrors spawnRefresher.
 var findBrewExe = resolveBrew
 
+// updateBrewTapTimeout bounds the pre-upgrade tap refresh.
+const updateBrewTapTimeout = 30 * time.Second
+
+// refreshBrewTap pulls the latest formula for our tap before `brew upgrade`.
+// Because the upgrade runs with HOMEBREW_NO_AUTO_UPDATE=1 (so brew doesn't
+// refresh every tap on the system), a stale local tap would make `brew upgrade`
+// report "already installed" against an outdated formula — exactly what hides a
+// freshly-published release. Refreshing just our tap's git checkout keeps the
+// upgrade fast while letting brew see the new version. Best-effort: any failure
+// (tap not a git checkout, offline, git missing) is non-fatal and the upgrade
+// still runs against whatever is cached.
+func refreshBrewTap(brewPath string) {
+	ctx, cancel := context.WithTimeout(context.Background(), updateBrewTapTimeout)
+	defer cancel()
+	// `brew --repository <tap>` prints the tap's local git checkout path,
+	// whether or not it is currently tapped.
+	out, err := exec.CommandContext(ctx, brewPath, "--repository", updateBrewTap).Output()
+	if err != nil {
+		return
+	}
+	repo := strings.TrimSpace(string(out))
+	if repo == "" {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git")); err != nil {
+		return // not a git checkout (e.g. API-only) — nothing to pull
+	}
+	_ = exec.CommandContext(ctx, "git", "-C", repo, "pull", "--ff-only", "--quiet").Run()
+}
+
+// refreshBrewTapFn is the test seam so the brew branches can be driven without
+// shelling out to brew/git.
+var refreshBrewTapFn = refreshBrewTap
+
 // brewRunner runs `brew upgrade claude-statusline` with rails that keep
 // the worker polite to the user's system. live=true streams output to the
 // caller's terminal; live=false discards it. timeout=0 means no timeout
@@ -1250,6 +1293,9 @@ func runUpdateCheck() {
 		if brewPath == "" {
 			return
 		}
+		// Refresh our tap first so brew sees a freshly-published formula
+		// despite HOMEBREW_NO_AUTO_UPDATE.
+		refreshBrewTapFn(brewPath)
 		// Brew upgrade is slow; the runner discards output. Failure is
 		// silent — the next interval retries.
 		if _, err := brewRunner(brewPath, false, updateBrewTimeout); err == nil {
