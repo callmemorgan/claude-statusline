@@ -212,7 +212,7 @@ dim = "245"       # xterm-256 index
 claude-statusline configure
 ```
 
-An interactive TUI: segment list (left), description panel (right), a **live preview that reflows at your real terminal width**, and a status strip showing the active theme/preset and unsaved-changes marker. The preview is fed synthetic session history and git status, so every feature — burn rates, projections, trends, rich git — is visible while you configure it. Nothing touches disk until you save.
+An interactive TUI: segment list (left), description panel (right), a **live preview at your real terminal width**, and a status strip showing the active theme/preset and unsaved-changes marker. The preview is fed synthetic session history and git status, so every feature — burn rates, projections, trends, rich git — is visible while you configure it. Nothing touches disk until you save.
 
 | Key | Action |
 |-----|--------|
@@ -227,7 +227,7 @@ An interactive TUI: segment list (left), description panel (right), a **live pre
 | `t` | Theme picker with live preview |
 | `p` | Preset picker with live preview |
 | `/` | Filter the segment list |
-| `w` | Cycle preview width (auto → 80 → 60 → 40) to test reflow |
+| `w` | Cycle preview width (auto → 80 → 60 → 40) to check the layout |
 | `d` | Demo mode — animate the whole preview: bars sweep, countdowns tick, cost grows |
 | `v` | Hide the TUI and render directly in your terminal — check the theme against your real colors and background |
 | `r` | Reset to defaults (asks first) |
@@ -290,7 +290,7 @@ retention_hours = 48
   - `cost-rate`: `window_min`
   - `git-branch`: `git_status` (off by default), `git_status_ttl_sec`, `git_timeout_ms`
   - `git-stash`: `git_stash_ttl_sec`, `git_timeout_ms`
-- `reflow` — `"cascade"` (default: segments spill greedily across line boundaries) or `"group"` (each logical line wraps independently).
+- `reflow` — line wrapping on narrow terminals is **opt-in**. `"off"` (default: no wrapping; a too-wide line is left for the terminal to soft-wrap), `"cascade"` (segments spill greedily across line boundaries), or `"group"` (each logical line wraps independently).
 - Invalid values never break rendering — they're normalized with warnings, visible in `debug` output and the TUI.
 
 ---

@@ -242,9 +242,9 @@ func mergeWithDefaults(loaded config) config {
 func validateConfig(cfg *config) []configWarning {
 	var warns []configWarning
 	switch cfg.Reflow {
-	case "", "cascade", "group":
+	case "", "off", "cascade", "group":
 	default:
-		warns = append(warns, configWarning{Path: "reflow", Msg: fmt.Sprintf("%q is not cascade or group (ignored)", cfg.Reflow)})
+		warns = append(warns, configWarning{Path: "reflow", Msg: fmt.Sprintf("%q is not off, cascade, or group (ignored)", cfg.Reflow)})
 		cfg.Reflow = ""
 	}
 	if cfg.Preset != "" {
