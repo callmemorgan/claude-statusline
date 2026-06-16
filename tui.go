@@ -24,6 +24,13 @@ import (
 // on the cursor's segment. The Preview always renders REAL buildStatusline
 // output — the cursor is painted on top, never faked.
 
+// selectionBG is the high-contrast background for the selected row in TUI
+// lists (palette, flyout, theme/preset pickers). A truecolor RGB value (not a
+// 16-color ANSI name) so it renders identically across terminals and headless
+// capture, paired with white text — the highlighted row is meant to be the most
+// legible thing on screen, not the least.
+var selectionBG = tcell.NewRGBColor(58, 91, 219) // indigo (#3a5bdb)
+
 func effectiveLine(id string, cfg config) int {
 	if override, ok := cfg.Lines[id]; ok && override >= 1 {
 		return override
@@ -115,6 +122,11 @@ func runConfigure() {
 
 	// demoActive animates the whole preview through all states (d).
 	demoActive := false
+
+	// resizePreviewBox is wired up after the layout flex exists; refreshPreview
+	// calls it with the rendered line count so the preview pane stays just tall
+	// enough for the statusline (plus its border) rather than sprawling.
+	resizePreviewBox := func(int) {}
 
 	// dirty tracks unsaved changes; mutate is the single mutation funnel.
 	dirty := false
@@ -227,11 +239,15 @@ func runConfigure() {
 	// "add" surface.
 	var visible []segmentInfo
 
+	// The palette overlay is a single bordered box: a filter row, the list of
+	// off segments, then a help row. The list and filter carry no border of
+	// their own (the wrapping flex does), so the filter's "/" label can't leak
+	// above the box. Selection uses a bright background for contrast.
 	paletteList := tview.NewList().
 		SetHighlightFullLine(true).
-		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
+		SetSelectedBackgroundColor(selectionBG).
+		SetSelectedTextColor(tcell.ColorWhite).
 		ShowSecondaryText(true)
-	paletteList.SetBorder(true).SetTitle(" Add segment — enter insert · esc cancel ")
 
 	paletteFilter := tview.NewInputField().
 		SetLabel(" / ").
@@ -248,6 +264,8 @@ func runConfigure() {
 		AddItem(paletteFilter, 1, 0, false).
 		AddItem(paletteList, 0, 1, true).
 		AddItem(paletteHelp, 1, 0, false)
+	paletteFlex.SetBorder(true).
+		SetTitle(" Add segment — enter insert · esc cancel ")
 
 	// ─── Flyout Panel ────────────────────────────────────────────────────
 
@@ -257,7 +275,8 @@ func runConfigure() {
 
 	flyoutList := tview.NewList().
 		SetHighlightFullLine(true).
-		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
+		SetSelectedBackgroundColor(selectionBG).
+		SetSelectedTextColor(tcell.ColorWhite).
 		ShowSecondaryText(false)
 	flyoutList.SetBorder(true)
 
@@ -545,6 +564,7 @@ func runConfigure() {
 			previewText = "[gray](statusline hidden — no segments enabled · press [::b]a[::-] to add)[-]"
 		}
 		preview.SetText(previewText)
+		resizePreviewBox(len(rendered))
 
 		title := " Preview — direct edit "
 		if grabbing != "" {
@@ -597,7 +617,7 @@ func runConfigure() {
 			paletteList.SetCurrentItem(cur)
 		}
 		n := len(visible)
-		paletteList.SetTitle(fmt.Sprintf(" Add segment (%d off) — enter insert · esc cancel ", n))
+		paletteFlex.SetTitle(fmt.Sprintf(" Add segment (%d off) — enter insert · esc cancel ", n))
 	}
 
 	// insertSegmentAtCursor adds id to the render set, placing it on the
@@ -1394,26 +1414,41 @@ func runConfigure() {
 
 	// ─── Layout assembly ─────────────────────────────────────────────────
 	//
-	// The Preview is the primary, focused pane (top, weight 2); the Segment
-	// description sits beside it as a sidebar. The preview canvas grows to fill
-	// the terminal, making it the workspace rather than a footer.
-
-	topRow := tview.NewFlex().
-		SetDirection(tview.FlexColumn).
-		AddItem(previewBox, 0, 2, true).
-		AddItem(descView, 0, 1, false)
+	// The Preview is the primary editing surface, so it spans the FULL terminal
+	// width on top — the thing being edited must never be clipped by a sidebar.
+	// Its height is bounded to the rendered statusline (a few lines) plus a
+	// little breathing room, sized live in the before-draw hook; the Segment
+	// description fills the space below it. This keeps the preview from
+	// sprawling into a mostly-empty void while still letting the line render in
+	// full at the terminal's real width.
 
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
-		AddItem(topRow, 0, 1, true).
+		AddItem(previewBox, 5, 0, true).
+		AddItem(descView, 0, 1, false).
 		AddItem(statusStrip, 1, 0, false).
 		AddItem(help, 1, 0, false)
+
+	// Size the preview pane to the rendered statusline: lines + 2 for the
+	// border. Clamped to a sane band so an empty statusline still shows its
+	// title and a pathological many-line layout can't crowd out the
+	// description. The remaining vertical space flows to the description.
+	resizePreviewBox = func(lineCount int) {
+		h := lineCount + 2
+		if h < 3 {
+			h = 3
+		}
+		if h > 12 {
+			h = 12
+		}
+		flex.ResizeItem(previewBox, h, 0)
+	}
 
 	pages.AddPage("configure", flex, true, true)
 	pages.AddPage("help", helpView, true, false)
 	pages.AddPage("readme", readmeView, true, false)
 	pages.AddPage("flyout", flyoutFlex, true, false)
-	pages.AddPage("palette", floatPicker(paletteFlex, 60, 22), true, false)
+	pages.AddPage("palette", floatPicker(paletteFlex, 84, 24), true, false)
 
 	// Re-render the preview when the terminal (and so the panel) resizes — and
 	// grow the footers to however many rows their keys need at this width.
@@ -1544,9 +1579,13 @@ func paintCursorLine(line string, row []segSpan, curCol int, grabbing bool) stri
 	seg := sliceVisible(line, target.Col, target.Col+target.Width)
 	post := sliceVisible(line, target.Col+target.Width, -1)
 
-	hi := "[black:silver:b]"
+	// White text on a solid truecolor background — the cursor must be the most
+	// legible thing on the preview line. Indigo for the resting cursor, amber
+	// while grabbing, matching the list selection color elsewhere. Hex (not the
+	// 16-color names) so headless capture and real terminals agree.
+	hi := "[white:#3a5bdb:b]"
 	if grabbing {
-		hi = "[black:yellow:b]"
+		hi = "[black:#ffb000:b]"
 	}
 	var b strings.Builder
 	b.WriteString(ansiToTview(pre))
