@@ -56,10 +56,11 @@ func runMatrix(args []string) {
 			sc.Reflow = reflowOverride
 		}
 		lines := renderScenario(sc, cfg, c, now)
-		plainLines := renderScenario(sc, cfg, palette{}, now)
 
+		// scenarioFits measures visible width (ANSI stripped), so the colored
+		// render is measured exactly as a plain one would be — no second build.
 		fit := "fits"
-		if !scenarioFits(plainLines, sc.Width) {
+		if !scenarioFits(lines, sc.Width) {
 			fit = "OVERFLOWS (terminal would soft-wrap)"
 		}
 		fmt.Printf("── %s ──\n", sc.Name)

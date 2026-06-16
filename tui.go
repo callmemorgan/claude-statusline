@@ -564,23 +564,11 @@ func runConfigure() {
 
 		var b strings.Builder
 		for _, sc := range scs {
-			lines := buildStatusline(buildInput{
-				P:     sc.P,
-				C:     c,
-				Cfg:   withScenarioReflow(cfg, sc.Reflow),
-				State: sc.State,
-				Width: sc.Width,
-				Now:   now,
-			})
-			plainLines := buildStatusline(buildInput{
-				P:     sc.P,
-				C:     palette{},
-				Cfg:   withScenarioReflow(cfg, sc.Reflow),
-				State: sc.State,
-				Width: sc.Width,
-				Now:   now,
-			})
-			over := !scenarioFits(plainLines, sc.Width)
+			// Same builder as the live preview and the `matrix` subcommand.
+			// scenarioFits measures visible width (ANSI stripped), so the
+			// colored render is checked for overflow without a second build.
+			lines := renderScenario(sc, cfg, c, now)
+			over := !scenarioFits(lines, sc.Width)
 
 			// Pane header: a divider rule, then a bold title with a
 			// right-aligned fit badge, the note, and a compact stats line. The

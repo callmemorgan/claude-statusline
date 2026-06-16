@@ -33,10 +33,6 @@ type scenario struct {
 	Reflow string        // "", "off", "cascade", "group" — overrides cfg.Reflow
 }
 
-// scenarioReflow is the curated set of reflow modes the matrix can demonstrate.
-// "" means "use the config's own reflow as written".
-var scenarioReflowModes = []string{"", "off", "cascade", "group"}
-
 // ─── Payload builders ────────────────────────────────────────────────
 //
 // Each builder starts from samplePayload() (fully populated) and overrides the
@@ -233,6 +229,9 @@ func renderScenario(sc scenario, cfg config, c palette, now time.Time) []string 
 // fits within its width budget (the same lineBudget the runtime renderer uses).
 // A scenario with Width <= 0 always "fits" (no budget). Used by the matrix to
 // flag panes whose lines overflow and will be soft-wrapped by the terminal.
+//
+// It measures visibleWidth (ANSI stripped), so a colored render is checked
+// exactly as a color-free one would be — callers need not re-render in plain.
 func scenarioFits(lines []string, width int) bool {
 	if width <= 0 {
 		return true
@@ -243,45 +242,6 @@ func scenarioFits(lines []string, width int) bool {
 		}
 	}
 	return true
-}
-
-// scenarioSummaryLine is a compact, color-free one-line digest of a scenario's
-// render: "<name>: N lines, fits|OVER". Used by the `matrix` subcommand header
-// and by tests.
-func scenarioSummaryLine(sc scenario, lines []string) string {
-	fit := "fits"
-	if !scenarioFits(lines, sc.Width) {
-		fit = "OVER"
-	}
-	plural := "lines"
-	if len(lines) == 1 {
-		plural = "line"
-	}
-	return sc.Name + " — " + itoa(len(lines)) + " " + plural + ", " + fit
-}
-
-// itoa is a tiny strconv-free int→string for the summary helper (keeps the
-// import list minimal and matches the codebase's preference for small helpers).
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		b[i] = '-'
-	}
-	return string(b[i:])
 }
 
 // scenarioReflowLabel returns a human label for a scenario's reflow override,

@@ -201,27 +201,9 @@ func TestWithScenarioReflow(t *testing.T) {
 	}
 }
 
-// TestScenarioSummaryAndHelpers exercises the small pure helpers the subcommand
-// and tests share.
-func TestScenarioSummaryAndHelpers(t *testing.T) {
-	if itoa(0) != "0" || itoa(7) != "7" || itoa(42) != "42" || itoa(-13) != "-13" {
-		t.Errorf("itoa wrong: %q %q %q %q", itoa(0), itoa(7), itoa(42), itoa(-13))
-	}
-
-	sc := scenario{Name: "demo", Width: 200}
-	if got := scenarioSummaryLine(sc, []string{"a", "b"}); got != "demo — 2 lines, fits" {
-		t.Errorf("summary = %q", got)
-	}
-	if got := scenarioSummaryLine(sc, []string{"a"}); got != "demo — 1 line, fits" {
-		t.Errorf("singular summary = %q", got)
-	}
-	// An overflowing single line at a tiny width.
-	over := scenario{Name: "x", Width: 20}
-	long := strings.Repeat("x", 100)
-	if got := scenarioSummaryLine(over, []string{long}); !strings.HasSuffix(got, "OVER") {
-		t.Errorf("expected OVER summary, got %q", got)
-	}
-
+// TestJoinScenarioLines covers the subcommand/TUI line-joining helper, including
+// the all-segments-hidden placeholder.
+func TestJoinScenarioLines(t *testing.T) {
 	if joinScenarioLines(nil) == "" {
 		t.Error("joinScenarioLines(nil) should return a placeholder, not empty")
 	}
