@@ -13,8 +13,8 @@ upgrade path short of re-downloading by hand. We want:
    doing network I/O on the render path.
 2. **Notify**: a small `update` segment shows `⬆ v1.2.0` until the user is
    current.
-3. **Self-swap (opt-in)**: for non-Homebrew installs, download the release
-   asset, verify its checksum, and atomically swap the binary in place. The
+3. **Self-swap (opt-in)**: for non-Homebrew, non-npm installs, download the
+   release asset, verify its checksum, and atomically swap the binary in place. The
    next render execs the new binary — and the existing release-notes takeover
    announces what changed. No "apply at next launch" staging step is needed:
    the binary is a one-shot process, so an atomic rename **is** "next launch".
@@ -31,6 +31,7 @@ update-check: resolve latest tag (one HTTPS request, no GitHub API quota)
               → write update.json atomically
               → mode == "auto" && newer? → manual install: download, verify, swap
                                          → brew install:   brew upgrade claude-statusline
+                                         → npm install:    no-op (npm owns the binary)
 ```
 
 - The **render path never touches the network**. Its only added cost is one
@@ -56,6 +57,13 @@ update-check: resolve latest tag (one HTTPS request, no GitHub API quota)
   Cellar-managed binary fights brew's bookkeeping. In `auto` mode the worker
   instead runs **`brew upgrade claude-statusline`** itself (with the rails in
   the worker section); in `notify` mode they get the segment + hint.
+- **npm installs never self-swap and never run a package-manager upgrade** —
+  npm owns the binary (it lives under `node_modules`), so `auto` is a no-op
+  for them: the worker still writes the cache (the notify segment works) but
+  takes no install action. Both the segment hint and `claude-statusline
+  update` point at **`npm update -g @morgan.rebrand/claude-statusline`**
+  instead. Detected by a `node_modules` path component, matched **before**
+  brew (a global npm prefix can sit under a Homebrew-managed node).
 - **`dev` builds disable the whole feature** (no check, no segment, no
   subcommand action beyond an explanatory message). Source builds have no
   comparable version, and this also keeps tests/goldens inert for free —
@@ -103,8 +111,8 @@ unknown `mode` → `"%q is not notify/auto/off (using notify)"`, reset to "";
 
 ```toml
 # Update checking: "notify" shows an ⬆ segment when a new release exists,
-# "auto" additionally installs it in the background (non-Homebrew installs),
-# "off" disables checks entirely (no network, ever).
+# "auto" additionally installs it in the background (non-Homebrew, non-npm
+# installs), "off" disables checks entirely (no network, ever).
 # [update]
 # mode = "notify"
 # check_hours = 24
@@ -118,15 +126,22 @@ All logic lives here; one dispatch case in `cmd.go`, one trigger line in
 ### Install-kind detection
 
 ```go
-type installKind int // kindBrew, kindManual, kindDev
+type installKind int // kindBrew, kindManual, kindDev, kindNpm
 
 // detectInstallKind classifies the running binary.
 //   version == "dev"                            → kindDev
 //   eval-symlinked os.Executable() under a path
+//     with a "node_modules" component           → kindNpm  (checked first)
 //     containing "/Cellar/" or "/homebrew/"     → kindBrew
 //   otherwise                                   → kindManual
 func detectInstallKind(exePath, version string) installKind
 ```
+
+`kindNpm` is matched before `kindBrew` because a global npm prefix can live
+under a Homebrew-managed node (`/opt/homebrew/lib/node_modules/…`), where the
+"homebrew" component precedes "node_modules" — npm owns the file there, so npm
+must win. Whole-component match (like the brew heuristic) so `node_modules-backup`
+can't false-positive.
 
 Pure on its inputs (pass the resolved path in) so the table test needs no
 real symlinks. The caller resolves via `os.Executable()` +
@@ -201,7 +216,9 @@ via defer.
 2. Resolve latest tag (redirect trick above; `http.Client` with
    `CheckRedirect: func(...) error { return http.ErrUseLastResponse }`,
    10s timeout, explicit User-Agent `claude-statusline/<version>`).
-3. `saveUpdateCheck({now, latest})` — notify mode stops here.
+3. `saveUpdateCheck({now, latest})` — notify mode stops here, and so does
+   `kindNpm` regardless of mode (npm-owned binaries are never self-modified;
+   the cache write above is enough for the notify segment to work).
 4. Auto mode + `kindBrew` + `compareVersions(latest, current) > 0` →
    run `brew upgrade claude-statusline`:
    - locate `brew` on PATH (also try `/opt/homebrew/bin/brew`,
@@ -284,6 +301,8 @@ default-on.
 intent) but **not** the safety rails (kind, major, checksum, smoke-test):
 
 - `kindDev` → "source build — update with `go install …@latest`", exit 0.
+- `kindNpm` → "installed via npm — update with `npm update -g
+  @morgan.rebrand/claude-statusline`", exit 0 (never touches the binary).
 - `kindBrew` → run `brew upgrade claude-statusline` in the foreground with
   live output (same rails as the worker's brew branch, minus the silence);
   brew missing → print the manual command, exit 1.

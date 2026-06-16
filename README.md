@@ -555,7 +555,7 @@ Modes:
 ```toml
 [update]
 mode = "notify"   # default: show segment only
-# mode = "auto"   # also install in the background (manual installs only)
+# mode = "auto"   # also upgrade in the background (manual + Homebrew; npm excluded)
 # mode = "off"    # no checks, no segment, no network ever
 check_hours = 24  # 1..168, default 24
 ```
