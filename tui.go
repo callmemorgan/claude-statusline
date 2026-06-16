@@ -145,6 +145,13 @@ func runConfigure() {
 	cursorID := ""
 	grabbing := ""
 
+	// grabSnapshot captures the config and dirty/preset flags when a grab
+	// begins, so esc can truly cancel the move: arrow moves mutate cfg in place,
+	// and esc restores this snapshot. enter keeps the moves.
+	var grabSnapshot config
+	grabSnapshotDirty := false
+	grabSnapshotPreset := ""
+
 	// ─── Widgets ─────────────────────────────────────────────────────────
 
 	// The Preview is the primary editing surface.
@@ -624,6 +631,7 @@ func runConfigure() {
 	// cursor's current line, immediately after the cursor's segment so it lands
 	// where the user is pointing.
 	insertSegmentAtCursor := func(id string) {
+		cursorID = id // follow the freshly added segment across the rebuild
 		mutate(func() {
 			anchorID := cursorSegment()
 			anchorLine := 0
@@ -656,8 +664,6 @@ func runConfigure() {
 			copy(cfg.Segments[insertAt+1:], cfg.Segments[insertAt:])
 			cfg.Segments[insertAt] = id
 		})
-		cursorID = id // follow the freshly added segment
-		refreshPreview()
 	}
 
 	openPalette := func() {
@@ -746,12 +752,11 @@ func runConfigure() {
 		if target < 0 || target >= len(peers) {
 			return
 		}
+		cursorID = id // keep the cursor on the grabbed segment across the rebuild
 		mutate(func() {
 			cfg.Segments[peers[pos]], cfg.Segments[peers[target]] =
 				cfg.Segments[peers[target]], cfg.Segments[peers[pos]]
 		})
-		cursorID = id
-		refreshPreview()
 	}
 
 	// moveCursorSegmentVert relocates the grabbed segment to the adjacent line
@@ -768,6 +773,7 @@ func runConfigure() {
 		if targetLine < 1 || targetLine > 9 {
 			return
 		}
+		cursorID = id // keep the cursor on the grabbed segment across the rebuild
 		// Where on the destination line should it land? Use the grabbed
 		// segment's current column to pick the nearest insertion slot among the
 		// destination line's existing spans.
@@ -777,11 +783,9 @@ func runConfigure() {
 			if curCol >= 0 && curCol < len(curSpans[curLine]) {
 				myCol = curSpans[curLine][curCol].Col
 			}
-			// Find the destination physical row that maps to targetLine: the
-			// span rows are physical, but each span carries no line number, so
-			// we approximate by locating, on a neighbouring physical row, the
-			// first span whose column is >= myCol. We instead compute from cfg:
-			// the destination-line peers in cfg order.
+			// Pick the drop slot on the destination line: the first dest-line
+			// peer whose rendered column is at or past the grabbed segment's
+			// column. Peers are taken in cfg order so insertion preserves it.
 			var destPeers []string
 			for _, sid := range cfg.Segments {
 				if sid != id && effectiveLine(sid, cfg) == targetLine {
@@ -839,8 +843,6 @@ func runConfigure() {
 			copy(cfg.Segments[insertAt+1:], cfg.Segments[insertAt:])
 			cfg.Segments[insertAt] = id
 		})
-		cursorID = id
-		refreshPreview()
 	}
 
 	// ─── Color picker for the cursor's segment color setting ─────────────
@@ -1127,7 +1129,13 @@ func runConfigure() {
 				updateStrip()
 				return nil
 			case tcell.KeyEscape:
+				// Cancel: undo every move made since the grab began.
+				cursorID = grabbing
+				cfg = grabSnapshot
+				dirty = grabSnapshotDirty
+				activePreset = grabSnapshotPreset
 				grabbing = ""
+				flash("yellow", "move cancelled")
 				refreshPreview()
 				updateStrip()
 				return nil
@@ -1215,7 +1223,11 @@ func runConfigure() {
 			case 'm', 'M':
 				if id := cursorSegment(); id != "" {
 					grabbing = id
-					flash("yellow", "moving "+id+" — arrows relocate, enter drops")
+					// Snapshot so esc can cancel the in-place move mutations.
+					grabSnapshot = cloneConfig(cfg)
+					grabSnapshotDirty = dirty
+					grabSnapshotPreset = activePreset
+					flash("yellow", "moving "+id+" — arrows relocate, enter drops, esc cancels")
 					refreshPreview()
 					updateStrip()
 				} else {
@@ -1239,6 +1251,7 @@ func runConfigure() {
 				if id == "" {
 					return nil
 				}
+				cursorID = id // keep the cursor on this segment across the rebuild
 				mutate(func() {
 					if cfg.Colors == nil {
 						cfg.Colors = make(map[string]string)
@@ -1260,8 +1273,6 @@ func runConfigure() {
 						cfg.Colors[id] = nextColor
 					}
 				})
-				cursorID = id
-				refreshPreview()
 				return nil
 			case 'C':
 				id := cursorSegment()
@@ -1634,10 +1645,6 @@ func sliceVisible(s string, start, end int) string {
 		}
 		col++
 		i++
-		if end >= 0 && col >= end {
-			// Continue scanning only to drain trailing escapes already handled;
-			// stop emitting glyphs.
-		}
 	}
 	return b.String()
 }
