@@ -9,7 +9,7 @@ Both tools pipe a JSON payload to this binary on every turn. It renders a colore
 - **Six built-in themes** — classic, Catppuccin Mocha, Nord, Dracula, Gruvbox Dark, Tokyo Night — in truecolor with automatic 256/16-color fallback.
 - **Burn-rate intelligence** — rate-limit projections (`→58%` at reset), cost per hour (`$1.84/h`), and time-to-compact estimates (`↗ ~35m`), computed from your session's own history.
 - **One-command setup** — `claude-statusline install` wires everything up and verifies it.
-- **A real configuration TUI** — live width-aware preview, theme and preset pickers, a color swatch picker, per-segment settings, search, an animated demo mode, and a render-in-your-terminal view for honest theme checking.
+- **A real configuration TUI** — live width-aware preview, a scenario matrix (`m`) that renders your config across many widths and data conditions at once, theme and preset pickers, a color swatch picker, per-segment settings, search, an animated demo mode, and a render-in-your-terminal view for honest theme checking.
 - **24 built-in segments + plugins** — assigned to lines 1–9, empty lines collapse, segments hide automatically when their data is missing.
 
 The core renderer is a single static binary (one TOML dependency); the interactive TUI uses [tview](https://github.com/rivo/tview).
@@ -239,6 +239,7 @@ An interactive TUI: segment list (left), description panel (right), a **live pre
 | `p` | Preset picker with live preview |
 | `/` | Filter the segment list |
 | `w` | Cycle preview width (auto → 80 → 60 → 40) to check the layout |
+| `m` | Scenario matrix — your config rendered across many widths and data conditions at once (no-git, high cost, near rate-limit, fresh/minimal); overflow flagged |
 | `d` | Demo mode — animate the whole preview: bars sweep, countdowns tick, cost grows |
 | `v` | Hide the TUI and render directly in your terminal — check the theme against your real colors and background |
 | `r` | Reset to defaults (asks first) |

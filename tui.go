@@ -217,6 +217,15 @@ func runConfigure() {
 		SetText(markdownToTview(readmeContent))
 	readmeView.SetBorder(true).SetTitle(" README (↑/↓ scroll • q/Esc back) ")
 
+	// Scenario matrix overlay: the live config rendered across many runtime
+	// conditions at once (m). Read-only and scrollable; refreshed from cfg
+	// every time it's opened so edits show immediately.
+	matrixView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetScrollable(true).
+		SetWrap(false)
+	matrixView.SetBorder(true).SetTitle(" Scenario matrix (↑/↓ scroll • q/Esc close) ")
+
 	// ─── Flyout Panel ────────────────────────────────────────────────────
 
 	flyoutTitle := tview.NewTextView().
@@ -536,6 +545,51 @@ func runConfigure() {
 		}
 	}
 
+	// refreshMatrix re-renders the scenario matrix from the current cfg. Every
+	// pane runs through the SAME buildStatusline as the live preview, at its own
+	// width, so editing config updates all panes simultaneously. Output is
+	// colored via tview tags (same path as the preview) and width-checked so
+	// overflowing panes are flagged.
+	refreshMatrix := func() {
+		now := scenarioNow()
+		c := currentPalette(cfg)
+		scs := curatedScenarios(now)
+		var b strings.Builder
+		for i, sc := range scs {
+			lines := buildStatusline(buildInput{
+				P:     sc.P,
+				C:     c,
+				Cfg:   withScenarioReflow(cfg, sc.Reflow),
+				State: sc.State,
+				Width: sc.Width,
+				Now:   now,
+			})
+			plainLines := buildStatusline(buildInput{
+				P:     sc.P,
+				C:     palette{},
+				Cfg:   withScenarioReflow(cfg, sc.Reflow),
+				State: sc.State,
+				Width: sc.Width,
+				Now:   now,
+			})
+			fit := "[green]fits[-]"
+			if !scenarioFits(plainLines, sc.Width) {
+				fit = "[red]overflows[-]"
+			}
+			if i > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString(fmt.Sprintf("[::b]%s[::-]  [gray]%s[-]\n", sc.Name, sc.Note))
+			b.WriteString(fmt.Sprintf("[gray]%d cols · reflow %s · %d line(s) · %s[-]\n",
+				sc.Width, scenarioReflowLabel(sc, cfg), len(lines), fit))
+			body := joinScenarioLines(lines)
+			b.WriteString(ansiToTview(body))
+			b.WriteString("\n")
+		}
+		matrixView.SetText(b.String())
+		matrixView.ScrollToBeginning()
+	}
+
 	// scheduleDemoTick drives demo mode the same way the flyout stress test
 	// is driven: a self-rescheduling 50ms timer that stops re-arming once
 	// demoActive flips off.
@@ -736,6 +790,22 @@ func runConfigure() {
 				}
 			}
 			return event
+		}
+		if pageName == "matrix" {
+			switch event.Key() {
+			case tcell.KeyEscape:
+				pages.SwitchToPage("configure")
+				app.SetFocus(list)
+				return nil
+			case tcell.KeyRune:
+				switch event.Rune() {
+				case 'q', 'Q', 'm', 'M':
+					pages.SwitchToPage("configure")
+					app.SetFocus(list)
+					return nil
+				}
+			}
+			return event // ↑/↓/PgUp/PgDn scroll the matrix view
 		}
 		if pageName == "flyout" {
 			switch event.Key() {
@@ -983,6 +1053,11 @@ func runConfigure() {
 				}
 				refreshPreview()
 				return nil
+			case 'm', 'M':
+				refreshMatrix()
+				pages.SwitchToPage("matrix")
+				app.SetFocus(matrixView)
+				return nil
 			case 'd', 'D':
 				demoActive = !demoActive
 				if demoActive {
@@ -1143,6 +1218,7 @@ func runConfigure() {
 	pages.AddPage("configure", flex, true, true)
 	pages.AddPage("help", helpView, true, false)
 	pages.AddPage("readme", readmeView, true, false)
+	pages.AddPage("matrix", matrixView, true, false)
 	pages.AddPage("flyout", flyoutFlex, true, false)
 
 	// Re-render the preview when the terminal (and so the panel) resizes —
