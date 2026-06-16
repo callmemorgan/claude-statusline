@@ -702,6 +702,9 @@ func runConfigure() {
 		if isPickerPage(pageName) {
 			return event // pickers handle their own keys
 		}
+		if pageName == wizardPageName {
+			return event // the wizard's focused widget handles its own keys
+		}
 		if pageName == "help" {
 			switch event.Key() {
 			case tcell.KeyEscape:
@@ -969,6 +972,24 @@ func runConfigure() {
 						updateUI()
 						app.SetFocus(list)
 					})
+				return nil
+			case 'g', 'G':
+				// Guided wizard: assemble a fresh config from high-level
+				// choices. It runs as an overlay page on this same app; on
+				// finish it replaces cfg (through mutate, so dirty + preview
+				// update) and returns to the segment list.
+				snapshot := cloneConfig(cfg)
+				openWizard(app, pages, cfg, func(out config, finished bool) {
+					if finished {
+						mutate(func() { cfg = out })
+						flash("green", "wizard applied (not yet saved)")
+					} else {
+						cfg = snapshot
+						updateUI()
+					}
+					pages.SwitchToPage("configure")
+					app.SetFocus(list)
+				})
 				return nil
 			case 'w', 'W':
 				switch previewWidth {

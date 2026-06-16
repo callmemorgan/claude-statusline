@@ -22,7 +22,17 @@ func dispatch() {
 			runVersion()
 			return
 		case "configure":
+			// `configure --wizard` launches the guided first-run flow directly.
+			for _, a := range os.Args[2:] {
+				if strings.TrimLeft(a, "-") == "wizard" {
+					runWizard()
+					return
+				}
+			}
 			runConfigure()
+			return
+		case "wizard":
+			runWizard()
 			return
 		case "install":
 			runInstall(os.Args[2:])

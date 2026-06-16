@@ -22,6 +22,10 @@ Commands:
   configure    Interactive TUI: toggle/order segments, themes, presets,
                colors, per-segment settings, live width-aware preview,
                animated demo mode, render-in-terminal theme check.
+               Flag: --wizard (jump straight to the guided first-run flow).
+  wizard       Guided first-run wizard: assemble a config from a few
+               high-level choices (categories, density, theme) with a live
+               preview, then save. Also reachable in configure with g.
   version      Show this binary's version. (The statusline's own "version"
                segment shows the calling tool's version, not this binary's.)
   debug        Read JSON from stdin and print a schema-comparison table plus
