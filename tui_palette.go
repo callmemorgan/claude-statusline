@@ -173,8 +173,17 @@ func runPalette() {
 	palInput.SetFieldBackgroundColor(tcell.ColorDefault)
 	palList := tview.NewList().
 		SetHighlightFullLine(true).
-		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
 		ShowSecondaryText(false)
+	// Make the selected row the single most legible line: bold bright-white
+	// text on a saturated accent bar. The default tview selected style keeps a
+	// dim foreground, which washes out against the highlight; an explicit
+	// bold-white-on-teal style fixes the low-contrast nit. Unselected rows use
+	// a clean white so the whole list stays readable.
+	palList.SetMainTextColor(tcell.ColorWhite)
+	palList.SetSelectedStyle(tcell.StyleDefault.
+		Foreground(tcell.ColorWhite).
+		Background(tcell.NewRGBColor(0, 95, 95)).
+		Bold(true))
 	palHint := tview.NewTextView().
 		SetDynamicColors(true).
 		SetText("[gray] enter run · ↑/↓ select · esc close · type to filter[-]")
