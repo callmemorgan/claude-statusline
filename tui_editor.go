@@ -329,9 +329,24 @@ func runEditor() {
 		return event
 	})
 
-	// Prime the preview/diagnostics/completions before the first draw.
+	// Prime the preview/diagnostics/completions before the first draw. At this
+	// point tview has not laid out the widgets yet, so preview.GetInnerRect()
+	// returns a pre-layout width — the auto preview must be re-rendered once the
+	// real panel width is known (and again on every resize). Mirrors the main
+	// configure TUI's SetBeforeDrawFunc.
 	refresh()
 	refreshCompletions()
+
+	lastAutoWidth := -1
+	app.SetBeforeDrawFunc(func(screen tcell.Screen) bool {
+		if previewWidth == 0 {
+			if _, _, w, _ := preview.GetInnerRect(); w > 0 && w != lastAutoWidth {
+				lastAutoWidth = w
+				refresh()
+			}
+		}
+		return false
+	})
 
 	if err := app.SetRoot(pages, true).EnableMouse(true).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
