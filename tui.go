@@ -107,38 +107,147 @@ func runConfigure() {
 	// only, like the per-segment stress test.
 	demoActive := false
 
-	// visible is the (possibly filtered) slice the list renders from; every
-	// handler resolves the selection through it, never registeredSegments.
-	visible := registeredSegments
-
 	// dirty tracks unsaved changes; mutate is the single mutation funnel.
 	dirty := false
 
 	app := tview.NewApplication()
 
-	// Scrollable list of all segments with toggle state.
-	list := tview.NewList().
+	// ─── Drawer + Canvas (shelf + stage) ─────────────────────────────────
+	//
+	// The layout is split into two panes. The DRAWER (left) is the inventory:
+	// every segment that is currently OFF (not in cfg.Segments), optionally
+	// narrowed by the / filter. The CANVAS (centre) is the layout: the ENABLED
+	// segments, grouped by render line, in cfg.Segments order. Enter/space moves
+	// the focused segment between the two (off↔on). Focus moves between panes
+	// with Tab or ←/→; within the canvas a grabbed segment is repositioned with
+	// the arrows (←/→ across slots in a line, ↑/↓ across lines).
+
+	// Description panel — shows the description of the focused-pane selection.
+	// Declared early because the focus-chrome helper writes to it.
+	descView := tview.NewTextView().SetWrap(true).SetDynamicColors(true)
+	descView.SetBorder(true).SetTitle(" Description ")
+
+	// focusPane tracks which pane owns the keyboard: "drawer" or "canvas".
+	focusPane := "canvas"
+
+	// drawerSegs is the off-segment slice the drawer renders, after the filter.
+	// drawerRowSeg maps each drawer row index → its segmentInfo (1:1 today, but
+	// resolved through the slice so the invariant stays explicit).
+	var drawerSegs []segmentInfo
+
+	// canvasRowSeg maps each canvas list row → a segment id, or "" for a
+	// non-selectable line-header row. The canvas inserts a header per occupied
+	// line, so the row↔segment mapping is NOT 1:1 — every handler resolves the
+	// canvas selection through this slice, never by raw row index.
+	var canvasRowSeg []string
+
+	// grabbed is the id of the segment currently "picked up" on the canvas for
+	// repositioning (grab/move gesture), or "" when nothing is grabbed.
+	grabbed := ""
+
+	// Drawer list: the available/off segments.
+	drawer := tview.NewList().
 		SetHighlightFullLine(true).
 		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
 		ShowSecondaryText(false)
-	list.SetBorder(true)
+	drawer.SetBorder(true)
 
+	// Canvas list: the enabled segments, grouped by render line.
+	canvas := tview.NewList().
+		SetHighlightFullLine(true).
+		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
+		ShowSecondaryText(false)
+	canvas.SetBorder(true)
+
+	// canvasSelectedID returns the segment id under the canvas cursor, skipping
+	// header rows. Returns ("", false) when the cursor sits on a header or the
+	// canvas is empty.
+	canvasSelectedID := func() (string, bool) {
+		idx := canvas.GetCurrentItem()
+		if idx < 0 || idx >= len(canvasRowSeg) {
+			return "", false
+		}
+		if canvasRowSeg[idx] == "" {
+			return "", false
+		}
+		return canvasRowSeg[idx], true
+	}
+
+	// selectedSegment returns the segmentInfo under the focused pane's cursor.
+	// This is the single selection resolver the rest of the handlers lean on.
 	selectedSegment := func() (segmentInfo, bool) {
-		idx := list.GetCurrentItem()
-		if idx < 0 || idx >= len(visible) {
+		if focusPane == "drawer" {
+			idx := drawer.GetCurrentItem()
+			if idx < 0 || idx >= len(drawerSegs) {
+				return segmentInfo{}, false
+			}
+			return drawerSegs[idx], true
+		}
+		id, ok := canvasSelectedID()
+		if !ok {
 			return segmentInfo{}, false
 		}
-		return visible[idx], true
+		return segmentByID(id)
+	}
+
+	// updateUI/describeSegment/rebuild* are assigned further down; focus changes
+	// and reposition helpers call them, so they're forward-declared here.
+	var updateUI func()
+	var describeSegment func(seg segmentInfo)
+	var rebuildDrawer func(wantID string)
+	var rebuildCanvas func(wantID string)
+
+	// focusedPrimitive returns the tview widget that currently owns focus.
+	focusedPrimitive := func() tview.Primitive {
+		if focusPane == "drawer" {
+			return drawer
+		}
+		return canvas
+	}
+
+	// syncFocusChrome highlights the focused pane (bright border, accented
+	// title) and dims the other, then refreshes the description for whatever the
+	// focused pane has selected.
+	syncFocusChrome := func() {
+		if focusPane == "drawer" {
+			drawer.SetBorderColor(tcell.ColorYellow)
+			canvas.SetBorderColor(tcell.ColorGray)
+		} else {
+			canvas.SetBorderColor(tcell.ColorYellow)
+			drawer.SetBorderColor(tcell.ColorGray)
+		}
+		if describeSegment != nil {
+			if seg, ok := selectedSegment(); ok {
+				describeSegment(seg)
+			} else {
+				descView.SetText("")
+			}
+		}
+	}
+
+	// setFocusPane moves keyboard focus to a pane ("drawer"/"canvas"). Grabbing
+	// is cancelled when focus leaves the canvas — a grabbed segment can only be
+	// repositioned while the canvas is focused.
+	setFocusPane := func(pane string) {
+		if pane != "drawer" && pane != "canvas" {
+			return
+		}
+		if pane == "drawer" && len(drawerSegs) == 0 {
+			// Nothing to focus in an empty drawer; stay put.
+			return
+		}
+		if pane != "canvas" {
+			grabbed = ""
+		}
+		focusPane = pane
+		app.SetFocus(focusedPrimitive())
+		syncFocusChrome()
 	}
 
 	// Filter input, hidden until / is pressed.
 	filterInput := tview.NewInputField().
 		SetLabel(" / ").
 		SetFieldBackgroundColor(tcell.ColorDefault)
-
-	// Description panel — shows the description of the currently selected segment.
-	descView := tview.NewTextView().SetWrap(true).SetDynamicColors(true)
-	descView.SetBorder(true).SetTitle(" Description ")
 
 	// Live preview of the statusline.
 	preview := tview.NewTextView().
@@ -325,8 +434,6 @@ func runConfigure() {
 		app.SetFocus(flyoutList)
 	}
 
-	var updateUI func()
-
 	// mutate funnels every config change: marks the session dirty, drops the
 	// active-preset label (the layout is custom now), and refreshes the UI.
 	mutate := func(fn func()) {
@@ -353,6 +460,150 @@ func runConfigure() {
 		})
 	}
 
+	// ─── Canvas repositioning ────────────────────────────────────────────
+
+	// segIndex returns id's index in cfg.Segments, or -1.
+	segIndex := func(id string) int {
+		for i, sid := range cfg.Segments {
+			if sid == id {
+				return i
+			}
+		}
+		return -1
+	}
+
+	// enableToCanvas turns an off segment on (appended to cfg.Segments), then
+	// moves focus to the canvas with the cursor on the freshly-placed segment.
+	enableToCanvas := func(id string) {
+		mutate(func() {
+			if segIndex(id) < 0 {
+				cfg.Segments = append(cfg.Segments, id)
+			}
+		})
+		setFocusPane("canvas")
+		rebuildCanvas(id)
+	}
+
+	// disableToDrawer turns an enabled segment off, then moves focus to the
+	// drawer with the cursor on it (when the filter still admits it).
+	disableToDrawer := func(id string) {
+		mutate(func() {
+			if i := segIndex(id); i >= 0 {
+				cfg.Segments = append(cfg.Segments[:i], cfg.Segments[i+1:]...)
+			}
+		})
+		// Land focus on the drawer if the now-off segment is visible there.
+		for _, s := range drawerSegs {
+			if s.id == id {
+				setFocusPane("drawer")
+				rebuildDrawer(id)
+				if seg, ok := segmentByID(id); ok {
+					describeSegment(seg)
+				}
+				return
+			}
+		}
+	}
+
+	// canvasReorderHoriz swaps id with its neighbour among the segments on the
+	// same render line (dir -1 = earlier slot, +1 = later). No-op at the ends.
+	canvasReorderHoriz := func(id string, dir int) bool {
+		myLine := effectiveLine(id, cfg)
+		var peers []int // indices into cfg.Segments on this line, in order
+		for i, sid := range cfg.Segments {
+			if effectiveLine(sid, cfg) == myLine {
+				peers = append(peers, i)
+			}
+		}
+		pos := -1
+		for i, pi := range peers {
+			if cfg.Segments[pi] == id {
+				pos = i
+				break
+			}
+		}
+		if pos < 0 {
+			return false
+		}
+		tgt := pos + dir
+		if tgt < 0 || tgt >= len(peers) {
+			return false
+		}
+		mutate(func() {
+			cfg.Segments[peers[pos]], cfg.Segments[peers[tgt]] =
+				cfg.Segments[peers[tgt]], cfg.Segments[peers[pos]]
+		})
+		rebuildCanvas(id)
+		return true
+	}
+
+	// canvasMoveVert moves id to the adjacent render line (dir -1 = up, +1 =
+	// down), clamped to 1-9, and regroups it in cfg.Segments so it sits with that
+	// line's other segments. Setting the line back to natural drops the override.
+	canvasMoveVert := func(id string, dir int) bool {
+		s, ok := segmentByID(id)
+		if !ok {
+			return false
+		}
+		myLine := effectiveLine(id, cfg)
+		target := myLine + dir
+		if target < 1 || target > 9 {
+			return false
+		}
+		mutate(func() {
+			if cfg.Lines == nil {
+				cfg.Lines = make(map[string]int)
+			}
+			if target == s.line {
+				delete(cfg.Lines, id)
+			} else {
+				cfg.Lines[id] = target
+			}
+			// Regroup in cfg.Segments: place id adjacent to the target line's
+			// run. Moving down → after the last target-line segment; moving up →
+			// before the first. Computed against the slice *without* id.
+			rest := []string{}
+			for _, sid := range cfg.Segments {
+				if sid != id {
+					rest = append(rest, sid)
+				}
+			}
+			insertAt := len(rest)
+			if dir > 0 { // after the last segment already on the target line
+				insertAt = 0
+				for i, sid := range rest {
+					if effectiveLine(sid, cfg) == target {
+						insertAt = i + 1
+					}
+				}
+				if insertAt == 0 { // target line empty: keep id where it was-ish
+					insertAt = len(rest)
+				}
+			} else { // before the first segment on the target line
+				insertAt = len(rest)
+				for i, sid := range rest {
+					if effectiveLine(sid, cfg) == target {
+						insertAt = i
+						break
+					}
+				}
+			}
+			if insertAt < 0 {
+				insertAt = 0
+			}
+			if insertAt > len(rest) {
+				insertAt = len(rest)
+			}
+			out := make([]string, 0, len(rest)+1)
+			out = append(out, rest[:insertAt]...)
+			out = append(out, id)
+			out = append(out, rest[insertAt:]...)
+			cfg.Segments = out
+		})
+		rebuildCanvas(id)
+		return true
+	}
+
 	// ensureEnabled appends a segment that's being customized while off.
 	ensureEnabled := func(id string) {
 		for _, segID := range cfg.Segments {
@@ -363,27 +614,54 @@ func runConfigure() {
 		cfg.Segments = append(cfg.Segments, id)
 	}
 
-	list.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
-		if action == tview.MouseLeftDoubleClick && list.InRect(event.Position()) {
-			if seg, ok := selectedSegment(); ok {
-				openFlyout(seg.id)
-			}
+	// Drawer mouse: click a row to focus + select it; double-click moves it onto
+	// the canvas (off→on).
+	drawer.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if !drawer.InRect(event.Position()) {
+			return action, event
+		}
+		_, y := event.Position()
+		_, innerY, _, _ := drawer.GetInnerRect()
+		itemOff, _ := drawer.GetOffset()
+		clickedIdx := y - innerY + itemOff
+		if clickedIdx < 0 || clickedIdx >= len(drawerSegs) {
+			return action, event
+		}
+		if action == tview.MouseLeftDoubleClick {
+			drawer.SetCurrentItem(clickedIdx)
+			toggleSegment(drawerSegs[clickedIdx].id) // off → on (to canvas)
 			return tview.MouseConsumed, nil
 		}
-		if action == tview.MouseLeftClick && list.InRect(event.Position()) {
-			x, y := event.Position()
-			innerX, innerY, _, _ := list.GetInnerRect()
-			if x >= innerX && x <= innerX+1 {
-				itemOff, _ := list.GetOffset()
-				clickedIdx := y - innerY + itemOff
-				if clickedIdx >= 0 && clickedIdx < len(visible) {
-					id := visible[clickedIdx].id
-					list.SetCurrentItem(clickedIdx)
-					app.SetFocus(list)
-					toggleSegment(id)
-					return tview.MouseConsumed, nil
-				}
-			}
+		if action == tview.MouseLeftClick {
+			drawer.SetCurrentItem(clickedIdx)
+			setFocusPane("drawer")
+			return tview.MouseConsumed, nil
+		}
+		return action, event
+	})
+
+	// Canvas mouse: click a segment row to focus + select it; double-click opens
+	// its settings flyout. Header rows are inert.
+	canvas.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if !canvas.InRect(event.Position()) {
+			return action, event
+		}
+		_, y := event.Position()
+		_, innerY, _, _ := canvas.GetInnerRect()
+		itemOff, _ := canvas.GetOffset()
+		clickedIdx := y - innerY + itemOff
+		if clickedIdx < 0 || clickedIdx >= len(canvasRowSeg) || canvasRowSeg[clickedIdx] == "" {
+			return action, event
+		}
+		if action == tview.MouseLeftDoubleClick {
+			canvas.SetCurrentItem(clickedIdx)
+			openFlyout(canvasRowSeg[clickedIdx])
+			return tview.MouseConsumed, nil
+		}
+		if action == tview.MouseLeftClick {
+			canvas.SetCurrentItem(clickedIdx)
+			setFocusPane("canvas")
+			return tview.MouseConsumed, nil
 		}
 		return action, event
 	})
@@ -481,7 +759,7 @@ func runConfigure() {
 
 	// describeSegment renders the description panel for a segment, including
 	// the "press o" discoverability hint when it has settings.
-	describeSegment := func(seg segmentInfo) {
+	describeSegment = func(seg segmentInfo) {
 		text := seg.desc
 		if n := len(seg.settings); n > 0 {
 			text += fmt.Sprintf("\n\n[gray]%d options — press o to configure[-]", n)
@@ -551,79 +829,190 @@ func runConfigure() {
 		})
 	}
 
-	// Update list items and preview from current cfg.
-	updateUI = func() {
-		currentIdx := list.GetCurrentItem()
+	// isEnabled reports whether a segment id is in cfg.Segments.
+	isEnabled := func(id string) bool {
+		for _, sid := range cfg.Segments {
+			if sid == id {
+				return true
+			}
+		}
+		return false
+	}
 
-		list.Clear()
-		for _, s := range visible {
-			enabled := false
-			for _, id := range cfg.Segments {
-				if id == s.id {
-					enabled = true
-					break
+	// canvasOrder returns the enabled segment ids grouped by render line: a
+	// slice of (line, ids) buckets in ascending line order, each bucket's ids in
+	// cfg.Segments order. This is the canonical canvas layout the render path
+	// also produces (effectiveLine + cfg.Segments order).
+	type lineBucket struct {
+		line int
+		ids  []string
+	}
+	canvasOrder := func() []lineBucket {
+		byLine := map[int][]string{}
+		var order []int
+		for _, sid := range cfg.Segments {
+			if _, ok := segmentByID(sid); !ok {
+				continue
+			}
+			l := effectiveLine(sid, cfg)
+			if _, seen := byLine[l]; !seen {
+				order = append(order, l)
+			}
+			byLine[l] = append(byLine[l], sid)
+		}
+		// Stable ascending line order.
+		for i := 0; i < len(order); i++ {
+			for j := i + 1; j < len(order); j++ {
+				if order[j] < order[i] {
+					order[i], order[j] = order[j], order[i]
 				}
 			}
-			mark := "  "
-			if enabled {
-				mark = "✓ "
-			}
+		}
+		out := make([]lineBucket, 0, len(order))
+		for _, l := range order {
+			out = append(out, lineBucket{line: l, ids: byLine[l]})
+		}
+		return out
+	}
 
-			line := s.line
-			if override, ok := cfg.Lines[s.id]; ok && override >= 1 {
-				line = override
-			}
-			lineStr := ""
-			if line != s.line {
-				lineStr = fmt.Sprintf(" [L%d]", line)
-			}
+	// rememberSel captures the focused pane's selected segment id so a rebuild
+	// can restore the cursor onto the same segment even though row indices shift.
+	rememberSel := func() string {
+		if seg, ok := selectedSegment(); ok {
+			return seg.id
+		}
+		return ""
+	}
 
+	// rebuildDrawer fills the drawer with the off segments (optionally filtered),
+	// restoring the cursor onto wantID when present.
+	rebuildDrawer = func(wantID string) {
+		query := filterInput.GetText()
+		drawerSegs = drawerSegs[:0]
+		for _, s := range filterSegments(registeredSegments, query) {
+			if !isEnabled(s.id) {
+				drawerSegs = append(drawerSegs, s)
+			}
+		}
+		drawer.Clear()
+		want := 0
+		for i, s := range drawerSegs {
 			colorStr := ""
 			if colorName := cfg.Colors[s.id]; colorName != "" && colorName != "default" {
-				colorStr = fmt.Sprintf("[%s]", colorName)
+				colorStr = fmt.Sprintf("  [%s]", colorName)
 			}
-
 			arrow := ""
 			if len(s.settings) > 0 {
 				arrow = " →"
 			}
-			mainText := fmt.Sprintf("%s%s%s%s", mark, s.id, lineStr, colorStr)
-			if arrow != "" {
-				_, _, innerWidth, _ := list.GetInnerRect()
-				pad := innerWidth - tview.TaggedStringWidth(mainText) - tview.TaggedStringWidth(arrow)
-				if pad < 0 {
-					pad = 0
-				}
-				mainText += strings.Repeat(" ", pad) + arrow
+			drawer.AddItem(fmt.Sprintf("%s%s%s", s.id, colorStr, arrow), "", 0, nil)
+			if s.id == wantID {
+				want = i
 			}
-			list.AddItem(mainText, "", 0, nil)
 		}
-
-		if currentIdx >= 0 && currentIdx < len(visible) {
-			list.SetCurrentItem(currentIdx)
+		if len(drawerSegs) > 0 {
+			drawer.SetCurrentItem(want)
 		}
-		title := fmt.Sprintf(" Segments (%d/%d) ", len(cfg.Segments), len(registeredSegments))
+		title := fmt.Sprintf(" Drawer · available (%d) ", len(drawerSegs))
 		if q := filterInput.GetText(); q != "" {
-			title = fmt.Sprintf(" Segments (%d/%d) — /%s ", len(cfg.Segments), len(registeredSegments), q)
+			title = fmt.Sprintf(" Drawer · available (%d) — /%s ", len(drawerSegs), q)
 		}
-		list.SetTitle(title)
+		drawer.SetTitle(title)
+	}
 
+	// rebuildCanvas fills the canvas with the enabled segments grouped by line,
+	// inserting an inert header row per occupied line. canvasRowSeg maps every
+	// row back to a segment id ("" for headers). Restores the cursor onto wantID.
+	rebuildCanvas = func(wantID string) {
+		canvasRowSeg = canvasRowSeg[:0]
+		canvas.Clear()
+		want := -1
+		for _, b := range canvasOrder() {
+			canvas.AddItem(fmt.Sprintf("[gray::b]── line %d ──[-::-]", b.line), "", 0, nil)
+			canvasRowSeg = append(canvasRowSeg, "")
+			for _, sid := range b.ids {
+				s, _ := segmentByID(sid)
+				colorStr := ""
+				if colorName := cfg.Colors[sid]; colorName != "" && colorName != "default" {
+					colorStr = fmt.Sprintf("  [%s]", colorName)
+				}
+				arrow := ""
+				if len(s.settings) > 0 {
+					arrow = " →"
+				}
+				grab := "  "
+				if grabbed == sid {
+					grab = "[yellow]✥[-] "
+				}
+				canvas.AddItem(fmt.Sprintf("%s%s%s%s", grab, sid, colorStr, arrow), "", 0, nil)
+				if sid == wantID {
+					want = len(canvasRowSeg)
+				}
+				canvasRowSeg = append(canvasRowSeg, sid)
+			}
+		}
+		if want < 0 {
+			// Fall back to the first selectable (segment) row.
+			for i, sid := range canvasRowSeg {
+				if sid != "" {
+					want = i
+					break
+				}
+			}
+		}
+		if want >= 0 {
+			canvas.SetCurrentItem(want)
+		}
+		canvas.SetTitle(fmt.Sprintf(" Canvas · layout (%d on) ", len(cfg.Segments)))
+	}
+
+	// Update both panes and the preview from the current cfg.
+	updateUI = func() {
+		drawerSel := ""
+		canvasSel := ""
+		if focusPane == "drawer" {
+			drawerSel = rememberSel()
+		} else {
+			canvasSel = rememberSel()
+		}
+		rebuildDrawer(drawerSel)
+		rebuildCanvas(canvasSel)
+		// If the focused pane went empty (e.g. the last off segment was enabled),
+		// move focus to the other pane so the cursor is always on something live.
+		if focusPane == "drawer" && len(drawerSegs) == 0 {
+			focusPane = "canvas"
+			app.SetFocus(canvas)
+		}
+		syncFocusChrome()
 		refreshPreview()
 		updateStrip()
 	}
 
 	updateUI()
 
-	list.SetChangedFunc(func(idx int, _, _ string, _ rune) {
-		if idx >= 0 && idx < len(visible) {
-			describeSegment(visible[idx])
+	// Keep the description in sync as the cursor moves within either pane.
+	drawer.SetChangedFunc(func(idx int, _, _ string, _ rune) {
+		if focusPane == "drawer" {
+			if idx >= 0 && idx < len(drawerSegs) {
+				describeSegment(drawerSegs[idx])
+			}
+		}
+	})
+	canvas.SetChangedFunc(func(idx int, _, _ string, _ rune) {
+		if focusPane != "canvas" {
+			return
+		}
+		if idx >= 0 && idx < len(canvasRowSeg) && canvasRowSeg[idx] != "" {
+			if seg, ok := segmentByID(canvasRowSeg[idx]); ok {
+				describeSegment(seg)
+			}
 		} else {
-			descView.SetText("")
+			descView.SetText("[gray](line header)[-]")
 		}
 	})
 	// Seed the description for the initial selection.
-	if len(visible) > 0 {
-		describeSegment(visible[0])
+	if seg, ok := selectedSegment(); ok {
+		describeSegment(seg)
 	}
 
 	// ─── Filter wiring ───────────────────────────────────────────────────
@@ -639,13 +1028,17 @@ func runConfigure() {
 	}
 
 	applyFilter := func(query string) {
-		visible = filterSegments(registeredSegments, query)
-		updateUI()
-		if len(visible) > 0 {
-			list.SetCurrentItem(0)
-			describeSegment(visible[0])
-		} else {
-			descView.SetText("(no segments match)")
+		// The filter only narrows the drawer (the inventory of off segments).
+		rebuildDrawer(query)
+		refreshPreview()
+		updateStrip()
+		if len(drawerSegs) > 0 {
+			drawer.SetCurrentItem(0)
+			if focusPane == "drawer" {
+				describeSegment(drawerSegs[0])
+			}
+		} else if focusPane == "drawer" {
+			descView.SetText("(no available segments match)")
 		}
 	}
 
@@ -653,7 +1046,7 @@ func runConfigure() {
 		filterInput.SetText("")
 		applyFilter("")
 		showFilter(false)
-		app.SetFocus(list)
+		app.SetFocus(focusedPrimitive())
 	}
 
 	filterInput.SetChangedFunc(func(text string) {
@@ -662,7 +1055,8 @@ func runConfigure() {
 	filterInput.SetDoneFunc(func(key tcell.Key) {
 		switch key {
 		case tcell.KeyEnter:
-			app.SetFocus(list)
+			// The filter narrows the drawer, so land focus there.
+			setFocusPane("drawer")
 		case tcell.KeyEscape:
 			clearFilter()
 		}
@@ -706,13 +1100,13 @@ func runConfigure() {
 			switch event.Key() {
 			case tcell.KeyEscape:
 				pages.SwitchToPage("configure")
-				app.SetFocus(list)
+				app.SetFocus(focusedPrimitive())
 				return nil
 			case tcell.KeyRune:
 				switch event.Rune() {
 				case 'q', 'Q':
 					pages.SwitchToPage("configure")
-					app.SetFocus(list)
+					app.SetFocus(focusedPrimitive())
 					return nil
 				case 'r', 'R':
 					pages.SwitchToPage("readme")
@@ -742,7 +1136,7 @@ func runConfigure() {
 			case tcell.KeyEscape:
 				stopStressTest(currentFlyoutSegment)
 				pages.SwitchToPage("configure")
-				app.SetFocus(list)
+				app.SetFocus(focusedPrimitive())
 				updateUI()
 				return nil
 			case tcell.KeyRune:
@@ -750,7 +1144,7 @@ func runConfigure() {
 				if r == 'q' || r == 'Q' {
 					stopStressTest(currentFlyoutSegment)
 					pages.SwitchToPage("configure")
-					app.SetFocus(list)
+					app.SetFocus(focusedPrimitive())
 					updateUI()
 					return nil
 				}
@@ -780,7 +1174,7 @@ func runConfigure() {
 		if pageName == "confirm" || pageName == "quit" || pageName == "reset" {
 			// Modals handle their own keys; offer Esc/q as cancel.
 			back := "configure"
-			focus := tview.Primitive(list)
+			focus := focusedPrimitive()
 			if pageName == "confirm" {
 				back = "flyout"
 				focus = flyoutList
@@ -822,8 +1216,13 @@ func runConfigure() {
 				app.SetFocus(helpView)
 				return nil
 			case ' ':
+				// Move the focused segment between the two panes (off↔on).
 				if seg, ok := selectedSegment(); ok {
-					toggleSegment(seg.id)
+					if focusPane == "drawer" {
+						enableToCanvas(seg.id)
+					} else {
+						disableToDrawer(seg.id)
+					}
 				}
 				return nil
 			case 'c':
@@ -888,8 +1287,24 @@ func runConfigure() {
 							}
 							updateUI()
 						}
-						app.SetFocus(list)
+						app.SetFocus(focusedPrimitive())
 					})
+				return nil
+			case 'g', 'G', 'm':
+				// Grab / drop the focused canvas segment for repositioning.
+				if focusPane != "canvas" {
+					return nil
+				}
+				if id, ok := canvasSelectedID(); ok {
+					if grabbed == id {
+						grabbed = ""
+						flash("yellow", "dropped")
+					} else {
+						grabbed = id
+						flash("green", "grabbed "+id+" — arrows move it, g/enter to drop")
+					}
+					rebuildCanvas(id)
+				}
 				return nil
 			default:
 				r := event.Rune()
@@ -910,6 +1325,9 @@ func runConfigure() {
 						}
 						ensureEnabled(seg.id)
 					})
+					// Sending to a line implies it's on the canvas now.
+					setFocusPane("canvas")
+					rebuildCanvas(seg.id)
 					return nil
 				}
 			case 't', 'T':
@@ -941,7 +1359,7 @@ func runConfigure() {
 						}
 						refreshPreview()
 						updateStrip()
-						app.SetFocus(list)
+						app.SetFocus(focusedPrimitive())
 					})
 				return nil
 			case 'p', 'P':
@@ -967,7 +1385,7 @@ func runConfigure() {
 							cfg = snapshot
 						}
 						updateUI()
-						app.SetFocus(list)
+						app.SetFocus(focusedPrimitive())
 					})
 				return nil
 			case 'w', 'W':
@@ -1028,110 +1446,119 @@ func runConfigure() {
 				return nil
 			}
 		case tcell.KeyEscape:
+			if grabbed != "" {
+				id := grabbed
+				grabbed = ""
+				flash("yellow", "dropped")
+				rebuildCanvas(id)
+				return nil
+			}
 			if filterInput.GetText() != "" {
 				clearFilter()
 				return nil
 			}
 			requestQuit()
 			return nil
-		case tcell.KeyUp, tcell.KeyDown:
-			// Unmodified Up/Down: pass through for list navigation.
-			if event.Modifiers()&tcell.ModShift == 0 {
-				return event
+		case tcell.KeyTab, tcell.KeyBacktab:
+			// Tab / Shift-Tab toggle focus between the two panes.
+			if focusPane == "drawer" {
+				setFocusPane("canvas")
+			} else {
+				setFocusPane("drawer")
 			}
-			// Shift+Up / Shift+Down: swap the entire row with the adjacent row.
-			seg, ok := selectedSegment()
-			if !ok {
-				return nil
-			}
-			myLine := effectiveLine(seg.id, cfg)
-			targetLine := myLine - 1
-			if event.Key() == tcell.KeyDown {
-				targetLine = myLine + 1
-			}
-			if targetLine < 1 || targetLine > 9 {
-				return nil
-			}
-			mutate(func() {
-				if cfg.Lines == nil {
-					cfg.Lines = make(map[string]int)
-				}
-				// Snapshot which segments are on each line before reassigning.
-				var onMyLine, onTargetLine []string
-				for _, sid := range cfg.Segments {
-					el := effectiveLine(sid, cfg)
-					if el == myLine {
-						onMyLine = append(onMyLine, sid)
-					} else if el == targetLine {
-						onTargetLine = append(onTargetLine, sid)
-					}
-				}
-				assignLine := func(sid string, line int) {
-					naturalLine := 1
-					if s, ok := segmentByID(sid); ok {
-						naturalLine = s.line
-					}
-					if line == naturalLine {
-						delete(cfg.Lines, sid)
-					} else {
-						cfg.Lines[sid] = line
-					}
-				}
-				for _, sid := range onMyLine {
-					assignLine(sid, targetLine)
-				}
-				for _, sid := range onTargetLine {
-					assignLine(sid, myLine)
-				}
-			})
 			return nil
+		case tcell.KeyEnter:
+			// Enter mirrors space: move the focused segment between panes —
+			// except a grabbed canvas segment, where Enter drops it.
+			if grabbed != "" {
+				id := grabbed
+				grabbed = ""
+				flash("yellow", "dropped")
+				rebuildCanvas(id)
+				return nil
+			}
+			if seg, ok := selectedSegment(); ok {
+				if focusPane == "drawer" {
+					enableToCanvas(seg.id)
+				} else {
+					disableToDrawer(seg.id)
+				}
+			}
+			return nil
+		case tcell.KeyUp, tcell.KeyDown:
+			down := event.Key() == tcell.KeyDown
+			// Canvas + grabbed: the arrows reposition the segment instead of
+			// moving the cursor. ↑/↓ move it across render lines.
+			if focusPane == "canvas" && grabbed != "" {
+				dir := -1
+				if down {
+					dir = 1
+				}
+				canvasMoveVert(grabbed, dir)
+				return nil
+			}
+			// Canvas navigation must skip the inert line-header rows.
+			if focusPane == "canvas" {
+				n := canvas.GetItemCount()
+				if n == 0 {
+					return nil
+				}
+				cur := canvas.GetCurrentItem()
+				next := cur
+				step := -1
+				if down {
+					step = 1
+				}
+				for i := 0; i < n; i++ {
+					next += step
+					if next < 0 || next >= n {
+						return nil // at an edge: stop, don't wrap
+					}
+					if next < len(canvasRowSeg) && canvasRowSeg[next] != "" {
+						canvas.SetCurrentItem(next)
+						return nil
+					}
+				}
+				return nil
+			}
+			// Drawer: plain list navigation.
+			return event
 		case tcell.KeyLeft, tcell.KeyRight:
-			seg, ok := selectedSegment()
-			if !ok {
-				return event
-			}
-			myLine := effectiveLine(seg.id, cfg)
-			// Collect indices in cfg.Segments that share the same line, in order.
-			var peers []int
-			for i, sid := range cfg.Segments {
-				if effectiveLine(sid, cfg) == myLine {
-					peers = append(peers, i)
+			right := event.Key() == tcell.KeyRight
+			// Canvas + grabbed: ←/→ reorder the segment within its render line.
+			if focusPane == "canvas" && grabbed != "" {
+				dir := -1
+				if right {
+					dir = 1
 				}
-			}
-			// Find this segment's position within peers.
-			pos := -1
-			for i, pi := range peers {
-				if cfg.Segments[pi] == seg.id {
-					pos = i
-					break
-				}
-			}
-			if event.Key() == tcell.KeyLeft && pos > 0 {
-				mutate(func() {
-					cfg.Segments[peers[pos]], cfg.Segments[peers[pos-1]] =
-						cfg.Segments[peers[pos-1]], cfg.Segments[peers[pos]]
-				})
-				return nil
-			} else if event.Key() == tcell.KeyRight && pos >= 0 && pos < len(peers)-1 {
-				mutate(func() {
-					cfg.Segments[peers[pos]], cfg.Segments[peers[pos+1]] =
-						cfg.Segments[peers[pos+1]], cfg.Segments[peers[pos]]
-				})
+				canvasReorderHoriz(grabbed, dir)
 				return nil
 			}
+			// Otherwise ←/→ move focus between panes: ← to the drawer, → to the
+			// canvas. This is the "across regions" gesture.
+			if right {
+				setFocusPane("canvas")
+			} else {
+				setFocusPane("drawer")
+			}
+			return nil
 		}
 		return event
 	})
 
+	// leftCol = filter + drawer (the inventory shelf).
 	leftCol = tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(filterInput, 0, 0, false).
-		AddItem(list, 0, 1, true)
+		AddItem(drawer, 0, 1, false)
 
+	// topRow = drawer | canvas | description. The canvas (the stage) gets the
+	// most room; the description rides along on the right.
 	topRow := tview.NewFlex().
 		SetDirection(tview.FlexColumn).
-		AddItem(leftCol, 0, 1, true).
-		AddItem(descView, 0, 3, false)
+		AddItem(leftCol, 0, 2, false).
+		AddItem(canvas, 0, 3, true).
+		AddItem(descView, 0, 2, false)
 
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
@@ -1185,7 +1612,7 @@ func runConfigure() {
 		AddButtons([]string{"Reset", "Cancel"}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			pages.SwitchToPage("configure")
-			app.SetFocus(list)
+			app.SetFocus(focusedPrimitive())
 			if buttonLabel == "Reset" {
 				mutate(func() { cfg = defaultConfig() })
 				flash("yellow", "reset to defaults (not yet saved)")
@@ -1205,15 +1632,23 @@ func runConfigure() {
 					return
 				}
 				pages.SwitchToPage("configure")
-				app.SetFocus(list)
+				app.SetFocus(focusedPrimitive())
 			case "Discard":
 				app.Stop()
 			default:
 				pages.SwitchToPage("configure")
-				app.SetFocus(list)
+				app.SetFocus(focusedPrimitive())
 			}
 		})
 	pages.AddPage("quit", quitModal, true, false)
+
+	// Start on the canvas (the layout). If nothing is enabled, fall back to the
+	// drawer so the cursor always lands on something selectable.
+	if len(cfg.Segments) == 0 && len(drawerSegs) > 0 {
+		focusPane = "drawer"
+	}
+	app.SetFocus(focusedPrimitive())
+	syncFocusChrome()
 
 	if err := app.SetRoot(pages, true).EnableMouse(true).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)

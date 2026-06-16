@@ -13,11 +13,14 @@ import (
 func buildHelpText() string {
 	var b strings.Builder
 	b.WriteString("[yellow::b]claude-statusline configure[-::-]\n\n")
-	b.WriteString("Segments are the building blocks of the statusline. Toggle them on or\n")
-	b.WriteString("off, assign them to lines 1-9, recolor them, and tune per-segment\n")
-	b.WriteString("settings in the flyout (o). The preview renders live at your terminal\n")
-	b.WriteString("width. Nothing touches disk until you press s — changes save to\n")
-	b.WriteString(fmt.Sprintf("[green]%s[-].\n", configPath()))
+	b.WriteString("Two panes. The [::b]drawer[-:-:-] (left) is the inventory of available, OFF\n")
+	b.WriteString("segments; the [::b]canvas[-:-:-] (centre) is the layout — the ON segments,\n")
+	b.WriteString("grouped by render line. Tab or ←/→ switch panes; space/enter move the\n")
+	b.WriteString("focused segment between them (off↔on). On the canvas, grab a segment (g)\n")
+	b.WriteString("and use the arrows to reposition it across slots and lines. Recolor (c/C),\n")
+	b.WriteString("tune per-segment settings in the flyout (o), and the preview renders live\n")
+	b.WriteString("at your terminal width below. Nothing touches disk until you press s —\n")
+	b.WriteString(fmt.Sprintf("changes save to [green]%s[-].\n", configPath()))
 
 	section := func(title, context string) {
 		b.WriteString(fmt.Sprintf("\n[cyan::b]%s[-::-]\n", title))

@@ -17,16 +17,18 @@ type keyBinding struct {
 }
 
 var keymap = []keyBinding{
-	{Keys: "space", Action: "toggle", Desc: "Enable or disable the selected segment", Context: "main", Footer: true},
-	{Keys: "1-9", Action: "line", Desc: "Move the segment to line N (toggles back to its natural line)", Context: "main", Footer: true},
+	{Keys: "space/enter", Action: "move on/off", Desc: "Move the focused segment between the drawer (off) and the canvas (on)", Context: "main", Footer: true},
+	{Keys: "tab", Action: "switch pane", Desc: "Switch focus between the drawer (available) and the canvas (layout)", Context: "main", Footer: true},
+	{Keys: "←/→", Action: "pane / move", Desc: "Switch panes (← drawer, → canvas); while a canvas segment is grabbed, reorder it within its line", Context: "main", Footer: true},
+	{Keys: "g", Action: "grab/drop", Desc: "Grab the focused canvas segment to reposition it, then use the arrows; press g again or enter/esc to drop", Context: "main", Footer: true},
+	{Keys: "⇡↑/↓", Action: "(grabbed) line", Desc: "While grabbed, move the segment to the adjacent render line", Context: "main"},
+	{Keys: "1-9", Action: "line", Desc: "Send the focused segment to line N (toggles back to its natural line); enables it if off", Context: "main", Footer: true},
 	{Keys: "c", Action: "color", Desc: "Cycle the segment's color", Context: "main", Footer: true},
 	{Keys: "C", Action: "palette", Desc: "Open the color picker (theme roles, ANSI, hex, recent)", Context: "main", Footer: true},
-	{Keys: "←/→", Action: "reorder", Desc: "Reorder the segment within its line", Context: "main", Footer: true},
-	{Keys: "⇧↑/↓", Action: "move row", Desc: "Swap every segment on this line with the adjacent line", Context: "main", Footer: true},
 	{Keys: "o", Action: "options", Desc: "Open the segment's settings flyout", Context: "main", Footer: true},
 	{Keys: "t", Action: "theme", Desc: "Pick a color theme with live preview", Context: "main", Footer: true},
 	{Keys: "p", Action: "presets", Desc: "Apply a named layout preset with live preview", Context: "main", Footer: true},
-	{Keys: "/", Action: "find", Desc: "Filter the segment list (enter keeps it, esc clears it)", Context: "main", Footer: true},
+	{Keys: "/", Action: "find", Desc: "Filter the drawer's available segments (enter keeps it, esc clears it)", Context: "main", Footer: true},
 	{Keys: "w", Action: "width", Desc: "Cycle the preview width (auto/80/60/40) to check the layout", Context: "main", Footer: true},
 	{Keys: "d", Action: "demo", Desc: "Animate the whole preview: bars sweep, countdowns tick, cost grows (session-only)", Context: "main", Footer: true},
 	{Keys: "v", Action: "view", Desc: "Hide the TUI and render the statusline directly in your terminal, to check the theme against its real colors and background", Context: "main", Footer: true},
@@ -34,7 +36,7 @@ var keymap = []keyBinding{
 	{Keys: "s", Action: "save", Desc: "Save to config.toml and keep editing", Context: "main", Footer: true},
 	{Keys: "q", Action: "quit", Desc: "Quit (asks if there are unsaved changes)", Context: "main", Footer: true},
 	{Keys: "?", Action: "help", Desc: "Show help", Context: "main", Footer: true},
-	{Keys: "↑/↓", Action: "nav", Desc: "Move the selection", Context: "main"},
+	{Keys: "↑/↓", Action: "nav", Desc: "Move the cursor within the focused pane (the canvas skips line headers)", Context: "main"},
 
 	{Keys: "space/enter", Action: "toggle/cycle", Desc: "Toggle a switch or cycle an option", Context: "flyout", Footer: true},
 	{Keys: "←/→", Action: "adjust", Desc: "Decrease / increase a numeric setting", Context: "flyout", Footer: true},
