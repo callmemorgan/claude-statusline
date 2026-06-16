@@ -145,17 +145,32 @@ func runConfigure() {
 	// repositioning (grab/move gesture), or "" when nothing is grabbed.
 	grabbed := ""
 
+	// Selection styles. The focused pane gets a bright, high-contrast cursor
+	// (black text on the accent yellow that also colors its border); the
+	// unfocused pane keeps a dim slate cursor so its position is still visible
+	// but plainly secondary. Both force the row's foreground so a dim/colored
+	// item label can never wash out against the selection background.
+	// Explicit truecolor backgrounds so the cursor reads the same on every
+	// terminal: the bright accent must out-contrast the dim one. (ANSI-palette
+	// "yellow"/103 renders darker than a 256-grey on some emulators, which would
+	// invert the focus cue — pin RGB to avoid it.)
+	focusedSelStyle := tcell.StyleDefault.
+		Background(tcell.NewRGBColor(0xE6, 0xC0, 0x4A)). // warm amber
+		Foreground(tcell.ColorBlack).
+		Bold(true)
+	unfocusedSelStyle := tcell.StyleDefault.
+		Background(tcell.NewRGBColor(0x3A, 0x3F, 0x4B)). // muted slate
+		Foreground(tcell.NewRGBColor(0xC8, 0xCC, 0xD4))
+
 	// Drawer list: the available/off segments.
 	drawer := tview.NewList().
 		SetHighlightFullLine(true).
-		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
 		ShowSecondaryText(false)
 	drawer.SetBorder(true)
 
 	// Canvas list: the enabled segments, grouped by render line.
 	canvas := tview.NewList().
 		SetHighlightFullLine(true).
-		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
 		ShowSecondaryText(false)
 	canvas.SetBorder(true)
 
@@ -212,9 +227,13 @@ func runConfigure() {
 		if focusPane == "drawer" {
 			drawer.SetBorderColor(tcell.ColorYellow)
 			canvas.SetBorderColor(tcell.ColorGray)
+			drawer.SetSelectedStyle(focusedSelStyle)
+			canvas.SetSelectedStyle(unfocusedSelStyle)
 		} else {
 			canvas.SetBorderColor(tcell.ColorYellow)
 			drawer.SetBorderColor(tcell.ColorGray)
+			canvas.SetSelectedStyle(focusedSelStyle)
+			drawer.SetSelectedStyle(unfocusedSelStyle)
 		}
 		if describeSegment != nil {
 			if seg, ok := selectedSegment(); ok {
@@ -334,7 +353,7 @@ func runConfigure() {
 
 	flyoutList := tview.NewList().
 		SetHighlightFullLine(true).
-		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
+		SetSelectedStyle(focusedSelStyle).
 		ShowSecondaryText(false)
 	flyoutList.SetBorder(true)
 
@@ -942,7 +961,10 @@ func runConfigure() {
 				}
 				grab := "  "
 				if grabbed == sid {
-					grab = "[yellow]✥[-] "
+					// The grabbed row is always the focused-pane cursor, so the
+					// marker rides on the bright yellow selection — black keeps
+					// it visible there (a yellow glyph would vanish).
+					grab = "[black::b]✥[-::-] "
 				}
 				canvas.AddItem(fmt.Sprintf("%s%s%s%s", grab, sid, colorStr, arrow), "", 0, nil)
 				if sid == wantID {
