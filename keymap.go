@@ -50,6 +50,7 @@ var keymap = []keyBinding{
 	{Keys: "1-9", Action: "line", Desc: "Move the selected segment to line N (re-renders the frame live)", Context: "scrubber", Footer: true},
 	{Keys: "↑/↓", Action: "nav", Desc: "Move the segment selection", Context: "scrubber", Footer: true},
 	{Keys: "s", Action: "save", Desc: "Save to config.toml", Context: "scrubber", Footer: true},
+	{Keys: "?", Action: "help", Desc: "Show help", Context: "scrubber", Footer: true},
 	{Keys: "q/esc", Action: "back", Desc: "Return to the segment list", Context: "scrubber", Footer: true},
 }
 

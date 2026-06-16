@@ -96,6 +96,7 @@ func buildScrubberPage(
 	list := tview.NewList().
 		SetHighlightFullLine(true).
 		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
+		SetSelectedTextColor(tcell.ColorWhite).
 		ShowSecondaryText(false)
 	list.SetBorder(true).SetTitle(" Segments (space toggle · 1-9 line) ")
 
@@ -409,6 +410,15 @@ func runReplayTUI(preferSession string) {
 		}
 	}
 
+	// Help overlay — generated from the same keymap table as the rest of the
+	// TUI, so the standalone scrubber advertises the bindings its footer lists.
+	helpView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetScrollable(true).
+		SetWrap(false).
+		SetText(buildHelpText())
+	helpView.SetBorder(true).SetTitle(" Help (q/Esc close) ")
+
 	var quitModal *tview.Modal
 	doSave := func() bool {
 		if err := saveConfig(cfg); err != nil {
@@ -426,12 +436,32 @@ func runReplayTUI(preferSession string) {
 		AddItem(flashView, 1, 0, false)
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if name, _ := pages.GetFrontPage(); name == "quit" {
+		name, _ := pages.GetFrontPage()
+		if name == "quit" {
+			return event
+		}
+		if name == "help" {
+			switch event.Key() {
+			case tcell.KeyEscape:
+				pages.SwitchToPage("scrubber")
+				app.SetFocus(view.list)
+				return nil
+			case tcell.KeyRune:
+				if r := event.Rune(); r == 'q' || r == 'Q' {
+					pages.SwitchToPage("scrubber")
+					app.SetFocus(view.list)
+					return nil
+				}
+			}
 			return event
 		}
 		switch event.Key() {
 		case tcell.KeyRune:
 			switch event.Rune() {
+			case '?':
+				pages.SwitchToPage("help")
+				app.SetFocus(helpView)
+				return nil
 			case 's', 'S':
 				doSave()
 				return nil
@@ -474,6 +504,7 @@ func runReplayTUI(preferSession string) {
 		})
 
 	pages.AddPage("scrubber", root, true, true)
+	pages.AddPage("help", helpView, true, false)
 	pages.AddPage("quit", quitModal, true, false)
 
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
