@@ -223,17 +223,17 @@ dim = "245"       # xterm-256 index
 claude-statusline configure
 ```
 
-An interactive TUI: segment list (left), description panel (right), a **live preview at your real terminal width**, and a status strip showing the active theme/preset and unsaved-changes marker. The preview is fed synthetic session history and git status, so every feature — burn rates, projections, trends, rich git — is visible while you configure it. Nothing touches disk until you save.
+An interactive TUI: segment list (left), description panel (right), a **live preview at your real terminal width**, and a status strip showing the active theme/preset and unsaved-changes marker. The list is **grouped under line headers** (`── line 1 ──`, …, `── off ──` for disabled segments), so its top-to-bottom order is exactly the render order. The preview is fed synthetic session history and git status, so every feature — burn rates, projections, trends, rich git — is visible while you configure it. Nothing touches disk until you save.
 
 | Key | Action |
 |-----|--------|
-| `↑` / `↓` | Navigate segments |
+| `↑` / `↓` | Navigate segments (skips line headers) |
 | `Space` | Toggle segment on/off |
 | `1`–`9` | Move segment to that line (enables it if disabled) |
 | `c` | Cycle segment color |
 | `C` | Open the color picker — theme roles, ANSI names, recents; hover live-previews |
 | `←` / `→` | Reorder segment within its current line |
-| `Shift+↑` / `Shift+↓` | Swap all segments on the current line with the adjacent line |
+| `Shift+↑` / `Shift+↓` | Move segment up/down the grouped list: reorder within its line, cross a line header to change its line, or cross the `── off ──` header to enable/disable |
 | `o` | Open per-segment settings (bar width, iconsets, thresholds, projections, git status…) |
 | `t` | Theme picker with live preview |
 | `p` | Preset picker with live preview |

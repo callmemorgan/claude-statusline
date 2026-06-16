@@ -24,6 +24,318 @@ func effectiveLine(id string, cfg config) int {
 	return 1
 }
 
+// offLine is the sentinel "line" used for the disabled-segment group in the
+// grouped list view. It sorts after every real render line (1–9).
+const offLine = 100
+
+// listRow is one rendered row in the grouped Segments list: either a
+// non-selectable line header or a selectable segment.
+type listRow struct {
+	header bool
+	line   int         // header: the line this header introduces (offLine = "off")
+	seg    segmentInfo // segment: the segment for this row
+	segIdx int         // segment: index into the visible slice
+}
+
+// groupRows turns the (possibly filtered) visible slice into the grouped list
+// model: a header row per occupied line (in ascending line order, off last),
+// followed by that line's segments in render order. "Render order" within a
+// line is cfg.Segments order; the off group keeps the visible-slice order.
+// rowToSeg maps each list-row index to its index in visible (-1 for headers).
+func groupRows(visible []segmentInfo, cfg config) (rows []listRow, rowToSeg []int) {
+	// Index segments by id for O(1) lookup back into visible.
+	idxByID := make(map[string]int, len(visible))
+	inVisible := make(map[string]bool, len(visible))
+	for i, s := range visible {
+		idxByID[s.id] = i
+		inVisible[s.id] = true
+	}
+	enabled := make(map[string]bool, len(cfg.Segments))
+	for _, id := range cfg.Segments {
+		enabled[id] = true
+	}
+
+	// Bucket enabled+visible segments by effective line, in cfg.Segments order.
+	byLine := map[int][]segmentInfo{}
+	var lineOrder []int
+	seen := map[int]bool{}
+	for _, id := range cfg.Segments {
+		if !inVisible[id] {
+			continue
+		}
+		s := visible[idxByID[id]]
+		l := effectiveLine(id, cfg)
+		if !seen[l] {
+			seen[l] = true
+			lineOrder = append(lineOrder, l)
+		}
+		byLine[l] = append(byLine[l], s)
+	}
+	// Sort occupied lines ascending so the list's vertical order is render order.
+	for i := 0; i < len(lineOrder); i++ {
+		for j := i + 1; j < len(lineOrder); j++ {
+			if lineOrder[j] < lineOrder[i] {
+				lineOrder[i], lineOrder[j] = lineOrder[j], lineOrder[i]
+			}
+		}
+	}
+
+	emit := func(line int, segs []segmentInfo) {
+		rows = append(rows, listRow{header: true, line: line})
+		rowToSeg = append(rowToSeg, -1)
+		for _, s := range segs {
+			rows = append(rows, listRow{seg: s, segIdx: idxByID[s.id]})
+			rowToSeg = append(rowToSeg, idxByID[s.id])
+		}
+	}
+
+	for _, l := range lineOrder {
+		emit(l, byLine[l])
+	}
+
+	// Off group: visible segments not enabled, in visible order.
+	var off []segmentInfo
+	for _, s := range visible {
+		if !enabled[s.id] {
+			off = append(off, s)
+		}
+	}
+	if len(off) > 0 {
+		emit(offLine, off)
+	}
+	return rows, rowToSeg
+}
+
+// assignLineCfg writes a segment's line override, deleting the entry when it
+// equals the natural line so the config stays minimal (matches the 1–9 verb).
+func assignLineCfg(cfg *config, id string, line int) {
+	natural := 1
+	if s, ok := segmentByID(id); ok {
+		natural = s.line
+	}
+	if line == natural {
+		delete(cfg.Lines, id)
+		return
+	}
+	if cfg.Lines == nil {
+		cfg.Lines = make(map[string]int)
+	}
+	cfg.Lines[id] = line
+}
+
+// reorderSegmentBefore moves id within cfg.Segments to sit immediately before
+// anchor (anchor == "" → move to the end). Both must already be present.
+func reorderSegmentBefore(cfg *config, id, anchor string) {
+	// Remove id.
+	rest := cfg.Segments[:0:0]
+	for _, sid := range cfg.Segments {
+		if sid != id {
+			rest = append(rest, sid)
+		}
+	}
+	if anchor == "" {
+		cfg.Segments = append(rest, id)
+		return
+	}
+	out := make([]string, 0, len(rest)+1)
+	for _, sid := range rest {
+		if sid == anchor {
+			out = append(out, id)
+		}
+		out = append(out, sid)
+	}
+	cfg.Segments = out
+}
+
+// enabledLinesAsc returns the occupied render lines (1–9) in ascending order
+// and the enabled segments on each, in cfg.Segments (render) order.
+func enabledLinesAsc(cfg config) (lines []int, byLine map[int][]string) {
+	byLine = map[int][]string{}
+	seen := map[int]bool{}
+	for _, id := range cfg.Segments {
+		l := effectiveLine(id, cfg)
+		if !seen[l] {
+			seen[l] = true
+			lines = append(lines, l)
+		}
+		byLine[l] = append(byLine[l], id)
+	}
+	for i := 0; i < len(lines); i++ {
+		for j := i + 1; j < len(lines); j++ {
+			if lines[j] < lines[i] {
+				lines[i], lines[j] = lines[j], lines[i]
+			}
+		}
+	}
+	return lines, byLine
+}
+
+// moveSegmentInGroup moves segment id one slot in the grouped (render) order:
+// step -1 = up, +1 = down. Within a line it swaps with the adjacent peer;
+// crossing a line header reassigns the line (inserting at the near edge of the
+// target group); crossing the "── off ──" boundary toggles enabled. Returns
+// false (no change) when the segment is already at the far end of the order.
+func moveSegmentInGroup(cfg *config, id string, step int) bool {
+	enabled := false
+	for _, sid := range cfg.Segments {
+		if sid == id {
+			enabled = true
+			break
+		}
+	}
+
+	if !enabled {
+		// In the off group, which sits at the very bottom. Only an upward move
+		// is meaningful: it re-enables the segment onto the last occupied line
+		// (or its natural line if nothing is enabled), at that group's bottom.
+		if step >= 0 {
+			return false
+		}
+		lines, _ := enabledLinesAsc(*cfg)
+		if len(lines) == 0 {
+			cfg.Segments = append(cfg.Segments, id)
+			return true
+		}
+		last := lines[len(lines)-1]
+		assignLineCfg(cfg, id, last)
+		cfg.Segments = append(cfg.Segments, id) // bottom of cfg = bottom of its line
+		return true
+	}
+
+	myLine := effectiveLine(id, *cfg)
+	lines, byLine := enabledLinesAsc(*cfg)
+	peers := byLine[myLine]
+	pos := -1
+	for i, sid := range peers {
+		if sid == id {
+			pos = i
+			break
+		}
+	}
+	// Index of myLine among occupied lines.
+	li := -1
+	for i, l := range lines {
+		if l == myLine {
+			li = i
+			break
+		}
+	}
+
+	if step > 0 { // down
+		if pos < len(peers)-1 {
+			// Swap with the next peer within the line (cfg order).
+			reorderSegmentBefore(cfg, peers[pos+1], id) // put next peer before id
+			return true
+		}
+		// Last peer on its line: cross the header below.
+		if li+1 < len(lines) {
+			// Into the next occupied line, at its top.
+			target := lines[li+1]
+			assignLineCfg(cfg, id, target)
+			reorderSegmentBefore(cfg, id, byLine[target][0]) // id at top of target group
+			return true
+		}
+		if myLine < 9 {
+			// New empty line below (id is the sole occupant; keep cfg position).
+			assignLineCfg(cfg, id, myLine+1)
+			return true
+		}
+		// Last line, last peer: drop into the off group (disable).
+		removeSegment(cfg, id)
+		return true
+	}
+
+	// up
+	if pos > 0 {
+		// Swap with the previous peer within the line.
+		reorderSegmentBefore(cfg, id, peers[pos-1]) // id before previous peer
+		return true
+	}
+	// First peer on its line: cross the header above.
+	if li-1 >= 0 {
+		// Into the previous occupied line, at its bottom.
+		target := lines[li-1]
+		group := byLine[target]
+		assignLineCfg(cfg, id, target)
+		// Place id immediately after the last segment of the target group.
+		afterAnchor := ""
+		// Find the segment that currently follows the target group's last
+		// element in cfg.Segments; insert before it (== after the group).
+		lastInGroup := group[len(group)-1]
+		idxLast := -1
+		for i, sid := range cfg.Segments {
+			if sid == lastInGroup {
+				idxLast = i
+				break
+			}
+		}
+		if idxLast >= 0 && idxLast+1 < len(cfg.Segments) && cfg.Segments[idxLast+1] != id {
+			afterAnchor = cfg.Segments[idxLast+1]
+		}
+		reorderSegmentBefore(cfg, id, afterAnchor)
+		return true
+	}
+	if myLine > 1 {
+		// New empty line above.
+		assignLineCfg(cfg, id, myLine-1)
+		return true
+	}
+	return false
+}
+
+// removeSegment drops a segment id from cfg.Segments (disable).
+func removeSegment(cfg *config, id string) {
+	out := cfg.Segments[:0:0]
+	for _, sid := range cfg.Segments {
+		if sid != id {
+			out = append(out, sid)
+		}
+	}
+	cfg.Segments = out
+}
+
+// rowForSegID returns the list-row index of a segment by id, or -1.
+func rowForSegID(rows []listRow, id string) int {
+	if id == "" {
+		return -1
+	}
+	for i, r := range rows {
+		if !r.header && r.seg.id == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// firstSegRow returns the first non-header row index, or -1 if there are none.
+func firstSegRow(rowToSeg []int) int {
+	for i, si := range rowToSeg {
+		if si >= 0 {
+			return i
+		}
+	}
+	return -1
+}
+
+// nextSegRow returns the next non-header row at or after `from` in `step`
+// direction (+1 down, -1 up), or -1 if none. It never lands on a header.
+func nextSegRow(rowToSeg []int, from, step int) int {
+	for r := from; r >= 0 && r < len(rowToSeg); r += step {
+		if rowToSeg[r] >= 0 {
+			return r
+		}
+	}
+	return -1
+}
+
+// headerLabel renders the non-selectable line-header text for the grouped list.
+func headerLabel(line int) string {
+	if line == offLine {
+		return "[gray::d]── off ──[-:-:-]"
+	}
+	return fmt.Sprintf("[gray::d]── line %d ──[-:-:-]", line)
+}
+
 // filterSegments returns the segments whose id or description contains the
 // query (case-insensitive). An empty query returns everything.
 func filterSegments(all []segmentInfo, query string) []segmentInfo {
@@ -111,6 +423,12 @@ func runConfigure() {
 	// handler resolves the selection through it, never registeredSegments.
 	visible := registeredSegments
 
+	// The list is grouped by render line with non-selectable header rows, so
+	// list-row index no longer maps 1:1 to visible. rowToSeg[row] is the index
+	// into visible for that row, or -1 for a header. updateUI rebuilds both.
+	var rows []listRow
+	var rowToSeg []int
+
 	// dirty tracks unsaved changes; mutate is the single mutation funnel.
 	dirty := false
 
@@ -123,12 +441,20 @@ func runConfigure() {
 		ShowSecondaryText(false)
 	list.SetBorder(true)
 
-	selectedSegment := func() (segmentInfo, bool) {
-		idx := list.GetCurrentItem()
-		if idx < 0 || idx >= len(visible) {
+	// segAtRow resolves a list-row index to its segment, skipping header rows.
+	segAtRow := func(row int) (segmentInfo, bool) {
+		if row < 0 || row >= len(rowToSeg) {
 			return segmentInfo{}, false
 		}
-		return visible[idx], true
+		si := rowToSeg[row]
+		if si < 0 || si >= len(visible) {
+			return segmentInfo{}, false
+		}
+		return visible[si], true
+	}
+
+	selectedSegment := func() (segmentInfo, bool) {
+		return segAtRow(list.GetCurrentItem())
 	}
 
 	// Filter input, hidden until / is pressed.
@@ -375,12 +701,11 @@ func runConfigure() {
 			innerX, innerY, _, _ := list.GetInnerRect()
 			if x >= innerX && x <= innerX+1 {
 				itemOff, _ := list.GetOffset()
-				clickedIdx := y - innerY + itemOff
-				if clickedIdx >= 0 && clickedIdx < len(visible) {
-					id := visible[clickedIdx].id
-					list.SetCurrentItem(clickedIdx)
+				clickedRow := y - innerY + itemOff
+				if seg, ok := segAtRow(clickedRow); ok {
+					list.SetCurrentItem(clickedRow)
 					app.SetFocus(list)
-					toggleSegment(id)
+					toggleSegment(seg.id)
 					return tview.MouseConsumed, nil
 				}
 			}
@@ -553,26 +878,32 @@ func runConfigure() {
 
 	// Update list items and preview from current cfg.
 	updateUI = func() {
-		currentIdx := list.GetCurrentItem()
+		// Preserve the selection by segment id — row indices shift as groups
+		// are rebuilt (a toggle/move can reorder the whole list).
+		var selID string
+		if seg, ok := segAtRow(list.GetCurrentItem()); ok {
+			selID = seg.id
+		}
+
+		rows, rowToSeg = groupRows(visible, cfg)
 
 		list.Clear()
-		for _, s := range visible {
-			enabled := false
+		for _, row := range rows {
+			if row.header {
+				// Non-selectable header: nil selected-func, dimmed label.
+				list.AddItem(headerLabel(row.line), "", 0, nil)
+				continue
+			}
+			s := row.seg
+			mark := "  "
 			for _, id := range cfg.Segments {
 				if id == s.id {
-					enabled = true
+					mark = "✓ "
 					break
 				}
 			}
-			mark := "  "
-			if enabled {
-				mark = "✓ "
-			}
 
-			line := s.line
-			if override, ok := cfg.Lines[s.id]; ok && override >= 1 {
-				line = override
-			}
+			line := effectiveLine(s.id, cfg)
 			lineStr := ""
 			if line != s.line {
 				lineStr = fmt.Sprintf(" [L%d]", line)
@@ -599,8 +930,12 @@ func runConfigure() {
 			list.AddItem(mainText, "", 0, nil)
 		}
 
-		if currentIdx >= 0 && currentIdx < len(visible) {
-			list.SetCurrentItem(currentIdx)
+		// Restore selection onto the segment's new row (clamped to a segment
+		// row so the highlight never rests on a header).
+		if r := rowForSegID(rows, selID); r >= 0 {
+			list.SetCurrentItem(r)
+		} else if r := firstSegRow(rowToSeg); r >= 0 {
+			list.SetCurrentItem(r)
 		}
 		title := fmt.Sprintf(" Segments (%d/%d) ", len(cfg.Segments), len(registeredSegments))
 		if q := filterInput.GetText(); q != "" {
@@ -614,16 +949,38 @@ func runConfigure() {
 
 	updateUI()
 
+	// lastSegRow tracks the previously-selected row so the changed-func can
+	// infer travel direction and bounce off header rows (covers PageUp/Down,
+	// Home/End, j/k — any nav path that isn't the explicit Up/Down handler).
+	lastSegRow := -1
 	list.SetChangedFunc(func(idx int, _, _ string, _ rune) {
-		if idx >= 0 && idx < len(visible) {
-			describeSegment(visible[idx])
-		} else {
-			descView.SetText("")
+		if _, ok := segAtRow(idx); !ok {
+			// Landed on a header: skip to the next segment row in the direction
+			// of travel, falling back to the opposite direction at the ends.
+			step := 1
+			if idx < lastSegRow {
+				step = -1
+			}
+			next := nextSegRow(rowToSeg, idx, step)
+			if next < 0 {
+				next = nextSegRow(rowToSeg, idx, -step)
+			}
+			if next >= 0 {
+				list.SetCurrentItem(next) // re-enters this func with a segment row
+			} else {
+				descView.SetText("")
+			}
+			return
+		}
+		lastSegRow = idx
+		if seg, ok := segAtRow(idx); ok {
+			describeSegment(seg)
 		}
 	})
 	// Seed the description for the initial selection.
-	if len(visible) > 0 {
-		describeSegment(visible[0])
+	if seg, ok := selectedSegment(); ok {
+		describeSegment(seg)
+		lastSegRow = list.GetCurrentItem()
 	}
 
 	// ─── Filter wiring ───────────────────────────────────────────────────
@@ -641,9 +998,11 @@ func runConfigure() {
 	applyFilter := func(query string) {
 		visible = filterSegments(registeredSegments, query)
 		updateUI()
-		if len(visible) > 0 {
-			list.SetCurrentItem(0)
-			describeSegment(visible[0])
+		if r := firstSegRow(rowToSeg); r >= 0 {
+			list.SetCurrentItem(r)
+			if seg, ok := segAtRow(r); ok {
+				describeSegment(seg)
+			}
 		} else {
 			descView.SetText("(no segments match)")
 		}
@@ -1035,55 +1394,32 @@ func runConfigure() {
 			requestQuit()
 			return nil
 		case tcell.KeyUp, tcell.KeyDown:
-			// Unmodified Up/Down: pass through for list navigation.
-			if event.Modifiers()&tcell.ModShift == 0 {
-				return event
+			step := -1
+			if event.Key() == tcell.KeyDown {
+				step = 1
 			}
-			// Shift+Up / Shift+Down: swap the entire row with the adjacent row.
+			// Unmodified Up/Down: navigate the list, skipping header rows so the
+			// highlight never lands on a "── line N ──" divider.
+			if event.Modifiers()&tcell.ModShift == 0 {
+				cur := list.GetCurrentItem()
+				if r := nextSegRow(rowToSeg, cur+step, step); r >= 0 {
+					list.SetCurrentItem(r)
+				}
+				return nil
+			}
+			// Shift+Up / Shift+Down: move the selected segment one slot in the
+			// grouped (== render) order. Within a line this reorders it among
+			// its peers; crossing a line header reassigns its line; crossing
+			// the "── off ──" header toggles the segment on/off.
 			seg, ok := selectedSegment()
 			if !ok {
 				return nil
 			}
-			myLine := effectiveLine(seg.id, cfg)
-			targetLine := myLine - 1
-			if event.Key() == tcell.KeyDown {
-				targetLine = myLine + 1
+			// Probe first so a no-op move (already at an end) doesn't flip dirty.
+			probe := cloneConfig(cfg)
+			if moveSegmentInGroup(&probe, seg.id, step) {
+				mutate(func() { moveSegmentInGroup(&cfg, seg.id, step) })
 			}
-			if targetLine < 1 || targetLine > 9 {
-				return nil
-			}
-			mutate(func() {
-				if cfg.Lines == nil {
-					cfg.Lines = make(map[string]int)
-				}
-				// Snapshot which segments are on each line before reassigning.
-				var onMyLine, onTargetLine []string
-				for _, sid := range cfg.Segments {
-					el := effectiveLine(sid, cfg)
-					if el == myLine {
-						onMyLine = append(onMyLine, sid)
-					} else if el == targetLine {
-						onTargetLine = append(onTargetLine, sid)
-					}
-				}
-				assignLine := func(sid string, line int) {
-					naturalLine := 1
-					if s, ok := segmentByID(sid); ok {
-						naturalLine = s.line
-					}
-					if line == naturalLine {
-						delete(cfg.Lines, sid)
-					} else {
-						cfg.Lines[sid] = line
-					}
-				}
-				for _, sid := range onMyLine {
-					assignLine(sid, targetLine)
-				}
-				for _, sid := range onTargetLine {
-					assignLine(sid, myLine)
-				}
-			})
 			return nil
 		case tcell.KeyLeft, tcell.KeyRight:
 			seg, ok := selectedSegment()

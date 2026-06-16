@@ -22,7 +22,7 @@ var keymap = []keyBinding{
 	{Keys: "c", Action: "color", Desc: "Cycle the segment's color", Context: "main", Footer: true},
 	{Keys: "C", Action: "palette", Desc: "Open the color picker (theme roles, ANSI, hex, recent)", Context: "main", Footer: true},
 	{Keys: "←/→", Action: "reorder", Desc: "Reorder the segment within its line", Context: "main", Footer: true},
-	{Keys: "⇧↑/↓", Action: "move row", Desc: "Swap every segment on this line with the adjacent line", Context: "main", Footer: true},
+	{Keys: "⇧↑/↓", Action: "move", Desc: "Move the segment up/down the grouped list: reorder within its line, or cross a line header to change its line (cross the off header to enable/disable)", Context: "main", Footer: true},
 	{Keys: "o", Action: "options", Desc: "Open the segment's settings flyout", Context: "main", Footer: true},
 	{Keys: "t", Action: "theme", Desc: "Pick a color theme with live preview", Context: "main", Footer: true},
 	{Keys: "p", Action: "presets", Desc: "Apply a named layout preset with live preview", Context: "main", Footer: true},

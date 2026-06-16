@@ -15,9 +15,10 @@ func buildHelpText() string {
 	b.WriteString("[yellow::b]claude-statusline configure[-::-]\n\n")
 	b.WriteString("Segments are the building blocks of the statusline. Toggle them on or\n")
 	b.WriteString("off, assign them to lines 1-9, recolor them, and tune per-segment\n")
-	b.WriteString("settings in the flyout (o). The preview renders live at your terminal\n")
-	b.WriteString("width. Nothing touches disk until you press s — changes save to\n")
-	b.WriteString(fmt.Sprintf("[green]%s[-].\n", configPath()))
+	b.WriteString("settings in the flyout (o). The list is grouped under line headers\n")
+	b.WriteString("(── line 1 ──, … , ── off ──), so its top-to-bottom order is exactly the\n")
+	b.WriteString("render order. The preview renders live at your terminal width. Nothing\n")
+	b.WriteString(fmt.Sprintf("touches disk until you press s — changes save to [green]%s[-].\n", configPath()))
 
 	section := func(title, context string) {
 		b.WriteString(fmt.Sprintf("\n[cyan::b]%s[-::-]\n", title))
