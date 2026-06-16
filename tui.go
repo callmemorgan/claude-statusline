@@ -28,6 +28,19 @@ func effectiveLine(id string, cfg config) int {
 // grouped list view. It sorts after every real render line (1–9).
 const offLine = 100
 
+// selectedRowStyle is the highlight style for the currently-selected row in
+// every TUI list (home segment list, options flyout, and the modal pickers).
+// The active selection must be the MOST legible row on screen, so we invert it:
+// black text on a bright bar. A dim background (the old DarkSlateGrey) left the
+// selected text — and its checkmark — barely readable against a similar-toned
+// bar. Bold + a clear inversion makes the cursor unmistakable, and any text
+// that carries its own color tag (which tview preserves over the selected
+// foreground) still reads against the light background.
+var selectedRowStyle = tcell.StyleDefault.
+	Foreground(tcell.ColorBlack).
+	Background(tcell.ColorSilver).
+	Bold(true)
+
 // listRow is one rendered row in the grouped Segments list: either a
 // non-selectable line header or a selectable segment.
 type listRow struct {
@@ -437,7 +450,7 @@ func runConfigure() {
 	// Scrollable list of all segments with toggle state.
 	list := tview.NewList().
 		SetHighlightFullLine(true).
-		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
+		SetSelectedStyle(selectedRowStyle).
 		ShowSecondaryText(false)
 	list.SetBorder(true)
 
@@ -551,7 +564,7 @@ func runConfigure() {
 
 	flyoutList := tview.NewList().
 		SetHighlightFullLine(true).
-		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
+		SetSelectedStyle(selectedRowStyle).
 		ShowSecondaryText(false)
 	flyoutList.SetBorder(true)
 
