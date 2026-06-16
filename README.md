@@ -265,6 +265,44 @@ An interactive TUI: segment list (left), description panel (right), a **live pre
 
 In the flyout (`o`): `space`/`enter` toggles or cycles, `←`/`→` adjusts numbers (`Shift` for coarse steps), and `enter` on a color row opens the swatch picker.
 
+### Editing the layout as text
+
+If you'd rather manipulate the layout directly instead of navigating a list, edit it as text:
+
+```bash
+claude-statusline edit
+```
+
+The whole statusline is shown as a small layout **DSL** in an editable buffer, with the **same live preview** on the right. The buffer is the source of truth: it parses to a config on every keystroke, the preview re-renders through the real renderer, and unknown segments or invalid settings are flagged inline with their buffer line/column. Saving (`Ctrl-S`) serializes to the same `config.toml`.
+
+The grammar is line-oriented:
+
+- **Each buffer line is one statusline render line** — the first layout line is line 1, the next line 2, and so on (up to 9). Tokens render left-to-right.
+- A token is a **segment id**, optionally followed by `[overrides]`. Overrides are comma-separated `key=value` pairs: the reserved `color=` sets the segment's primary color; every other key is a setting from that segment's schema.
+- **Directives** at the top set the top-level config, one per `# key: value` line: `theme`, `reflow`, `separator`, `separator_custom`, `padding`, `color_depth`. A `#` line without a `key:` is treated as a comment.
+
+```text
+# theme: gruvbox-dark
+# reflow: cascade
+# separator: dot
+
+vim-mode directory git-branch[git_status=true] cost[color=cyan]
+model duration cost-rate
+context-window[iconset=blocks] rate-limit-5h[bar_width=24, show_countdown=false]
+```
+
+| Key | Action |
+|-----|--------|
+| `Tab` | Insert the top completion for the token under the cursor (segment ids → setting keys → values) |
+| `Ctrl-S` | Save the parsed layout to `config.toml` and keep editing |
+| `Ctrl-W` | Cycle the preview width (auto → 80 → 60 → 40) |
+| `Ctrl-V` | Hide the editor and render directly in your terminal (real colors) |
+| `Ctrl-R` | Replace the buffer with the default layout (not saved until `Ctrl-S`) |
+| `F1` | Help overlay with the full grammar |
+| `Ctrl-Q` / `Esc` | Quit — asks if there are unsaved changes |
+
+An empty buffer means "hide everything" (an explicit empty layout), the same as `segments = []` in TOML.
+
 ### Presets
 
 Eight named layouts, applied from the TUI (`p`) or used as your config baseline:

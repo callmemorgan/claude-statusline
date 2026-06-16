@@ -41,6 +41,15 @@ var keymap = []keyBinding{
 	{Keys: "⇧←/→", Action: "coarse", Desc: "Adjust a numeric setting in larger steps", Context: "flyout", Footer: true},
 	{Keys: "↑/↓", Action: "nav", Desc: "Move between settings", Context: "flyout", Footer: true},
 	{Keys: "q/esc", Action: "close", Desc: "Close the flyout", Context: "flyout", Footer: true},
+
+	// "editor" context — the layout-DSL buffer mode (claude-statusline edit).
+	{Keys: "tab", Action: "complete", Desc: "Insert the top completion for the token under the cursor", Context: "editor", Footer: true},
+	{Keys: "^S", Action: "save", Desc: "Save the parsed layout to config.toml and keep editing", Context: "editor", Footer: true},
+	{Keys: "^W", Action: "width", Desc: "Cycle the preview width (auto/80/60/40) to check the layout", Context: "editor", Footer: true},
+	{Keys: "^V", Action: "view", Desc: "Hide the editor and render the statusline directly in your terminal", Context: "editor", Footer: true},
+	{Keys: "^R", Action: "reset", Desc: "Replace the buffer with the default layout (not saved until ^S)", Context: "editor", Footer: true},
+	{Keys: "F1", Action: "help", Desc: "Show help and the DSL grammar", Context: "editor", Footer: true},
+	{Keys: "^Q/esc", Action: "quit", Desc: "Quit (asks if there are unsaved changes)", Context: "editor", Footer: true},
 }
 
 // footerText renders the footer hint line for a context.

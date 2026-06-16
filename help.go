@@ -22,6 +22,10 @@ Commands:
   configure    Interactive TUI: toggle/order segments, themes, presets,
                colors, per-segment settings, live width-aware preview,
                animated demo mode, render-in-terminal theme check.
+  edit         Edit the statusline as a textual layout (a small DSL: one
+               render line per buffer line, segment tokens with inline
+               setting overrides) with live preview, autocomplete, and
+               inline diagnostics. Saves to the same config.toml.
   version      Show this binary's version. (The statusline's own "version"
                segment shows the calling tool's version, not this binary's.)
   debug        Read JSON from stdin and print a schema-comparison table plus
@@ -118,5 +122,8 @@ Examples:
   echo '{"model":{"display_name":"Claude"},"workspace":{"current_dir":"~"}}' | claude-statusline
 
   # Interactive configuration
-  claude-statusline configure`)
+  claude-statusline configure
+
+  # Edit the layout as text (DSL buffer with live preview)
+  claude-statusline edit`)
 }
