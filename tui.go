@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -47,7 +48,6 @@ type listRow struct {
 	header bool
 	line   int         // header: the line this header introduces (offLine = "off")
 	seg    segmentInfo // segment: the segment for this row
-	segIdx int         // segment: index into the visible slice
 }
 
 // groupRows turns the (possibly filtered) visible slice into the grouped list
@@ -58,59 +58,45 @@ type listRow struct {
 func groupRows(visible []segmentInfo, cfg config) (rows []listRow, rowToSeg []int) {
 	// Index segments by id for O(1) lookup back into visible.
 	idxByID := make(map[string]int, len(visible))
-	inVisible := make(map[string]bool, len(visible))
 	for i, s := range visible {
 		idxByID[s.id] = i
-		inVisible[s.id] = true
-	}
-	enabled := make(map[string]bool, len(cfg.Segments))
-	for _, id := range cfg.Segments {
-		enabled[id] = true
 	}
 
-	// Bucket enabled+visible segments by effective line, in cfg.Segments order.
-	byLine := map[int][]segmentInfo{}
-	var lineOrder []int
-	seen := map[int]bool{}
-	for _, id := range cfg.Segments {
-		if !inVisible[id] {
-			continue
-		}
-		s := visible[idxByID[id]]
-		l := effectiveLine(id, cfg)
-		if !seen[l] {
-			seen[l] = true
-			lineOrder = append(lineOrder, l)
-		}
-		byLine[l] = append(byLine[l], s)
-	}
-	// Sort occupied lines ascending so the list's vertical order is render order.
-	for i := 0; i < len(lineOrder); i++ {
-		for j := i + 1; j < len(lineOrder); j++ {
-			if lineOrder[j] < lineOrder[i] {
-				lineOrder[i], lineOrder[j] = lineOrder[j], lineOrder[i]
-			}
-		}
-	}
-
-	emit := func(line int, segs []segmentInfo) {
+	emit := func(line int, ids []string) {
 		rows = append(rows, listRow{header: true, line: line})
 		rowToSeg = append(rowToSeg, -1)
-		for _, s := range segs {
-			rows = append(rows, listRow{seg: s, segIdx: idxByID[s.id]})
-			rowToSeg = append(rowToSeg, idxByID[s.id])
+		for _, id := range ids {
+			si, ok := idxByID[id]
+			if !ok {
+				continue // filtered out of the visible slice
+			}
+			rows = append(rows, listRow{seg: visible[si]})
+			rowToSeg = append(rowToSeg, si)
 		}
 	}
 
-	for _, l := range lineOrder {
-		emit(l, byLine[l])
+	// Enabled segments, grouped by line in ascending (render) order. A line
+	// header is emitted only when at least one of its segments is visible.
+	lines, byLine := enabledLinesAsc(cfg)
+	placed := map[string]bool{}
+	for _, l := range lines {
+		anyVisible := false
+		for _, id := range byLine[l] {
+			placed[id] = true
+			if _, ok := idxByID[id]; ok {
+				anyVisible = true
+			}
+		}
+		if anyVisible {
+			emit(l, byLine[l])
+		}
 	}
 
 	// Off group: visible segments not enabled, in visible order.
-	var off []segmentInfo
+	var off []string
 	for _, s := range visible {
-		if !enabled[s.id] {
-			off = append(off, s)
+		if !placed[s.id] {
+			off = append(off, s.id)
 		}
 	}
 	if len(off) > 0 {
@@ -173,13 +159,7 @@ func enabledLinesAsc(cfg config) (lines []int, byLine map[int][]string) {
 		}
 		byLine[l] = append(byLine[l], id)
 	}
-	for i := 0; i < len(lines); i++ {
-		for j := i + 1; j < len(lines); j++ {
-			if lines[j] < lines[i] {
-				lines[i], lines[j] = lines[j], lines[i]
-			}
-		}
-	}
+	sort.Ints(lines)
 	return lines, byLine
 }
 
@@ -712,9 +692,16 @@ func runConfigure() {
 		if action == tview.MouseLeftClick && list.InRect(event.Position()) {
 			x, y := event.Position()
 			innerX, innerY, _, _ := list.GetInnerRect()
+			itemOff, _ := list.GetOffset()
+			clickedRow := y - innerY + itemOff
+			if clickedRow >= 0 && clickedRow < len(rowToSeg) && rowToSeg[clickedRow] < 0 {
+				// Header row: swallow the click so it never reaches tview's
+				// default handler, which would call our changed-func before
+				// storing currentItem and leave the highlight stranded on the
+				// non-selectable header. Keep the current selection put.
+				return tview.MouseConsumed, nil
+			}
 			if x >= innerX && x <= innerX+1 {
-				itemOff, _ := list.GetOffset()
-				clickedRow := y - innerY + itemOff
 				if seg, ok := segAtRow(clickedRow); ok {
 					list.SetCurrentItem(clickedRow)
 					app.SetFocus(list)
