@@ -554,8 +554,16 @@ func runConfigure() {
 		now := scenarioNow()
 		c := currentPalette(cfg)
 		scs := curatedScenarios(now)
+
+		// Divider rule spans the overlay's inner width so pane boundaries are
+		// obvious while scrolling (only ~3 panes fit at once at 142x40).
+		_, _, ruleW, _ := matrixView.GetInnerRect()
+		if ruleW < 20 {
+			ruleW = 76
+		}
+
 		var b strings.Builder
-		for i, sc := range scs {
+		for _, sc := range scs {
 			lines := buildStatusline(buildInput{
 				P:     sc.P,
 				C:     c,
@@ -572,19 +580,34 @@ func runConfigure() {
 				Width: sc.Width,
 				Now:   now,
 			})
-			fit := "[green]fits[-]"
-			if !scenarioFits(plainLines, sc.Width) {
-				fit = "[red]overflows[-]"
+			over := !scenarioFits(plainLines, sc.Width)
+
+			// Pane header: a divider rule, then a bold title with a
+			// right-aligned fit badge, the note, and a compact stats line. The
+			// overflow flag lives in the title badge so it's visible the moment
+			// a pane scrolls into view, not buried in the metadata line.
+			title := tview.Escape(sc.Name)
+			badge := "[green::b] FITS [-:-:-]"
+			if over {
+				badge = "[black:red:b] OVERFLOWS [-:-:-]"
 			}
-			if i > 0 {
-				b.WriteString("\n")
+			badgeW := 6 // " FITS "
+			if over {
+				badgeW = 11 // " OVERFLOWS "
 			}
-			b.WriteString(fmt.Sprintf("[::b]%s[::-]  [gray]%s[-]\n", sc.Name, sc.Note))
-			b.WriteString(fmt.Sprintf("[gray]%d cols · reflow %s · %d line(s) · %s[-]\n",
-				sc.Width, scenarioReflowLabel(sc, cfg), len(lines), fit))
+			gap := ruleW - visibleWidth(sc.Name) - badgeW - 2 // 2 = "▸ "
+			if gap < 1 {
+				gap = 1
+			}
+			b.WriteString("[gray]" + strings.Repeat("─", ruleW) + "[-]\n")
+			b.WriteString("[white::b]▸ " + title + "[-:-:-]" +
+				strings.Repeat(" ", gap) + badge + "\n")
+			b.WriteString("[gray]" + tview.Escape(sc.Note) + "[-]\n")
+			b.WriteString(fmt.Sprintf("[darkcyan]%d cols · reflow %s · %d line(s)[-]\n\n",
+				sc.Width, scenarioReflowLabel(sc, cfg), len(lines)))
 			body := joinScenarioLines(lines)
 			b.WriteString(ansiToTview(body))
-			b.WriteString("\n")
+			b.WriteString("\n\n")
 		}
 		matrixView.SetText(b.String())
 		matrixView.ScrollToBeginning()
