@@ -39,6 +39,7 @@ func progressBarSegmentIDs() []string {
 
 func ptrBool(v bool) *bool          { return &v }
 func ptrFloat64(v float64) *float64 { return &v }
+func ptrInt(v int) *int             { return &v }
 
 // stressTestActive tracks which flyout segments have stress-test preview
 // enabled. Session-only by design: it is never persisted to the config, so

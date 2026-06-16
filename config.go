@@ -219,6 +219,11 @@ func mergeWithDefaults(loaded config) config {
 	cfg.State = loaded.State
 	cfg.ReleaseNotes = loaded.ReleaseNotes
 	cfg.Update = loaded.Update
+	// Design-time metadata: carry it through so the auto-layout solver can be
+	// re-opened with the user's last ranking + budget (the render path ignores
+	// it). mergeWithDefaults field-copies explicitly, so it must be listed here
+	// or it would be silently dropped on every config load.
+	cfg.AutoLayout = loaded.AutoLayout
 	if loaded.Segments == nil {
 		inSegments := make(map[string]bool, len(cfg.Segments))
 		for _, id := range cfg.Segments {

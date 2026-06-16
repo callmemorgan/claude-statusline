@@ -88,15 +88,7 @@ func clampInt(v, lo, hi int) int {
 }
 
 func cycleDensity(cur string, dir int) string {
-	idx := 0
-	for i, d := range densityOrder {
-		if d == cur {
-			idx = i
-			break
-		}
-	}
-	idx = (idx + dir + len(densityOrder)) % len(densityOrder)
-	return densityOrder[idx]
+	return cycleOption(densityOrder, cur, dir)
 }
 
 // newAutoLayoutModel builds the overlay's widgets. The page is registered by the
@@ -229,10 +221,10 @@ func (m *autoLayoutModel) refresh() {
 
 	bIdx := m.budgetList.GetCurrentItem()
 	m.budgetList.Clear()
-	for _, row := range m.budgetRows() {
+	rows := m.budgetRows()
+	for _, row := range rows {
 		m.budgetList.AddItem(fmt.Sprintf("%-18s %s", row.name+":", row.get(m.budget)), "", 0, nil)
 	}
-	rows := m.budgetRows()
 	if bIdx >= 0 && bIdx < len(rows) {
 		m.budgetList.SetCurrentItem(bIdx)
 	}

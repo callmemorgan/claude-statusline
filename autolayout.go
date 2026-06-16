@@ -31,8 +31,6 @@ var densityStyles = map[string]styleConfig{
 // densityOrder is the cycle order offered in the TUI (map iteration is random).
 var densityOrder = []string{"compact", "comfortable", "airy"}
 
-func ptrInt(v int) *int { return &v }
-
 // autoLayoutBudget is the user-editable budget for the solver. Width is the
 // column budget the packed layout must fit within (per physical line, via
 // lineBudget); MaxLines caps how many physical lines the solver may use before
@@ -140,7 +138,8 @@ func segmentRenderWidth(id string, base config, mi packMeasureInput) (int, bool)
 // map iteration, time.Now, or global mutable state leaks in (the measurement
 // uses an empty palette and the injected clock). Unit-tested in autolayout_test.
 func packLayout(base config, priorities []string, budget autoLayoutBudget, mi packMeasureInput) packResult {
-	st := styleFor(withDensity(base, budget.density()), palette{})
+	dense := withDensity(base, budget.density())
+	st := styleFor(dense, palette{})
 	maxLines := budget.maxLines()
 	width := budget.width()
 
@@ -153,7 +152,6 @@ func packLayout(base config, priorities []string, budget autoLayoutBudget, mi pa
 	}
 	var cands []cand
 	seen := map[string]bool{}
-	dense := withDensity(base, budget.density())
 	for _, id := range priorities {
 		if seen[id] {
 			continue // de-dupe; first occurrence wins the priority slot
@@ -269,20 +267,18 @@ func applyPackResult(cfg *config, res packResult, density string) {
 	}
 }
 
-// defaultPriorities derives a sensible initial priority ranking from the
-// registered segments' natural lines and registry order: line 1 segments rank
-// above line 2, line 2 above line 3, ties broken by registry order. This gives
-// the solver a reasonable starting point that mirrors the default layout.
-func defaultPriorities() []string {
-	type ranked struct {
-		id   string
-		line int
-		ord  int
-	}
-	var rs []ranked
-	for i, s := range registeredSegments {
-		rs = append(rs, ranked{id: s.id, line: s.line, ord: i})
-	}
+// rankedSeg is one entry in a line/order ranking: a segment id with its
+// physical line and a tiebreak ordinal.
+type rankedSeg struct {
+	id   string
+	line int
+	ord  int
+}
+
+// rankByLineOrder stable-sorts entries by line (ascending), ties broken by
+// ord, and returns the resulting ids. Shared by the priority derivations so
+// "line 1 ranks above line 2, registry/config order breaks ties" lives once.
+func rankByLineOrder(rs []rankedSeg) []string {
 	sort.SliceStable(rs, func(i, j int) bool {
 		if rs[i].line != rs[j].line {
 			return rs[i].line < rs[j].line
@@ -296,32 +292,30 @@ func defaultPriorities() []string {
 	return out
 }
 
+// defaultPriorities derives a sensible initial priority ranking from the
+// registered segments' natural lines and registry order: line 1 segments rank
+// above line 2, line 2 above line 3, ties broken by registry order. This gives
+// the solver a reasonable starting point that mirrors the default layout.
+func defaultPriorities() []string {
+	rs := make([]rankedSeg, len(registeredSegments))
+	for i, s := range registeredSegments {
+		rs[i] = rankedSeg{id: s.id, line: s.line, ord: i}
+	}
+	return rankByLineOrder(rs)
+}
+
 // prioritiesFromConfig builds an initial priority ranking from an existing
 // config's enabled segments (in their current line/order), appending any
 // remaining registered segments after them. So re-opening the solver on a
 // configured statusline preserves the user's current ordering as the ranking.
 func prioritiesFromConfig(cfg config) []string {
-	type ranked struct {
-		id   string
-		line int
-		ord  int
-	}
-	var rs []ranked
+	rs := make([]rankedSeg, 0, len(cfg.Segments))
 	seen := map[string]bool{}
 	for i, id := range cfg.Segments {
 		seen[id] = true
-		rs = append(rs, ranked{id: id, line: effectiveLine(id, cfg), ord: i})
+		rs = append(rs, rankedSeg{id: id, line: effectiveLine(id, cfg), ord: i})
 	}
-	sort.SliceStable(rs, func(i, j int) bool {
-		if rs[i].line != rs[j].line {
-			return rs[i].line < rs[j].line
-		}
-		return rs[i].ord < rs[j].ord
-	})
-	out := make([]string, 0, len(registeredSegments))
-	for _, r := range rs {
-		out = append(out, r.id)
-	}
+	out := rankByLineOrder(rs)
 	// Append any registered-but-disabled segments so the ranking can promote
 	// them. Registry order is the tiebreak.
 	for _, s := range registeredSegments {

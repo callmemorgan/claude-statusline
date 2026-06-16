@@ -268,6 +268,17 @@ func TestPackLayoutSaveRoundTrip(t *testing.T) {
 	if back.AutoLayout.Budget.width() != budget.width() {
 		t.Errorf("AutoLayout.Budget.Width round-trip = %d, want %d", back.AutoLayout.Budget.width(), budget.width())
 	}
+
+	// mergeWithDefaults field-copies every config field; it must carry the
+	// design-time [auto_layout] metadata through, or re-opening the solver
+	// would always see an empty ranking after a reload.
+	merged := mergeWithDefaults(back)
+	if !reflect.DeepEqual(merged.AutoLayout.Priorities, prios) {
+		t.Errorf("AutoLayout.Priorities dropped by mergeWithDefaults: %v", merged.AutoLayout.Priorities)
+	}
+	if merged.AutoLayout.Budget.width() != budget.width() {
+		t.Errorf("AutoLayout.Budget dropped by mergeWithDefaults: %d", merged.AutoLayout.Budget.width())
+	}
 }
 
 // TestPrioritiesFromConfig verifies re-deriving a ranking from an existing
