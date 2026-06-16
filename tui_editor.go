@@ -163,7 +163,7 @@ func runEditor() {
 				fmt.Fprintf(&b, "[gray]… +%d more[-]\n", len(cs)-max)
 				break
 			}
-			fmt.Fprintf(&b, "[yellow]%s[-]  [gray]%s[-]\n", tview.Escape(c.Text), tview.Escape(truncateLabel(c.Label, 40)))
+			fmt.Fprintf(&b, "[yellow]%s[-]  [gray]%s[-]\n", tview.Escape(c.Text), tview.Escape(truncateToWidth(c.Label, 40)))
 		}
 		complete.SetText(b.String())
 	}
@@ -203,7 +203,7 @@ func runEditor() {
 	helpView := tview.NewTextView().SetDynamicColors(true).SetWrap(true)
 	helpView.SetBorder(true).SetTitle(" Help — esc to close ")
 	helpView.SetText(buildEditorHelpText())
-	pages.AddPage("help", centered(helpView, 80, 28), true, false)
+	pages.AddPage("help", floatPicker(helpView, 80, 28), true, false)
 
 	// ── Quit-confirm overlay ─────────────────────────────────────────
 	quitModal := tview.NewModal().
@@ -381,7 +381,9 @@ func cursorPrefix(editor *tview.TextArea) string {
 // the prefix: the active segment-id word, or the partial key/value inside a
 // bracket.
 func insertCompletion(editor *tview.TextArea, prefix, full string) {
-	partial := activePartial(prefix)
+	// Replace exactly the partial the suggestions were computed for, so the
+	// completion logic and the insert stay in sync (shared bracketContext).
+	partial := bracketContext(prefix).partial
 	row, col, _, _ := editor.GetCursor()
 	// Cursor offset in the whole text.
 	text := editor.GetText()
@@ -391,25 +393,6 @@ func insertCompletion(editor *tview.TextArea, prefix, full string) {
 		start = 0
 	}
 	editor.Replace(start, offset, full)
-}
-
-// activePartial returns the partial token the cursor is completing, mirroring
-// the context logic in dslCompletions: inside a bracket it's the partial
-// key/value after the last ',' or '='; outside it's the trailing word.
-func activePartial(prefix string) string {
-	openBr := strings.LastIndexByte(prefix, '[')
-	closeBr := strings.LastIndexByte(prefix, ']')
-	if openBr > closeBr {
-		inner := prefix[openBr+1:]
-		if c := strings.LastIndexByte(inner, ','); c >= 0 {
-			inner = inner[c+1:]
-		}
-		if eq := strings.IndexByte(inner, '='); eq >= 0 {
-			return strings.TrimLeft(inner[eq+1:], " \t")
-		}
-		return strings.TrimLeft(inner, " \t")
-	}
-	return trailingWord(prefix)
 }
 
 // runeOffset converts a (row, column) cursor position to a rune offset into
@@ -441,25 +424,6 @@ func cycleEditorWidth(w int) int {
 	default:
 		return 0
 	}
-}
-
-func truncateLabel(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	return string(r[:max-1]) + "…"
-}
-
-// centered wraps a primitive in a fixed-size centered Flex (for overlays).
-func centered(p tview.Primitive, width, height int) tview.Primitive {
-	return tview.NewFlex().
-		AddItem(nil, 0, 1, false).
-		AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
-			AddItem(nil, 0, 1, false).
-			AddItem(p, height, 0, true).
-			AddItem(nil, 0, 1, false), width, 0, true).
-		AddItem(nil, 0, 1, false)
 }
 
 // editorFooterText is the one-line key hint, generated from the editor keymap.

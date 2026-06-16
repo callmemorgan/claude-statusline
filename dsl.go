@@ -37,8 +37,57 @@ import (
 	"strings"
 )
 
-// dslDirectiveKeys is the set of top-level config keys settable via `# key: value`.
-var dslDirectiveKeys = []string{"theme", "reflow", "separator", "separator_custom", "padding", "color_depth"}
+// dslDirective is one `# key: value` top-level scalar, defined once so the
+// serializer (get) and parser (set) can't drift: adding a directive is a single
+// table entry that both halves loop over.
+type dslDirective struct {
+	key string
+	// get returns the value to emit and whether to emit it at all (defaults and
+	// empties are skipped so the buffer only shows what round-trips).
+	get func(config) (string, bool)
+	// set writes a parsed value into cfg, returning an error message if the
+	// value is malformed (e.g. non-numeric padding). Empty msg = ok.
+	set func(*config, string) string
+}
+
+// dslDirectives is the authoritative list of recognised directives, in the
+// order configToDSL emits them.
+var dslDirectives = []dslDirective{
+	{"theme", func(c config) (string, bool) { return c.Theme, c.Theme != "" },
+		func(c *config, v string) string { c.Theme = v; return "" }},
+	{"reflow", func(c config) (string, bool) { return c.Reflow, c.Reflow != "" && c.Reflow != "off" },
+		func(c *config, v string) string { c.Reflow = v; return "" }},
+	{"color_depth", func(c config) (string, bool) { return c.ColorDepth, c.ColorDepth != "" },
+		func(c *config, v string) string { c.ColorDepth = v; return "" }},
+	{"separator", func(c config) (string, bool) { return c.Style.Separator, c.Style.Separator != "" },
+		func(c *config, v string) string { c.Style.Separator = v; return "" }},
+	{"separator_custom", func(c config) (string, bool) { return c.Style.SeparatorCustom, c.Style.SeparatorCustom != "" },
+		func(c *config, v string) string { c.Style.SeparatorCustom = v; return "" }},
+	{"padding",
+		func(c config) (string, bool) {
+			if c.Style.Padding == nil {
+				return "", false
+			}
+			return strconv.Itoa(*c.Style.Padding), true
+		},
+		func(c *config, v string) string {
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Sprintf("padding %q is not a number", v)
+			}
+			c.Style.Padding = &n
+			return ""
+		}},
+}
+
+// dslDirectiveKeys lists the recognised directive keys (for diagnostics).
+func dslDirectiveKeys() []string {
+	keys := make([]string, len(dslDirectives))
+	for i, d := range dslDirectives {
+		keys[i] = d.key
+	}
+	return keys
+}
 
 // dslError is a single parse/lint diagnostic, anchored to a 1-based buffer line
 // (0 = no specific line). Line is 1-based to match what an editor shows.
@@ -75,23 +124,10 @@ func configToDSL(cfg config) string {
 	var b strings.Builder
 
 	// Directives for the top-level scalars that the DSL owns.
-	if cfg.Theme != "" {
-		fmt.Fprintf(&b, "# theme: %s\n", cfg.Theme)
-	}
-	if r := cfg.Reflow; r != "" && r != "off" {
-		fmt.Fprintf(&b, "# reflow: %s\n", r)
-	}
-	if cfg.ColorDepth != "" {
-		fmt.Fprintf(&b, "# color_depth: %s\n", cfg.ColorDepth)
-	}
-	if cfg.Style.Separator != "" {
-		fmt.Fprintf(&b, "# separator: %s\n", cfg.Style.Separator)
-	}
-	if cfg.Style.SeparatorCustom != "" {
-		fmt.Fprintf(&b, "# separator_custom: %s\n", cfg.Style.SeparatorCustom)
-	}
-	if cfg.Style.Padding != nil {
-		fmt.Fprintf(&b, "# padding: %d\n", *cfg.Style.Padding)
+	for _, d := range dslDirectives {
+		if v, ok := d.get(cfg); ok {
+			fmt.Fprintf(&b, "# %s: %s\n", d.key, v)
+		}
 	}
 	if b.Len() > 0 {
 		b.WriteString("\n")
@@ -240,27 +276,16 @@ func parseDirective(line string, lineNo int, cfg *config) (dslError, bool) {
 	}
 	key := strings.TrimSpace(body[:idx])
 	val := strings.TrimSpace(body[idx+1:])
-	switch key {
-	case "theme":
-		cfg.Theme = val
-	case "reflow":
-		cfg.Reflow = val
-	case "color_depth":
-		cfg.ColorDepth = val
-	case "separator":
-		cfg.Style.Separator = val
-	case "separator_custom":
-		cfg.Style.SeparatorCustom = val
-	case "padding":
-		n, err := strconv.Atoi(val)
-		if err != nil {
-			return dslError{Line: lineNo, Msg: fmt.Sprintf("padding %q is not a number", val)}, false
+	for _, d := range dslDirectives {
+		if d.key != key {
+			continue
 		}
-		cfg.Style.Padding = &n
-	default:
-		return dslError{Line: lineNo, Msg: fmt.Sprintf("unknown directive %q (known: %s)", key, strings.Join(dslDirectiveKeys, ", "))}, false
+		if msg := d.set(cfg, val); msg != "" {
+			return dslError{Line: lineNo, Msg: msg}, false
+		}
+		return dslError{}, true
 	}
-	return dslError{}, true
+	return dslError{Line: lineNo, Msg: fmt.Sprintf("unknown directive %q (known: %s)", key, strings.Join(dslDirectiveKeys(), ", "))}, false
 }
 
 // dslToken is one parsed segment token: its id, raw override pairs, and the
@@ -320,43 +345,60 @@ func tokenizeLayoutLine(raw string, lineNo int) ([]dslToken, []dslError) {
 }
 
 // parseToken parses one `id[overrides]` word into a dslToken. col is the
-// 1-based column of the word's first rune.
+// 1-based column of the word's first rune. All offsets are tracked in runes so
+// reported columns line up with the (rune-based) columns tokenizeLayoutLine
+// produces, even when the line contains multibyte runes.
 func parseToken(word string, lineNo, col int) (dslToken, []dslError) {
 	var errs []dslError
 	tok := dslToken{col: col}
-	br := strings.IndexByte(word, '[')
+	wr := []rune(word)
+	br := runeIndex(wr, '[')
 	if br < 0 {
 		tok.id = strings.TrimSpace(word)
 		return tok, errs
 	}
-	tok.id = strings.TrimSpace(word[:br])
-	inner := word[br+1:]
-	inner = strings.TrimSuffix(inner, "]")
-	// Column where the bracket body begins.
+	tok.id = strings.TrimSpace(string(wr[:br]))
+	inner := wr[br+1:]
+	if n := len(inner); n > 0 && inner[n-1] == ']' {
+		inner = inner[:n-1]
+	}
+	// Column where the bracket body begins (rune-based).
 	bodyCol := col + br + 1
 	for _, part := range splitOverrides(inner) {
-		if strings.TrimSpace(part.s) == "" {
+		s := strings.TrimSpace(string(part.s))
+		if s == "" {
 			continue
 		}
-		eq := strings.IndexByte(part.s, '=')
+		eq := runeIndex(part.s, '=')
 		if eq < 0 {
-			errs = append(errs, dslError{Line: lineNo, Col: bodyCol + part.off, Msg: fmt.Sprintf("override %q has no '=' (expected key=value)", strings.TrimSpace(part.s))})
+			errs = append(errs, dslError{Line: lineNo, Col: bodyCol + part.off, Msg: fmt.Sprintf("override %q has no '=' (expected key=value)", s)})
 			continue
 		}
-		k := strings.TrimSpace(part.s[:eq])
-		v := strings.TrimSpace(part.s[eq+1:])
+		k := strings.TrimSpace(string(part.s[:eq]))
+		v := strings.TrimSpace(string(part.s[eq+1:]))
 		tok.overrides = append(tok.overrides, dslOverride{key: k, val: v, col: bodyCol + part.off})
 	}
 	return tok, errs
 }
 
-type splitPart struct {
-	s   string
-	off int // offset of this part within the inner string
+// runeIndex returns the index of the first occurrence of r in rs, or -1.
+func runeIndex(rs []rune, r rune) int {
+	for i, c := range rs {
+		if c == r {
+			return i
+		}
+	}
+	return -1
 }
 
-// splitOverrides splits a bracket body on commas, tracking each part's offset.
-func splitOverrides(inner string) []splitPart {
+type splitPart struct {
+	s   []rune
+	off int // rune offset of this part within the inner slice
+}
+
+// splitOverrides splits a bracket body on commas, tracking each part's rune
+// offset (so column diagnostics are correct for multibyte input).
+func splitOverrides(inner []rune) []splitPart {
 	var parts []splitPart
 	start := 0
 	for i := 0; i < len(inner); i++ {
@@ -379,6 +421,15 @@ func applyToken(tok dslToken, renderLine, lineNo int, seen map[string]int, cfg *
 		return errs
 	}
 
+	// Duplicate detection covers unknown ids too: appending the same id twice
+	// would round-trip as two identical tokens (and validateConfig keeps unknown
+	// ids), so flag the repeat once and drop it.
+	if first, dup := seen[id]; dup {
+		errs = append(errs, dslError{Line: lineNo, Col: tok.col, Msg: fmt.Sprintf("segment %q already used on line %d (each segment may appear once)", id, first)})
+		return errs
+	}
+	seen[id] = lineNo
+
 	seg, known := segmentByID(id)
 	if !known {
 		errs = append(errs, dslError{Line: lineNo, Col: tok.col, Msg: fmt.Sprintf("unknown segment %q", id)})
@@ -388,11 +439,6 @@ func applyToken(tok dslToken, renderLine, lineNo int, seen map[string]int, cfg *
 		assignLine(cfg, id, renderLine)
 		return errs
 	}
-	if first, dup := seen[id]; dup {
-		errs = append(errs, dslError{Line: lineNo, Col: tok.col, Msg: fmt.Sprintf("segment %q already used on line %d (each segment may appear once)", id, first)})
-		return errs
-	}
-	seen[id] = lineNo
 
 	cfg.Segments = append(cfg.Segments, id)
 	assignLine(cfg, id, renderLine)
@@ -442,13 +488,13 @@ func applyToken(tok dslToken, renderLine, lineNo int, seen map[string]int, cfg *
 
 // assignLine records a per-segment line override when it differs from the
 // segment's natural line, mirroring the TUI (a line equal to natural is
-// *deleted*, never stored).
+// *deleted*, never stored). For an unknown segment there is no natural line to
+// compare against, so the explicit placement is always stored — otherwise the
+// buffer position would be lost on re-serialize (an unknown id on line 3 would
+// drift back to line 1).
 func assignLine(cfg *config, id string, renderLine int) {
-	natural := renderLine
-	if seg, ok := segmentByID(id); ok {
-		natural = seg.line
-	}
-	if renderLine == natural {
+	seg, known := segmentByID(id)
+	if known && renderLine == seg.line {
 		delete(cfg.Lines, id)
 		return
 	}
@@ -527,48 +573,65 @@ type dslCompletion struct {
 //
 // Matching is case-insensitive substring against the partial word.
 func dslCompletions(prefix string) []dslCompletion {
-	// Find the last unbracketed token boundary to locate the active word.
-	openBr := strings.LastIndexByte(prefix, '[')
-	closeBr := strings.LastIndexByte(prefix, ']')
-	inBracket := openBr > closeBr
-
-	if inBracket {
-		return bracketCompletions(prefix, openBr)
+	ctx := bracketContext(prefix)
+	if !ctx.inBracket {
+		// Segment-id completion: take the trailing word.
+		return segmentCompletions(ctx.partial)
 	}
-
-	// Segment-id completion: take the trailing word.
-	word := trailingWord(prefix)
-	return segmentCompletions(word)
-}
-
-// bracketCompletions completes setting keys or values inside a [bracket].
-func bracketCompletions(prefix string, openBr int) []dslCompletion {
-	// Resolve the segment id: the word immediately before '['.
-	idPart := prefix[:openBr]
-	segID := trailingWord(idPart)
-	seg, ok := segmentByID(segID)
+	seg, ok := segmentByID(ctx.segID)
 	if !ok {
 		return nil
 	}
+	if ctx.key != "" {
+		// Completing a value for a known key.
+		return valueCompletions(seg, ctx.key, ctx.partial)
+	}
+	// Completing a setting key.
+	return keyCompletions(seg, ctx.partial)
+}
 
+// bracketCtx is the cursor context derived from a line prefix: whether the
+// cursor sits inside an open `[bracket]`, and what it's completing.
+type bracketCtx struct {
+	inBracket bool   // cursor is inside an unclosed '['
+	segID     string // segment id that opened the bracket (in-bracket only)
+	key       string // setting key being valued, when past a '=' (else "")
+	partial   string // the partial word/value under the cursor
+}
+
+// bracketContext is the single source of truth for "where is the cursor". Both
+// dslCompletions (which suggestions to offer) and the editor's insert path
+// (which partial word to replace) consume it, so the two stay in sync.
+//
+// `partial` is only left-trimmed: the insert path replaces exactly `partial`
+// before the cursor, so any whitespace the user typed up to the cursor must be
+// part of it. Completion matchers lower/compare and tolerate a stray trailing
+// space, so this is safe for both consumers.
+func bracketContext(prefix string) bracketCtx {
+	openBr := strings.LastIndexByte(prefix, '[')
+	closeBr := strings.LastIndexByte(prefix, ']')
+	if openBr <= closeBr {
+		// Outside any bracket: completing a segment id (trailing word).
+		return bracketCtx{partial: trailingWord(prefix)}
+	}
+
+	ctx := bracketCtx{inBracket: true, segID: trailingWord(prefix[:openBr])}
 	inner := prefix[openBr+1:]
 	// The current override is everything after the last comma.
 	if c := strings.LastIndexByte(inner, ','); c >= 0 {
 		inner = inner[c+1:]
 	}
 	if eq := strings.IndexByte(inner, '='); eq >= 0 {
-		// Completing a value for a known key.
-		key := strings.TrimSpace(inner[:eq])
-		partial := strings.TrimSpace(inner[eq+1:])
-		return valueCompletions(seg, key, partial)
+		ctx.key = strings.TrimSpace(inner[:eq])
+		ctx.partial = strings.TrimLeft(inner[eq+1:], " \t")
+	} else {
+		ctx.partial = strings.TrimLeft(inner, " \t")
 	}
-	// Completing a key.
-	partial := strings.TrimSpace(inner)
-	return keyCompletions(seg, partial)
+	return ctx
 }
 
 func keyCompletions(seg segmentInfo, partial string) []dslCompletion {
-	p := strings.ToLower(partial)
+	p := strings.ToLower(strings.TrimSpace(partial))
 	var out []dslCompletion
 	if strings.Contains("color", p) {
 		out = append(out, dslCompletion{Text: "color", Label: "primary color override"})
@@ -585,7 +648,7 @@ func keyCompletions(seg segmentInfo, partial string) []dslCompletion {
 }
 
 func valueCompletions(seg segmentInfo, key, partial string) []dslCompletion {
-	p := strings.ToLower(partial)
+	p := strings.ToLower(strings.TrimSpace(partial))
 	match := func(s string) bool { return p == "" || strings.Contains(strings.ToLower(s), p) }
 	if key == "color" {
 		var out []dslCompletion
@@ -615,7 +678,10 @@ func valueCompletions(seg segmentInfo, key, partial string) []dslCompletion {
 			}
 		}
 	case kindInt:
-		out = append(out, dslCompletion{Text: strconv.Itoa(sp.Default.(int)), Label: fmt.Sprintf("%d..%d (default)", sp.Min, sp.Max)})
+		// Default for a kindInt spec is an int by convention, but don't panic if
+		// a future spec ships a differently-typed default; coerce normalizes it.
+		def, _ := sp.coerce(sp.Default).(int)
+		out = append(out, dslCompletion{Text: strconv.Itoa(def), Label: fmt.Sprintf("%d..%d (default)", sp.Min, sp.Max)})
 	}
 	return out
 }

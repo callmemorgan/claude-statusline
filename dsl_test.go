@@ -270,6 +270,49 @@ func TestDSLDuplicateSegment(t *testing.T) {
 	}
 }
 
+// A repeated UNKNOWN id must also be flagged and de-duped (same as a known one),
+// not silently appended twice.
+func TestDSLDuplicateUnknownSegment(t *testing.T) {
+	initSegments(nil)
+	got, errs := parseDSL("nonsense-seg\nnonsense-seg\n")
+	dup := false
+	for _, e := range errs {
+		if strings.Contains(e.Msg, "already used") {
+			dup = true
+		}
+	}
+	if !dup {
+		t.Errorf("expected a duplicate diagnostic for the repeated unknown id, got: %s", joinDSLErrs(errs))
+	}
+	count := 0
+	for _, id := range got.Segments {
+		if id == "nonsense-seg" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("unknown id should appear once, got %d copies: %v", count, got.Segments)
+	}
+}
+
+// An unknown segment placed on a non-default line keeps that placement on
+// round-trip (there is no natural line to fall back to, so it must be stored).
+func TestDSLUnknownSegmentLinePreserved(t *testing.T) {
+	initSegments(nil)
+	got, _ := parseDSL("directory\nmodel\nnonsense-seg\n")
+	if got.Lines["nonsense-seg"] != 3 {
+		t.Errorf("expected unknown segment recorded on line 3, got %v", got.Lines)
+	}
+	if effectiveLine("nonsense-seg", got) != 3 {
+		t.Errorf("unknown segment effectiveLine: got %d want 3", effectiveLine("nonsense-seg", got))
+	}
+	// And it survives a re-serialize → re-parse without drifting to line 1.
+	got2, _ := parseDSL(configToDSL(got))
+	if got2.Lines["nonsense-seg"] != 3 {
+		t.Errorf("unknown segment line drifted on round-trip: %v\nDSL:\n%s", got2.Lines, configToDSL(got))
+	}
+}
+
 func TestDSLUnclosedBracket(t *testing.T) {
 	initSegments(nil)
 	_, errs := parseDSL("cost[color=cyan\n")
