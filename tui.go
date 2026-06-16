@@ -1261,8 +1261,11 @@ func runConfigure(args ...string) {
 	pages.AddPage("quit", quitModal, true, false)
 
 	if openAuto {
-		// Defer until the app loop is running so widget sizes are known.
-		app.QueueUpdateDraw(func() { openAutoLayout() })
+		// Open the overlay before Run(). openAutoLayout only seeds model state
+		// and switches the visible page (no live-screen size queries), so it is
+		// safe on the main goroutine pre-Run — and QueueUpdateDraw here would
+		// deadlock, since its channel is only drained once the loop is running.
+		openAutoLayout()
 	}
 
 	if err := app.SetRoot(pages, true).EnableMouse(true).Run(); err != nil {
