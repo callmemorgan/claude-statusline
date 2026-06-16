@@ -66,7 +66,6 @@ type scrubberView struct {
 // tracking and saveConfig the main screen uses. The returned refresh hook lets
 // the home screen re-render the frame after any external cfg change.
 func buildScrubberPage(
-	app *tview.Application,
 	cfgRef *config,
 	mutate func(func()),
 	flash func(color, msg string),
@@ -111,15 +110,8 @@ func buildScrubberPage(
 		idx := list.GetCurrentItem()
 		list.Clear()
 		for _, s := range registeredSegments {
-			enabled := false
-			for _, id := range cfgRef.Segments {
-				if id == s.id {
-					enabled = true
-					break
-				}
-			}
 			mark := "  "
-			if enabled {
+			if segmentEnabled(*cfgRef, s.id) {
 				mark = "✓ "
 			}
 			line := effectiveLine(s.id, *cfgRef)
@@ -240,20 +232,7 @@ func buildScrubberPage(
 			return
 		}
 		id := registeredSegments[idx].id
-		mutate(func() {
-			found := -1
-			for i, segID := range cfgRef.Segments {
-				if segID == id {
-					found = i
-					break
-				}
-			}
-			if found >= 0 {
-				cfgRef.Segments = append(cfgRef.Segments[:found], cfgRef.Segments[found+1:]...)
-			} else {
-				cfgRef.Segments = append(cfgRef.Segments, id)
-			}
-		})
+		mutate(func() { toggleSegmentIn(cfgRef, id) })
 		refreshList()
 		renderFrame()
 	}
@@ -264,27 +243,7 @@ func buildScrubberPage(
 			return
 		}
 		seg := registeredSegments[idx]
-		mutate(func() {
-			if cfgRef.Lines == nil {
-				cfgRef.Lines = make(map[string]int)
-			}
-			if seg.line == n {
-				delete(cfgRef.Lines, seg.id)
-			} else {
-				cfgRef.Lines[seg.id] = n
-			}
-			// Enabling-on-edit, mirroring the main screen's ensureEnabled.
-			present := false
-			for _, sid := range cfgRef.Segments {
-				if sid == seg.id {
-					present = true
-					break
-				}
-			}
-			if !present {
-				cfgRef.Segments = append(cfgRef.Segments, seg.id)
-			}
-		})
+		mutate(func() { assignSegmentLine(cfgRef, seg.id, seg.line, n) })
 		refreshList()
 		renderFrame()
 	}
@@ -396,7 +355,7 @@ func runReplayTUI(preferSession string) {
 		dirty = true
 	}
 
-	view = buildScrubberPage(app, &cfg, mutate, flash)
+	view = buildScrubberPage(&cfg, mutate, flash)
 
 	// Seed, then honor a preferred session id if one was passed.
 	view.seed()

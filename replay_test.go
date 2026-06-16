@@ -118,6 +118,47 @@ func TestReconstructAtEmpty(t *testing.T) {
 	}
 }
 
+func TestResetInstantRollsForward(t *testing.T) {
+	const first = int64(1750000000)
+	anchor := first + fiveHourSecs
+
+	// Within the first window: the anchor is unchanged.
+	if got := resetInstant(anchor, fiveHourSecs, first+600); got != anchor {
+		t.Errorf("in-window: got %d, want %d", got, anchor)
+	}
+	// Exactly at the boundary: must roll to the next window (strictly after now).
+	if got := resetInstant(anchor, fiveHourSecs, anchor); got != anchor+fiveHourSecs {
+		t.Errorf("at boundary: got %d, want %d", got, anchor+fiveHourSecs)
+	}
+	// Well past the first window: lands on the boundary just after now.
+	now := first + 12*3600 // 12h in → third window boundary (15h)
+	want := first + 15*3600
+	if got := resetInstant(anchor, fiveHourSecs, now); got != want {
+		t.Errorf("past window: got %d, want %d", got, want)
+	}
+}
+
+// A session that spans longer than a rate-limit window must still reconstruct
+// a future reset instant for late frames — otherwise the countdown reads "now"
+// forever and the projection vanishes for the whole back half of the scrub.
+func TestReconstructAtResetStaysFutureBeyondWindow(t *testing.T) {
+	base := time.Unix(1750000000, 0)
+	rl := func(v float64) *float64 { return &v }
+	samples := []sample{
+		{T: base.Unix(), Cost: 0.0, CtxPct: 40, RL5h: rl(10)},
+		{T: base.Add(8 * time.Hour).Unix(), Cost: 1.0, CtxPct: 60, RL5h: rl(70)}, // 8h in, past the 5h window
+	}
+	anchors := anchorsFor(samples)
+	p, _, now := reconstructAt(samples, 1, samplePayload(), anchors)
+	if p.RateLimits.FiveHour.ResetsAt == nil {
+		t.Fatal("late frame should still carry a reset instant")
+	}
+	if *p.RateLimits.FiveHour.ResetsAt <= now.Unix() {
+		t.Errorf("reset %d is not after now %d — countdown would read \"now\" forever",
+			*p.RateLimits.FiveHour.ResetsAt, now.Unix())
+	}
+}
+
 // ─── replay segments come alive across the scrub ─────────────────────
 
 // The whole point of the scrubber: the trend/projection/rate segments must

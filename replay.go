@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -110,20 +111,20 @@ func replayLabel(id string, n int, samples []sample, now time.Time) string {
 	if n == 1 {
 		noun = "sample"
 	}
-	return short + "  " + itoa(n) + " " + noun + span
+	return short + "  " + strconv.Itoa(n) + " " + noun + span
 }
 
 // replayDuration renders a coarse human duration for labels: 45s, 12m, 3h, 2d.
 func replayDuration(d time.Duration) string {
 	switch {
 	case d >= 24*time.Hour:
-		return itoa(int(d/(24*time.Hour))) + "d"
+		return strconv.Itoa(int(d/(24*time.Hour))) + "d"
 	case d >= time.Hour:
-		return itoa(int(d/time.Hour)) + "h"
+		return strconv.Itoa(int(d/time.Hour)) + "h"
 	case d >= time.Minute:
-		return itoa(int(d/time.Minute)) + "m"
+		return strconv.Itoa(int(d/time.Minute)) + "m"
 	default:
-		return itoa(int(d/time.Second)) + "s"
+		return strconv.Itoa(int(d/time.Second)) + "s"
 	}
 }
 
@@ -135,7 +136,7 @@ func syntheticReplaySession(now time.Time) replaySession {
 	st := previewState(now)
 	return replaySession{
 		ID:      "synthetic",
-		Label:   "synthetic  " + itoa(len(st.Samples)) + " samples · 1h (no recorded sessions)",
+		Label:   "synthetic  " + strconv.Itoa(len(st.Samples)) + " samples · 1h (no recorded sessions)",
 		Samples: st.Samples,
 		synth:   true,
 	}
@@ -154,28 +155,47 @@ func syntheticReplaySession(now time.Time) replaySession {
 //     are set only when the sample carried them, so an absent rate-limit stays
 //     absent (the segment auto-hides) rather than reading as 0%.
 //
-// The rate-limit *reset instants* are not recorded; they are anchored to the
-// session's own timeline (firstT + windowSecs) so the countdown winds down
-// monotonically across the scrub and the projection has a target instant.
-// resetAnchors carries those per-session anchors so every frame of one
-// session shares the same reset instants.
+// The rate-limit *reset instants* are not recorded; they are phased to the
+// session's own timeline — the first window boundary is firstT + windowSecs,
+// and resetInstant() rolls that forward by whole windows so it always lands
+// strictly after the scrubbed frame's `now`. That mirrors a real rate-limit
+// window: the countdown winds down within a window and rolls over at the
+// boundary, never reading "now" forever once a long session passes the first
+// reset. resetAnchors carries the per-session first-boundary anchors.
 type resetAnchors struct {
 	fiveHour int64
 	sevenDay int64
 }
 
-// anchorsFor computes stable reset instants for a session's samples. Anchored
-// to the first sample so the countdown is meaningful and identical across
-// every scrub frame of the same session.
+const (
+	fiveHourSecs = 5 * 3600
+	sevenDaySecs = 7 * 24 * 3600
+)
+
+// anchorsFor computes the first reset boundary for a session's samples,
+// phased to the first sample so the countdown is stable across scrub frames.
 func anchorsFor(samples []sample) resetAnchors {
 	if len(samples) == 0 {
 		return resetAnchors{}
 	}
 	first := samples[0].T
 	return resetAnchors{
-		fiveHour: first + 5*3600,
-		sevenDay: first + 7*24*3600,
+		fiveHour: first + fiveHourSecs,
+		sevenDay: first + sevenDaySecs,
 	}
+}
+
+// resetInstant rolls a first-boundary anchor forward by whole windows until it
+// is strictly after now, so the reconstructed reset is always a future instant
+// (the countdown winds down and the projection has a valid target) even when a
+// session spans more than one window.
+func resetInstant(anchor, windowSecs, now int64) int64 {
+	if now < anchor || windowSecs <= 0 {
+		return anchor
+	}
+	// Number of whole windows to skip so the boundary lands after now.
+	skip := (now-anchor)/windowSecs + 1
+	return anchor + skip*windowSecs
 }
 
 func reconstructAt(samples []sample, idx int, base payload, anchors resetAnchors) (payload, *sessionState, time.Time) {
@@ -212,7 +232,7 @@ func reconstructAt(samples []sample, idx int, base payload, anchors resetAnchors
 	// absent so the segment auto-hides, distinguishing "unknown" from "0%".
 	if cur.RL5h != nil {
 		p.RateLimits.FiveHour.UsedPercentage = ptrFloat64(*cur.RL5h)
-		anchor := anchors.fiveHour
+		anchor := resetInstant(anchors.fiveHour, fiveHourSecs, cur.T)
 		p.RateLimits.FiveHour.ResetsAt = &anchor
 	} else {
 		p.RateLimits.FiveHour.UsedPercentage = nil
@@ -220,7 +240,7 @@ func reconstructAt(samples []sample, idx int, base payload, anchors resetAnchors
 	}
 	if cur.RL7d != nil {
 		p.RateLimits.SevenDay.UsedPercentage = ptrFloat64(*cur.RL7d)
-		anchor := anchors.sevenDay
+		anchor := resetInstant(anchors.sevenDay, sevenDaySecs, cur.T)
 		p.RateLimits.SevenDay.ResetsAt = &anchor
 	} else {
 		p.RateLimits.SevenDay.UsedPercentage = nil
@@ -324,28 +344,4 @@ func dumpReplayFrames(sel replaySession, cfg config) {
 			fmt.Println(l)
 		}
 	}
-}
-
-// itoa is a tiny dependency-free int→string for labels (avoids pulling
-// strconv into this file's small surface).
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
 }
