@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -174,6 +175,17 @@ func runConfigure() {
 		ShowSecondaryText(false)
 	canvas.SetBorder(true)
 
+	// canvasHasSegment reports whether the canvas holds at least one selectable
+	// (non-header) row — i.e. any enabled segment that actually resolved.
+	canvasHasSegment := func() bool {
+		for _, sid := range canvasRowSeg {
+			if sid != "" {
+				return true
+			}
+		}
+		return false
+	}
+
 	// canvasSelectedID returns the segment id under the canvas cursor, skipping
 	// header rows. Returns ("", false) when the cursor sits on a header or the
 	// canvas is empty.
@@ -255,7 +267,7 @@ func runConfigure() {
 			// Nothing to focus in an empty drawer; stay put.
 			return
 		}
-		if pane != "canvas" {
+		if pane == "drawer" {
 			grabbed = ""
 		}
 		focusPane = pane
@@ -439,6 +451,13 @@ func runConfigure() {
 
 	pages := tview.NewPages()
 
+	// returnToConfigure dismisses an overlay (flyout, picker, or modal) back to
+	// the home screen and restores focus to whichever pane currently owns it.
+	returnToConfigure := func() {
+		pages.SwitchToPage("configure")
+		app.SetFocus(focusedPrimitive())
+	}
+
 	openFlyout := func(segID string) {
 		specs := segmentSpecs(segID)
 		if len(specs) == 0 {
@@ -522,6 +541,33 @@ func runConfigure() {
 				return
 			}
 		}
+	}
+
+	// moveSelectedAcrossPanes moves the focused-pane selection between the drawer
+	// (off) and the canvas (on). Shared by the space and enter handlers.
+	moveSelectedAcrossPanes := func() {
+		seg, ok := selectedSegment()
+		if !ok {
+			return
+		}
+		if focusPane == "drawer" {
+			enableToCanvas(seg.id)
+		} else {
+			disableToDrawer(seg.id)
+		}
+	}
+
+	// dropGrabbed releases a grabbed canvas segment (if any) and repaints the
+	// canvas so its grab marker clears. Reports whether something was dropped.
+	dropGrabbed := func() bool {
+		if grabbed == "" {
+			return false
+		}
+		id := grabbed
+		grabbed = ""
+		flash("yellow", "dropped")
+		rebuildCanvas(id)
+		return true
 	}
 
 	// canvasReorderHoriz swaps id with its neighbour among the segments on the
@@ -644,6 +690,12 @@ func runConfigure() {
 		itemOff, _ := drawer.GetOffset()
 		clickedIdx := y - innerY + itemOff
 		if clickedIdx < 0 || clickedIdx >= len(drawerSegs) {
+			// Empty space below the last item: claim focus for the drawer
+			// rather than letting tview's native handler desync focusPane.
+			if action == tview.MouseLeftClick || action == tview.MouseLeftDoubleClick {
+				setFocusPane("drawer")
+				return tview.MouseConsumed, nil
+			}
 			return action, event
 		}
 		if action == tview.MouseLeftDoubleClick {
@@ -669,7 +721,16 @@ func runConfigure() {
 		_, innerY, _, _ := canvas.GetInnerRect()
 		itemOff, _ := canvas.GetOffset()
 		clickedIdx := y - innerY + itemOff
-		if clickedIdx < 0 || clickedIdx >= len(canvasRowSeg) || canvasRowSeg[clickedIdx] == "" {
+		onSegment := clickedIdx >= 0 && clickedIdx < len(canvasRowSeg) && canvasRowSeg[clickedIdx] != ""
+		if !onSegment {
+			// Header row or empty space: a left-click still belongs to the
+			// canvas, so claim focus here rather than letting tview's native
+			// handler move the cursor onto a non-selectable header. Consume so
+			// the pane state stays in sync; the cursor keeps its valid row.
+			if action == tview.MouseLeftClick || action == tview.MouseLeftDoubleClick {
+				setFocusPane("canvas")
+				return tview.MouseConsumed, nil
+			}
 			return action, event
 		}
 		if action == tview.MouseLeftDoubleClick {
@@ -849,14 +910,7 @@ func runConfigure() {
 	}
 
 	// isEnabled reports whether a segment id is in cfg.Segments.
-	isEnabled := func(id string) bool {
-		for _, sid := range cfg.Segments {
-			if sid == id {
-				return true
-			}
-		}
-		return false
-	}
+	isEnabled := func(id string) bool { return segIndex(id) >= 0 }
 
 	// canvasOrder returns the enabled segment ids grouped by render line: a
 	// slice of (line, ids) buckets in ascending line order, each bucket's ids in
@@ -879,19 +933,24 @@ func runConfigure() {
 			}
 			byLine[l] = append(byLine[l], sid)
 		}
-		// Stable ascending line order.
-		for i := 0; i < len(order); i++ {
-			for j := i + 1; j < len(order); j++ {
-				if order[j] < order[i] {
-					order[i], order[j] = order[j], order[i]
-				}
-			}
-		}
+		sort.Ints(order) // ascending render-line order
 		out := make([]lineBucket, 0, len(order))
 		for _, l := range order {
 			out = append(out, lineBucket{line: l, ids: byLine[l]})
 		}
 		return out
+	}
+
+	// segDecor returns the two trailing label decorations a segment row shows in
+	// either pane: its color tag (when overridden) and the "→ has settings" arrow.
+	segDecor := func(s segmentInfo) (colorStr, arrow string) {
+		if colorName := cfg.Colors[s.id]; colorName != "" && colorName != "default" {
+			colorStr = fmt.Sprintf("  [%s]", colorName)
+		}
+		if len(s.settings) > 0 {
+			arrow = " →"
+		}
+		return colorStr, arrow
 	}
 
 	// rememberSel captures the focused pane's selected segment id so a rebuild
@@ -916,14 +975,7 @@ func runConfigure() {
 		drawer.Clear()
 		want := 0
 		for i, s := range drawerSegs {
-			colorStr := ""
-			if colorName := cfg.Colors[s.id]; colorName != "" && colorName != "default" {
-				colorStr = fmt.Sprintf("  [%s]", colorName)
-			}
-			arrow := ""
-			if len(s.settings) > 0 {
-				arrow = " →"
-			}
+			colorStr, arrow := segDecor(s)
 			drawer.AddItem(fmt.Sprintf("%s%s%s", s.id, colorStr, arrow), "", 0, nil)
 			if s.id == wantID {
 				want = i
@@ -951,14 +1003,7 @@ func runConfigure() {
 			canvasRowSeg = append(canvasRowSeg, "")
 			for _, sid := range b.ids {
 				s, _ := segmentByID(sid)
-				colorStr := ""
-				if colorName := cfg.Colors[sid]; colorName != "" && colorName != "default" {
-					colorStr = fmt.Sprintf("  [%s]", colorName)
-				}
-				arrow := ""
-				if len(s.settings) > 0 {
-					arrow = " →"
-				}
+				colorStr, arrow := segDecor(s)
 				grab := "  "
 				if grabbed == sid {
 					// The grabbed row is always the focused-pane cursor, so the
@@ -999,11 +1044,15 @@ func runConfigure() {
 		}
 		rebuildDrawer(drawerSel)
 		rebuildCanvas(canvasSel)
-		// If the focused pane went empty (e.g. the last off segment was enabled),
-		// move focus to the other pane so the cursor is always on something live.
-		if focusPane == "drawer" && len(drawerSegs) == 0 {
+		// If the focused pane went empty (e.g. the last off segment was enabled,
+		// or every enabled segment resolved to nothing), move focus to the other
+		// pane so the cursor always lands on something live.
+		if focusPane == "drawer" && len(drawerSegs) == 0 && canvasHasSegment() {
 			focusPane = "canvas"
 			app.SetFocus(canvas)
+		} else if focusPane == "canvas" && !canvasHasSegment() && len(drawerSegs) > 0 {
+			focusPane = "drawer"
+			app.SetFocus(drawer)
 		}
 		syncFocusChrome()
 		refreshPreview()
@@ -1077,8 +1126,14 @@ func runConfigure() {
 	filterInput.SetDoneFunc(func(key tcell.Key) {
 		switch key {
 		case tcell.KeyEnter:
-			// The filter narrows the drawer, so land focus there.
-			setFocusPane("drawer")
+			// The filter narrows the drawer, so land focus there — but if it
+			// matched nothing, setFocusPane("drawer") no-ops, so fall back to
+			// the canvas rather than stranding focus on the hidden input.
+			if len(drawerSegs) > 0 {
+				setFocusPane("drawer")
+			} else {
+				setFocusPane("canvas")
+			}
 		case tcell.KeyEscape:
 			clearFilter()
 		}
@@ -1121,14 +1176,12 @@ func runConfigure() {
 		if pageName == "help" {
 			switch event.Key() {
 			case tcell.KeyEscape:
-				pages.SwitchToPage("configure")
-				app.SetFocus(focusedPrimitive())
+				returnToConfigure()
 				return nil
 			case tcell.KeyRune:
 				switch event.Rune() {
 				case 'q', 'Q':
-					pages.SwitchToPage("configure")
-					app.SetFocus(focusedPrimitive())
+					returnToConfigure()
 					return nil
 				case 'r', 'R':
 					pages.SwitchToPage("readme")
@@ -1157,16 +1210,14 @@ func runConfigure() {
 			switch event.Key() {
 			case tcell.KeyEscape:
 				stopStressTest(currentFlyoutSegment)
-				pages.SwitchToPage("configure")
-				app.SetFocus(focusedPrimitive())
+				returnToConfigure()
 				updateUI()
 				return nil
 			case tcell.KeyRune:
 				r := event.Rune()
 				if r == 'q' || r == 'Q' {
 					stopStressTest(currentFlyoutSegment)
-					pages.SwitchToPage("configure")
-					app.SetFocus(focusedPrimitive())
+					returnToConfigure()
 					updateUI()
 					return nil
 				}
@@ -1238,14 +1289,12 @@ func runConfigure() {
 				app.SetFocus(helpView)
 				return nil
 			case ' ':
-				// Move the focused segment between the two panes (off↔on).
-				if seg, ok := selectedSegment(); ok {
-					if focusPane == "drawer" {
-						enableToCanvas(seg.id)
-					} else {
-						disableToDrawer(seg.id)
-					}
+				// Space mirrors enter: drop a grabbed canvas segment first,
+				// otherwise move the focused segment between panes (off↔on).
+				if dropGrabbed() {
+					return nil
 				}
+				moveSelectedAcrossPanes()
 				return nil
 			case 'c':
 				seg, ok := selectedSegment()
@@ -1319,13 +1368,12 @@ func runConfigure() {
 				}
 				if id, ok := canvasSelectedID(); ok {
 					if grabbed == id {
-						grabbed = ""
-						flash("yellow", "dropped")
+						dropGrabbed()
 					} else {
 						grabbed = id
 						flash("green", "grabbed "+id+" — arrows move it, g/enter to drop")
+						rebuildCanvas(id)
 					}
-					rebuildCanvas(id)
 				}
 				return nil
 			default:
@@ -1468,11 +1516,7 @@ func runConfigure() {
 				return nil
 			}
 		case tcell.KeyEscape:
-			if grabbed != "" {
-				id := grabbed
-				grabbed = ""
-				flash("yellow", "dropped")
-				rebuildCanvas(id)
+			if dropGrabbed() {
 				return nil
 			}
 			if filterInput.GetText() != "" {
@@ -1492,20 +1536,10 @@ func runConfigure() {
 		case tcell.KeyEnter:
 			// Enter mirrors space: move the focused segment between panes —
 			// except a grabbed canvas segment, where Enter drops it.
-			if grabbed != "" {
-				id := grabbed
-				grabbed = ""
-				flash("yellow", "dropped")
-				rebuildCanvas(id)
+			if dropGrabbed() {
 				return nil
 			}
-			if seg, ok := selectedSegment(); ok {
-				if focusPane == "drawer" {
-					enableToCanvas(seg.id)
-				} else {
-					disableToDrawer(seg.id)
-				}
-			}
+			moveSelectedAcrossPanes()
 			return nil
 		case tcell.KeyUp, tcell.KeyDown:
 			down := event.Key() == tcell.KeyDown
@@ -1633,8 +1667,7 @@ func runConfigure() {
 		SetText("Reset to defaults? This discards your current layout, colors, and settings.").
 		AddButtons([]string{"Reset", "Cancel"}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-			pages.SwitchToPage("configure")
-			app.SetFocus(focusedPrimitive())
+			returnToConfigure()
 			if buttonLabel == "Reset" {
 				mutate(func() { cfg = defaultConfig() })
 				flash("yellow", "reset to defaults (not yet saved)")
@@ -1653,20 +1686,19 @@ func runConfigure() {
 					fmt.Printf("Saved to %s\n", configPath())
 					return
 				}
-				pages.SwitchToPage("configure")
-				app.SetFocus(focusedPrimitive())
+				returnToConfigure()
 			case "Discard":
 				app.Stop()
 			default:
-				pages.SwitchToPage("configure")
-				app.SetFocus(focusedPrimitive())
+				returnToConfigure()
 			}
 		})
 	pages.AddPage("quit", quitModal, true, false)
 
-	// Start on the canvas (the layout). If nothing is enabled, fall back to the
-	// drawer so the cursor always lands on something selectable.
-	if len(cfg.Segments) == 0 && len(drawerSegs) > 0 {
+	// Start on the canvas (the layout). If it has no selectable rows (nothing
+	// enabled, or every enabled id was unknown), fall back to the drawer so the
+	// cursor always lands on something selectable.
+	if !canvasHasSegment() && len(drawerSegs) > 0 {
 		focusPane = "drawer"
 	}
 	app.SetFocus(focusedPrimitive())
