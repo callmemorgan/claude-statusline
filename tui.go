@@ -675,6 +675,10 @@ func runConfigure() {
 	// quitModal guards unsaved changes; resetModal guards the reset key.
 	var quitModal, resetModal *tview.Modal
 
+	// scrubber is the session-replay page; declared here so the input handler
+	// can reference it, assigned once cfg/mutate/flash exist (below).
+	var scrubber *scrubberView
+
 	requestQuit := func() {
 		if !dirty {
 			app.Stop()
@@ -772,6 +776,30 @@ func runConfigure() {
 					applyFlyoutChange(currentFlyoutSegment, specs[idx], &cfg, delta)
 					dirty = true
 					updateFlyout()
+					return nil
+				}
+			}
+			return event
+		}
+		if pageName == "scrubber" {
+			// The scrubber's segment list owns ←/→/⇧←/→/1-9/space/,/. via its
+			// own InputCapture; here we only handle exit and save.
+			switch event.Key() {
+			case tcell.KeyEscape:
+				pages.SwitchToPage("configure")
+				app.SetFocus(list)
+				updateUI()
+				return nil
+			case tcell.KeyRune:
+				switch event.Rune() {
+				case 'q', 'Q':
+					pages.SwitchToPage("configure")
+					app.SetFocus(list)
+					updateUI()
+					return nil
+				case 's', 'S':
+					doSave()
+					scrubber.refresh()
 					return nil
 				}
 			}
@@ -983,6 +1011,13 @@ func runConfigure() {
 				}
 				refreshPreview()
 				return nil
+			case 'R':
+				// Open the session-replay scrubber, seeded with the latest
+				// recorded session (or the synthetic fallback).
+				scrubber.seed()
+				pages.SwitchToPage("scrubber")
+				app.SetFocus(scrubber.list)
+				return nil
 			case 'd', 'D':
 				demoActive = !demoActive
 				if demoActive {
@@ -1016,7 +1051,7 @@ func runConfigure() {
 					_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 				})
 				return nil
-			case 'r', 'R':
+			case 'r':
 				pages.SwitchToPage("reset")
 				app.SetFocus(resetModal)
 				return nil
@@ -1140,10 +1175,17 @@ func runConfigure() {
 		AddItem(statusStrip, 1, 0, false).
 		AddItem(help, 1, 0, false)
 
+	// Session-replay scrubber page: replays a recorded session's evolving
+	// payload+state so the user can watch the real statusline animate while
+	// tuning. Shares this screen's cfg/mutate/flash so edits round-trip
+	// identically; on exit the main preview is refreshed.
+	scrubber = buildScrubberPage(app, &cfg, mutate, flash)
+
 	pages.AddPage("configure", flex, true, true)
 	pages.AddPage("help", helpView, true, false)
 	pages.AddPage("readme", readmeView, true, false)
 	pages.AddPage("flyout", flyoutFlex, true, false)
+	pages.AddPage("scrubber", scrubber.page, true, false)
 
 	// Re-render the preview when the terminal (and so the panel) resizes —
 	// only the text is recomputed, never the list, to avoid re-entrancy —
