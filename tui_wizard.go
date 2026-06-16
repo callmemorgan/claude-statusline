@@ -290,18 +290,34 @@ func (ws *wizardState) listNav(event *tcell.EventKey) *tcell.EventKey {
 	return event
 }
 
-// ─── Step 1: categories ──────────────────────────────────────────────
+// secIndent aligns a list row's secondary (description) text under its primary
+// text, which tview prefixes with a marker column.
+const secIndent = "      "
 
-func (ws *wizardState) buildCategoriesStep() {
-	intro := tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true).
-		SetText("[gray]Pick the kinds of things you care about. Each toggles a small group of\nsegments; anything with no data hides itself, so a generous pick is safe.[-]")
+// newWizardIntro builds the dynamic-color, word-wrapping blurb shown above each
+// step's list.
+func newWizardIntro(text string) *tview.TextView {
+	return tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true).SetText(text)
+}
 
+// newWizardList builds the bordered, full-line-highlight list every step uses,
+// styled identically so the flow reads as one coherent picker.
+func newWizardList(title string) *tview.List {
 	list := tview.NewList().SetHighlightFullLine(true).
 		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
 		SetSelectedTextColor(tcell.ColorWhite).
 		SetMainTextColor(tcell.ColorWhite).
 		ShowSecondaryText(true)
-	list.SetBorder(true).SetTitle(" Categories — space toggles ")
+	list.SetBorder(true).SetTitle(title)
+	return list
+}
+
+// ─── Step 1: categories ──────────────────────────────────────────────
+
+func (ws *wizardState) buildCategoriesStep() {
+	intro := newWizardIntro("[gray]Pick the kinds of things you care about. Each toggles a small group of\nsegments; anything with no data hides itself, so a generous pick is safe.[-]")
+
+	list := newWizardList(" Categories — space toggles ")
 
 	cats := wizardCategories()
 	rebuild := func(keep int) {
@@ -315,7 +331,7 @@ func (ws *wizardState) buildCategoriesStep() {
 			if ws.choices.Categories[c.ID] {
 				mark = "[#5fff87::b]●[white::-]"
 			}
-			list.AddItem(fmt.Sprintf("%s %s", mark, c.Name), "      "+c.Desc, 0, nil)
+			list.AddItem(fmt.Sprintf("%s %s", mark, c.Name), secIndent+c.Desc, 0, nil)
 		}
 		if keep >= 0 && keep < len(cats) {
 			list.SetCurrentItem(keep)
@@ -348,20 +364,14 @@ func (ws *wizardState) buildCategoriesStep() {
 // ─── Step 2: density ─────────────────────────────────────────────────
 
 func (ws *wizardState) buildDensityStep() {
-	intro := tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true).
-		SetText("[gray]How many lines should the statusline use? The preview updates as you move.[-]")
+	intro := newWizardIntro("[gray]How many lines should the statusline use? The preview updates as you move.[-]")
 
-	list := tview.NewList().SetHighlightFullLine(true).
-		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
-		SetSelectedTextColor(tcell.ColorWhite).
-		SetMainTextColor(tcell.ColorWhite).
-		ShowSecondaryText(true)
-	list.SetBorder(true).SetTitle(" Density ")
+	list := newWizardList(" Density ")
 
 	densities := wizardDensities()
 	start := 0
 	for i, di := range densities {
-		list.AddItem(di.Name, "      "+di.Desc, 0, nil)
+		list.AddItem(di.Name, secIndent+di.Desc, 0, nil)
 		if di.Density == ws.choices.Density {
 			start = i
 		}
@@ -385,15 +395,9 @@ func (ws *wizardState) buildDensityStep() {
 // ─── Step 3: theme ───────────────────────────────────────────────────
 
 func (ws *wizardState) buildThemeStep() {
-	intro := tview.NewTextView().SetDynamicColors(true).SetWrap(true).SetWordWrap(true).
-		SetText("[gray]Pick a color theme. classic is the default 16-color look; the rest are\ntruecolor with automatic 256/16 fallback.[-]")
+	intro := newWizardIntro("[gray]Pick a color theme. classic is the default 16-color look; the rest are\ntruecolor with automatic 256/16 fallback.[-]")
 
-	list := tview.NewList().SetHighlightFullLine(true).
-		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
-		SetSelectedTextColor(tcell.ColorWhite).
-		SetMainTextColor(tcell.ColorWhite).
-		ShowSecondaryText(true)
-	list.SetBorder(true).SetTitle(" Theme ")
+	list := newWizardList(" Theme ")
 
 	current := ws.choices.Theme
 	if current == "" {
@@ -401,7 +405,7 @@ func (ws *wizardState) buildThemeStep() {
 	}
 	start := 0
 	for i, t := range builtinThemes {
-		list.AddItem(t.ID, "      "+t.Desc, 0, nil)
+		list.AddItem(t.ID, secIndent+t.Desc, 0, nil)
 		if t.ID == current {
 			start = i
 		}
@@ -435,8 +439,8 @@ func (ws *wizardState) buildReviewStep() {
 		theme = "classic"
 	}
 	b.WriteString(fmt.Sprintf("  theme:    [::b]%s[-:-:-]\n", theme))
-	b.WriteString(fmt.Sprintf("  density:  [::b]%s[-:-:-] (%d line max)\n",
-		densityInfo(ws.choices.Density).Name, densityInfo(ws.choices.Density).Lines))
+	di := densityInfo(ws.choices.Density)
+	b.WriteString(fmt.Sprintf("  density:  [::b]%s[-:-:-] (%d line max)\n", di.Name, di.Lines))
 
 	// Group enabled segments by physical line for a readable summary.
 	byLine := map[int][]string{}
@@ -501,11 +505,7 @@ func runWizard() {
 
 	// Synthetic git/stash results so the rich-status preview renders; reset to
 	// nil on exit so the real render path is never affected (locked by tests).
-	gitStatusPreview = &gitStatusInfo{Dirty: true, Ahead: 1, Behind: 2}
-	defer func() { gitStatusPreview = nil }()
-	stash := 3
-	gitStashPreview = &stash
-	defer func() { gitStashPreview = nil }()
+	defer installPreviewGlobals()()
 
 	app := tview.NewApplication()
 	pages := tview.NewPages()
