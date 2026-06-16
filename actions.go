@@ -412,16 +412,24 @@ func stepSetting(c *config, id string, sp settingSpec, delta int) {
 	setSegmentSettings(c, id, pruneSettings(seg, s))
 }
 
-// setSettingValue writes one setting to an explicit (coerced) value.
-func setSettingValue(c *config, id string, sp settingSpec, value string) {
+// writeSegmentSetting enables the segment, writes one resolved key value, and
+// persists the pruned settings. It is the shared tail of every "set one value"
+// path (coerced enum/color, parsed int), so the enable+prune semantics live in
+// exactly one place.
+func writeSegmentSetting(c *config, id, key string, value any) {
 	seg, ok := segmentByID(id)
 	if !ok {
 		return
 	}
 	setSegmentEnabled(c, id, true)
 	s := settingsFor(*c, seg)
-	s[sp.Key] = sp.coerce(value)
+	s[key] = value
 	setSegmentSettings(c, id, pruneSettings(seg, s))
+}
+
+// setSettingValue writes one setting to an explicit (coerced) value.
+func setSettingValue(c *config, id string, sp settingSpec, value string) {
+	writeSegmentSetting(c, id, sp.Key, sp.coerce(value))
 }
 
 // setSettingFromText parses a free-text int value, validates it against the
@@ -439,14 +447,10 @@ func setSettingFromText(c *config, id string, sp settingSpec, raw string) error 
 	if n < sp.Min || n > sp.Max {
 		return fmt.Errorf("must be %d..%d", sp.Min, sp.Max)
 	}
-	seg, ok := segmentByID(id)
-	if !ok {
+	if _, ok := segmentByID(id); !ok {
 		return fmt.Errorf("unknown segment %q", id)
 	}
-	setSegmentEnabled(c, id, true)
-	s := settingsFor(*c, seg)
-	s[sp.Key] = n
-	setSegmentSettings(c, id, pruneSettings(seg, s))
+	writeSegmentSetting(c, id, sp.Key, n)
 	return nil
 }
 
