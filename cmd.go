@@ -22,7 +22,7 @@ func dispatch() {
 			runVersion()
 			return
 		case "configure":
-			runConfigure()
+			runConfigure(os.Args[2:]...)
 			return
 		case "install":
 			runInstall(os.Args[2:])

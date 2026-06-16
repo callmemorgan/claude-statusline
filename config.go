@@ -53,6 +53,11 @@ type config struct {
 	ReleaseNotes  releaseNotesConfig        `toml:"release_notes,omitempty"`
 	Plugins       []pluginDef               `toml:"plugins,omitempty"`
 	Update        updateConfig              `toml:"update,omitempty"`
+	// AutoLayout is OPTIONAL design-time metadata: the priority ranking + budget
+	// the auto-layout solver last used. The render path ignores it entirely; it
+	// exists only so the ranking can be re-edited later. The concrete layout
+	// lives in Segments/Lines/Reflow/Style as usual.
+	AutoLayout autoLayoutConfig `toml:"auto_layout,omitempty"`
 }
 
 // updateConfig is the [update] table in config.toml. Mode "" or unset means

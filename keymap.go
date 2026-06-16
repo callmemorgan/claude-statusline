@@ -26,6 +26,7 @@ var keymap = []keyBinding{
 	{Keys: "o", Action: "options", Desc: "Open the segment's settings flyout", Context: "main", Footer: true},
 	{Keys: "t", Action: "theme", Desc: "Pick a color theme with live preview", Context: "main", Footer: true},
 	{Keys: "p", Action: "presets", Desc: "Apply a named layout preset with live preview", Context: "main", Footer: true},
+	{Keys: "L", Action: "auto-layout", Desc: "Open the priority+budget auto-layout solver: rank segments, set a budget, the solver packs/demotes/drops to fit", Context: "main", Footer: true},
 	{Keys: "/", Action: "find", Desc: "Filter the segment list (enter keeps it, esc clears it)", Context: "main", Footer: true},
 	{Keys: "w", Action: "width", Desc: "Cycle the preview width (auto/80/60/40) to check the layout", Context: "main", Footer: true},
 	{Keys: "d", Action: "demo", Desc: "Animate the whole preview: bars sweep, countdowns tick, cost grows (session-only)", Context: "main", Footer: true},
@@ -41,6 +42,13 @@ var keymap = []keyBinding{
 	{Keys: "⇧←/→", Action: "coarse", Desc: "Adjust a numeric setting in larger steps", Context: "flyout", Footer: true},
 	{Keys: "↑/↓", Action: "nav", Desc: "Move between settings", Context: "flyout", Footer: true},
 	{Keys: "q/esc", Action: "close", Desc: "Close the flyout", Context: "flyout", Footer: true},
+
+	{Keys: "⇧↑/↓", Action: "rank", Desc: "Move the selected segment up / down the priority ranking", Context: "autolayout", Footer: true},
+	{Keys: "tab", Action: "panes", Desc: "Switch focus between the priority list and the budget knobs", Context: "autolayout", Footer: true},
+	{Keys: "←/→", Action: "budget", Desc: "Adjust the focused budget knob (width / max lines / density)", Context: "autolayout", Footer: true},
+	{Keys: "enter/a", Action: "apply", Desc: "Apply the packed layout to the config (concrete Segments/Lines/Reflow)", Context: "autolayout", Footer: true},
+	{Keys: "q/esc", Action: "cancel", Desc: "Close without applying", Context: "autolayout", Footer: true},
+	{Keys: "↑/↓", Action: "nav", Desc: "Move the selection", Context: "autolayout"},
 }
 
 // footerText renders the footer hint line for a context.

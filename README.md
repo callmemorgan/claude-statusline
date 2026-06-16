@@ -254,6 +254,7 @@ An interactive TUI: segment list (left), description panel (right), a **live pre
 | `o` | Open per-segment settings (bar width, iconsets, thresholds, projections, git status…) |
 | `t` | Theme picker with live preview |
 | `p` | Preset picker with live preview |
+| `L` | Auto-layout solver — rank segments by priority, set a budget, the solver packs/demotes/drops to fit (see below) |
 | `/` | Filter the segment list |
 | `w` | Cycle preview width (auto → 80 → 60 → 40) to check the layout |
 | `d` | Demo mode — animate the whole preview: bars sweep, countdowns tick, cost grows |
@@ -264,6 +265,18 @@ An interactive TUI: segment list (left), description panel (right), a **live pre
 | `h` / `?` | Help overlay (`r` inside it opens the full README) |
 
 In the flyout (`o`): `space`/`enter` toggles or cycles, `←`/`→` adjusts numbers (`Shift` for coarse steps), and `enter` on a color row opens the swatch picker.
+
+### Auto-layout (priority + budget)
+
+Instead of placing segments on lines by hand, **rank them by priority and set a budget** — the solver does the placement. Open it with `L` in the TUI, or start straight into it:
+
+```bash
+claude-statusline configure --auto-layout
+```
+
+You edit two things: a **priority ranking** (`Shift+↑`/`Shift+↓` to move a segment up or down) and a **budget** (`Tab` to the budget pane, `←`/`→` to adjust *max width*, *max lines*, and *density* — `compact`/`comfortable`/`airy`). The solver packs the highest-priority segments first, spilling lower-priority ones to later lines and **dropping** them once the line budget is exhausted, with a live preview rendered through the real statusline builder. Each priority entry is tagged `L1`/`L2`/… where it landed, or `drop` if it didn't fit.
+
+This is a **design-time** solver: pressing `enter`/`a` emits a *concrete* config (`segments`, `[lines]`, `reflow = "group"`, `[style]`) through the same model the manual editor saves through — the render path is untouched. The priority ranking and budget are also persisted as optional `[auto_layout]` metadata so you can re-open `L` and re-tune later. Hand-editing `[auto_layout]` does nothing until you re-run the solver.
 
 ### Presets
 

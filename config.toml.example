@@ -152,3 +152,17 @@ timeout_ms = 200
 # [update]
 # mode = "notify"
 # check_hours = 24
+
+# Auto-layout metadata (OPTIONAL, design-time only). Written by the
+# `configure --auto-layout` solver (or the L key in the TUI) so the priority
+# ranking + budget can be re-edited later. The RENDER PATH IGNORES THIS TABLE
+# entirely — the concrete layout it produces lives in `segments`, `[lines]`,
+# `reflow`, and `[style]` above. Hand-editing it does nothing until you re-run
+# the solver. width = target columns; max_lines = how many lines before the
+# solver starts dropping; density = compact | comfortable | airy.
+# [auto_layout]
+# priorities = ["directory", "git-branch", "cost", "model", "context-window"]
+# [auto_layout.budget]
+# width = 80
+# max_lines = 3
+# density = "comfortable"

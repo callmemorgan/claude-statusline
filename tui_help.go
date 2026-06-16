@@ -30,6 +30,7 @@ func buildHelpText() string {
 	}
 	section("Main screen", "main")
 	section("Settings flyout", "flyout")
+	section("Auto-layout (L)", "autolayout")
 
 	b.WriteString("\n[cyan::b]Concepts[-::-]\n")
 	b.WriteString("  [::b]themes[-:-:-]       6 built-in palettes; truecolor with automatic 256/16 fallback;\n")
