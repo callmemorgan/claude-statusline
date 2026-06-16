@@ -298,6 +298,8 @@ func (ws *wizardState) buildCategoriesStep() {
 
 	list := tview.NewList().SetHighlightFullLine(true).
 		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
+		SetSelectedTextColor(tcell.ColorWhite).
+		SetMainTextColor(tcell.ColorWhite).
 		ShowSecondaryText(true)
 	list.SetBorder(true).SetTitle(" Categories — space toggles ")
 
@@ -305,9 +307,13 @@ func (ws *wizardState) buildCategoriesStep() {
 	rebuild := func(keep int) {
 		list.Clear()
 		for _, c := range cats {
-			mark := "[gray][ ][-]"
+			// Build the row as "<mark> <name>" with explicit colors throughout:
+			// tview's dynamic-color "[-]" reset returns to the terminal default
+			// (not the list's main-text color), so we color every span outright to
+			// keep both the checkbox and the name legible on the selected row.
+			mark := "[#9aa5b1]○[white]"
 			if ws.choices.Categories[c.ID] {
-				mark = "[green][x][-]"
+				mark = "[#5fff87::b]●[white::-]"
 			}
 			list.AddItem(fmt.Sprintf("%s %s", mark, c.Name), "      "+c.Desc, 0, nil)
 		}
@@ -347,6 +353,8 @@ func (ws *wizardState) buildDensityStep() {
 
 	list := tview.NewList().SetHighlightFullLine(true).
 		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
+		SetSelectedTextColor(tcell.ColorWhite).
+		SetMainTextColor(tcell.ColorWhite).
 		ShowSecondaryText(true)
 	list.SetBorder(true).SetTitle(" Density ")
 
@@ -382,6 +390,8 @@ func (ws *wizardState) buildThemeStep() {
 
 	list := tview.NewList().SetHighlightFullLine(true).
 		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey).
+		SetSelectedTextColor(tcell.ColorWhite).
+		SetMainTextColor(tcell.ColorWhite).
 		ShowSecondaryText(true)
 	list.SetBorder(true).SetTitle(" Theme ")
 
