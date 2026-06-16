@@ -22,6 +22,10 @@ Commands:
   configure    Interactive TUI: toggle/order segments, themes, presets,
                colors, per-segment settings, live width-aware preview,
                animated demo mode, render-in-terminal theme check.
+  palette      Intent-driven configurator: a live preview plus a fuzzy
+               command palette (^P or :) where you name what you want
+               ("disable cost", "theme nord", "context bar width") instead
+               of hunting a list. Same config model, same save path.
   version      Show this binary's version. (The statusline's own "version"
                segment shows the calling tool's version, not this binary's.)
   debug        Read JSON from stdin and print a schema-comparison table plus

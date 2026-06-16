@@ -41,6 +41,14 @@ var keymap = []keyBinding{
 	{Keys: "⇧←/→", Action: "coarse", Desc: "Adjust a numeric setting in larger steps", Context: "flyout", Footer: true},
 	{Keys: "↑/↓", Action: "nav", Desc: "Move between settings", Context: "flyout", Footer: true},
 	{Keys: "q/esc", Action: "close", Desc: "Close the flyout", Context: "flyout", Footer: true},
+
+	// Command-palette mode (claude-statusline palette).
+	{Keys: "^P / :", Action: "palette", Desc: "Open the command palette and fuzzy-search every action (also / p i)", Context: "palette", Footer: true},
+	{Keys: "w", Action: "width", Desc: "Cycle the preview width (auto/80/60/40) to check the layout", Context: "palette", Footer: true},
+	{Keys: "v", Action: "view", Desc: "Hide the TUI and render the statusline directly in your terminal", Context: "palette", Footer: true},
+	{Keys: "s", Action: "save", Desc: "Save to config.toml and keep editing", Context: "palette", Footer: true},
+	{Keys: "?", Action: "help", Desc: "Show help", Context: "palette", Footer: true},
+	{Keys: "q", Action: "quit", Desc: "Quit (asks if there are unsaved changes)", Context: "palette", Footer: true},
 }
 
 // footerText renders the footer hint line for a context.
