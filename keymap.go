@@ -21,7 +21,7 @@ var keymap = []keyBinding{
 	{Keys: "tab", Action: "switch pane", Desc: "Switch focus between the drawer (available) and the canvas (layout)", Context: "main", Footer: true},
 	{Keys: "←/→", Action: "pane / move", Desc: "Switch panes (← drawer, → canvas); while a canvas segment is grabbed, reorder it within its line", Context: "main", Footer: true},
 	{Keys: "g", Action: "grab/drop", Desc: "Grab the focused canvas segment to reposition it, then use the arrows; press g again or enter/esc to drop", Context: "main", Footer: true},
-	{Keys: "⇡↑/↓", Action: "(grabbed) line", Desc: "While grabbed, move the segment to the adjacent render line", Context: "main"},
+	{Keys: "⇧↑/↓", Action: "(grabbed) line", Desc: "While grabbed, move the segment to the adjacent render line", Context: "main"},
 	{Keys: "1-9", Action: "line", Desc: "Send the focused segment to line N (toggles back to its natural line); enables it if off", Context: "main", Footer: true},
 	{Keys: "c", Action: "color", Desc: "Cycle the segment's color", Context: "main", Footer: true},
 	{Keys: "C", Action: "palette", Desc: "Open the color picker (theme roles, ANSI, hex, recent)", Context: "main", Footer: true},
