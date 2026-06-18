@@ -36,7 +36,7 @@ func openListPicker(app *tview.Application, pages *tview.Pages, pageName, title 
 ) {
 	list := tview.NewList().
 		SetHighlightFullLine(true).
-		SetSelectedBackgroundColor(tcell.ColorDarkSlateGrey)
+		SetSelectedStyle(selectedRowStyle)
 	list.SetBorder(true).SetTitle(" " + title + " — enter apply · esc cancel ")
 
 	startIdx := 0
