@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.4.0 — 2026-06-18
+- **Two new npm platform packages.** Added `windows/arm64` and `linux/arm` (armv7) binaries to the GoReleaser build matrix and npm optional-dependency set.
+- Added a CI lint/test workflow (triggered only on tag pushes) with a valid `golangci-lint` v2 config.
+
 ## v1.3.2 — 2026-06-18
 - **Three new themes.** `paper` and `solarized-light` are tuned for light terminal backgrounds with high-contrast, legible colours. `monochrome` is adaptive black-and-white: it emits no colour escapes at all and uses the terminal's configured foreground colour, so it works on both light and dark backgrounds.
 - Regenerated theme screenshots for the full palette gallery.
