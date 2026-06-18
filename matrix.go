@@ -15,7 +15,8 @@ import (
 // touches the bare render path.
 //
 // Flags:
-//   --plain   force color-free output (also implied by NO_COLOR / TERM=dumb)
+//   --plain   force color-free output (the runtime palette already honors
+//             NO_COLOR / TERM=dumb; this flag overrides the environment)
 //   --reflow MODE   override every scenario's reflow with MODE (off/cascade/group)
 
 func runMatrix(args []string) {
@@ -27,12 +28,24 @@ func runMatrix(args []string) {
 		case "plain":
 			plain = true
 		case "reflow":
-			if i+1 < len(args) {
-				reflowOverride = args[i+1]
-				i++
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "matrix: --reflow requires a value (off|cascade|group)")
+				os.Exit(2)
 			}
+			reflowOverride = args[i+1]
+			i++
 		default:
 			fmt.Fprintf(os.Stderr, "matrix: unknown flag %q\n", args[i])
+			os.Exit(2)
+		}
+	}
+
+	if reflowOverride != "" {
+		switch reflowOverride {
+		case "off", "cascade", "group":
+			// ok
+		default:
+			fmt.Fprintf(os.Stderr, "matrix: invalid --reflow %q (want off|cascade|group)\n", reflowOverride)
 			os.Exit(2)
 		}
 	}
