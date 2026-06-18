@@ -12,7 +12,7 @@ type keyBinding struct {
 	Keys    string // display form, e.g. "space"
 	Action  string // short label for the footer
 	Desc    string // longer description for the help overlay
-	Context string // "main" | "flyout" | "picker"
+	Context string // "main" | "flyout" | "picker" | "editor"
 	Footer  bool   // include in the one-line footer (space is tight)
 }
 

@@ -98,7 +98,7 @@ func runEditor() {
 		parsed, errs := parseDSL(text)
 		// Normalize (this also surfaces problems the DSL didn't catch and is
 		// what gets saved). validateConfig mutates in place and returns warns.
-		validateConfig(&parsed)
+		warns := validateConfig(&parsed)
 		lastValid = parsed
 
 		// Live preview through the real renderer.
@@ -118,7 +118,7 @@ func runEditor() {
 				lines[i] = l + strings.Repeat(" ", pad) + "\x1b[90m│\x1b[0m"
 			}
 			previewText = strings.Join(lines, "\n")
-			preview.SetTitle(fmt.Sprintf(" Preview (%d cols — w to cycle) ", previewWidth))
+			preview.SetTitle(fmt.Sprintf(" Preview (%d cols — Ctrl-W to cycle) ", previewWidth))
 		} else {
 			for i, l := range lines {
 				lines[i] = strings.TrimLeft(l, " ")
@@ -135,9 +135,14 @@ func runEditor() {
 		}
 
 		// Diagnostics panel.
-		if len(errs) == 0 {
+		if len(errs) == 0 && len(warns) == 0 {
 			diag.SetText("[green]✓ no problems[-]")
 			editor.SetTitle(" Layout (edit me) ")
+		} else if len(errs) == 0 {
+			// Surface the first normalization warning so users see when a
+			// directive was ignored or normalized.
+			diag.SetText(fmt.Sprintf("[yellow]⚠ %s[-]", tview.Escape(warns[0].String())))
+			editor.SetTitle(fmt.Sprintf(" Layout — %d warning(s) ", len(warns)))
 		} else {
 			var b strings.Builder
 			for _, e := range errs {
@@ -387,30 +392,44 @@ func insertCompletion(editor *tview.TextArea, prefix, full string) {
 	row, col, _, _ := editor.GetCursor()
 	// Cursor offset in the whole text.
 	text := editor.GetText()
-	offset := runeOffset(text, row, col)
-	start := offset - len([]rune(partial))
+	offset := byteOffset(text, row, col)
+	start := offset - len(partial)
 	if start < 0 {
 		start = 0
 	}
 	editor.Replace(start, offset, full)
 }
 
-// runeOffset converts a (row, column) cursor position to a rune offset into
-// text, where column is a rune index within the row.
-func runeOffset(text string, row, col int) int {
+// byteOffset converts a (row, column) cursor position to a byte offset into
+// text. column is a rune index within the row, but tview.TextArea.Replace
+// expects byte positions, so previous lines are counted in bytes and the
+// current line is converted from runes to bytes.
+func byteOffset(text string, row, col int) int {
 	lines := strings.Split(text, "\n")
 	off := 0
 	for i := 0; i < row && i < len(lines); i++ {
-		off += len([]rune(lines[i])) + 1 // +1 for the newline
+		off += len(lines[i]) + 1 // +1 for the newline
 	}
 	if row < len(lines) {
 		r := []rune(lines[row])
 		if col > len(r) {
 			col = len(r)
 		}
-		off += col
+		off += byteOffsetOfRunes(lines[row], col)
 	}
 	return off
+}
+
+// byteOffsetOfRunes returns the byte length of the first n runes of s.
+func byteOffsetOfRunes(s string, n int) int {
+	r := []rune(s)
+	if n > len(r) {
+		n = len(r)
+	}
+	if n < 0 {
+		n = 0
+	}
+	return len(string(r[:n]))
 }
 
 func cycleEditorWidth(w int) int {
