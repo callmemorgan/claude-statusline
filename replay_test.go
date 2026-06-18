@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -289,4 +291,145 @@ func TestReplayDuration(t *testing.T) {
 			t.Errorf("replayDuration(%v) = %q, want %q", c.d, got, c.want)
 		}
 	}
+}
+
+// ─── argument parsing ────────────────────────────────────────────────
+
+func TestParseReplayArgs(t *testing.T) {
+	cases := []struct {
+		name    string
+		args    []string
+		want    replayFlags
+		wantErr string
+	}{
+		{
+			name: "defaults",
+			args: nil,
+			want: replayFlags{},
+		},
+		{
+			name: "list long",
+			args: []string{"--list"},
+			want: replayFlags{list: true},
+		},
+		{
+			name: "list short",
+			args: []string{"-l"},
+			want: replayFlags{list: true},
+		},
+		{
+			name: "dump long",
+			args: []string{"--dump"},
+			want: replayFlags{dump: true},
+		},
+		{
+			name: "frames alias",
+			args: []string{"--frames"},
+			want: replayFlags{dump: true},
+		},
+		{
+			name: "session long with value",
+			args: []string{"--session", "abc123"},
+			want: replayFlags{sessID: "abc123"},
+		},
+		{
+			name: "session short with value",
+			args: []string{"-s", "abc123"},
+			want: replayFlags{sessID: "abc123"},
+		},
+		{
+			name: "session equals",
+			args: []string{"--session=abc123"},
+			want: replayFlags{sessID: "abc123"},
+		},
+		{
+			name: "combined flags",
+			args: []string{"--dump", "--session", "abc123"},
+			want: replayFlags{dump: true, sessID: "abc123"},
+		},
+		{
+			name:    "unknown flag",
+			args:    []string{"--bogus"},
+			wantErr: `unknown argument "--bogus"`,
+		},
+		{
+			name:    "unknown positional",
+			args:    []string{"abc123"},
+			wantErr: `unknown argument "abc123"`,
+		},
+		{
+			name:    "session long missing value",
+			args:    []string{"--session"},
+			wantErr: "--session requires a value",
+		},
+		{
+			name:    "session short missing value",
+			args:    []string{"-s"},
+			wantErr: "--session requires a value",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, err := parseReplayArgs(c.args)
+			if c.wantErr != "" {
+				if err == nil {
+					t.Fatalf("parseReplayArgs(%v) err = nil, want %q", c.args, c.wantErr)
+				}
+				if !strings.Contains(err.Error(), c.wantErr) {
+					t.Fatalf("parseReplayArgs(%v) err = %q, want containing %q", c.args, err.Error(), c.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseReplayArgs(%v) unexpected error: %v", c.args, err)
+			}
+			if got != c.want {
+				t.Errorf("parseReplayArgs(%v) = %+v, want %+v", c.args, got, c.want)
+			}
+		})
+	}
+}
+
+// ─── frame dump golden ───────────────────────────────────────────────
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	done := make(chan struct{})
+	var buf bytes.Buffer
+	go func() {
+		_, _ = io.Copy(&buf, r)
+		close(done)
+	}()
+	fn()
+	w.Close()
+	os.Stdout = old
+	<-done
+	return buf.String()
+}
+
+func TestDumpReplayFramesGolden(t *testing.T) {
+	// Color-free, deterministic output for snapshot comparison.
+	t.Setenv("NO_COLOR", "1")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("COLUMNS", "")
+	initSegments(nil)
+
+	base := time.Unix(1750000000, 0)
+	sess := replaySession{
+		ID: "golden",
+		Samples: []sample{
+			{T: base.Unix(), Cost: 0.00, CtxPct: 40, InTok: 1000, OutTok: 100},
+			{T: base.Add(5 * time.Minute).Unix(), Cost: 0.10, CtxPct: 45, InTok: 2000, OutTok: 200},
+		},
+	}
+	cfg := config{Segments: []string{"cost", "context-window"}}
+
+	got := captureStdout(t, func() { dumpReplayFrames(sess, cfg) })
+	checkGolden(t, "replay-dump", got)
 }
