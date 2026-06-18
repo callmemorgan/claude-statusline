@@ -190,6 +190,18 @@ func TestGlobalActions(t *testing.T) {
 	if !containsTitle(acts, "Reset to defaults") {
 		t.Error("missing reset action")
 	}
+	if !containsTitle(acts, "Save configuration") {
+		t.Error("missing save action")
+	}
+
+	resetAct, ok := findAction(acts, "Reset to defaults")
+	if !ok || resetAct.Kind != actionConfirm {
+		t.Error("reset action should require confirmation")
+	}
+	saveAct, ok := findAction(acts, "Save configuration")
+	if !ok || saveAct.Kind != actionSave {
+		t.Error("save action should be actionSave")
+	}
 
 	// Theme classic clears cfg.Theme.
 	a, _ := findAction(acts, "Theme → classic")
@@ -212,27 +224,57 @@ func TestSetSettingFromTextValidation(t *testing.T) {
 	initSegments(nil)
 	cfg := defaultConfig()
 	seg := mustSeg(t, "context-window")
-	var sp settingSpec
+
+	var intSp settingSpec
+	var enumSp settingSpec
+	var colorSp settingSpec
 	for _, s := range seg.settings {
-		if s.Key == "bar_width" {
-			sp = s
+		switch s.Key {
+		case "bar_width":
+			intSp = s
+		case "iconset":
+			enumSp = s
+		case "ok_color":
+			colorSp = s
 		}
 	}
-	if sp.Key == "" {
+	if intSp.Key == "" {
 		t.Fatal("bar_width spec not found")
 	}
+	if enumSp.Key == "" {
+		t.Fatal("iconset spec not found")
+	}
+	if colorSp.Key == "" {
+		t.Fatal("ok_color spec not found")
+	}
 
-	if err := setSettingFromText(&cfg, "context-window", sp, "abc"); err == nil {
+	if err := setSettingFromText(&cfg, "context-window", intSp, "abc"); err == nil {
 		t.Error("expected error for non-numeric input")
 	}
-	if err := setSettingFromText(&cfg, "context-window", sp, "9999"); err == nil {
+	if err := setSettingFromText(&cfg, "context-window", intSp, "9999"); err == nil {
 		t.Error("expected out-of-bounds error")
 	}
-	if err := setSettingFromText(&cfg, "context-window", sp, "  20 "); err != nil {
+	if err := setSettingFromText(&cfg, "context-window", intSp, "  20 "); err != nil {
 		t.Errorf("valid input rejected: %v", err)
 	}
 	if got := settingsFor(cfg, seg).Int("bar_width"); got != 20 {
 		t.Errorf("bar_width = %d, want 20", got)
+	}
+
+	// Enum: invalid option must surface an error, not silently fall back.
+	if err := setSettingFromText(&cfg, "context-window", enumSp, "not-an-iconset"); err == nil {
+		t.Error("expected error for invalid enum value")
+	}
+	if err := setSettingFromText(&cfg, "context-window", enumSp, "ascii"); err != nil {
+		t.Errorf("valid enum rejected: %v", err)
+	}
+
+	// Color: invalid spec must surface an error, not silently fall back.
+	if err := setSettingFromText(&cfg, "context-window", colorSp, "not-a-color"); err == nil {
+		t.Error("expected error for invalid color spec")
+	}
+	if err := setSettingFromText(&cfg, "context-window", colorSp, "#ff0000"); err != nil {
+		t.Errorf("valid color rejected: %v", err)
 	}
 }
 
@@ -269,6 +311,57 @@ func TestParseIntStrict(t *testing.T) {
 	}
 }
 
+func TestReorderSegmentBoundaries(t *testing.T) {
+	initSegments(nil)
+
+	// Line 1: directory, git-branch (in that order).
+	cfg := config{Segments: []string{"directory", "git-branch"}}
+
+	// directory is already first; moving left is a no-op.
+	reorderSegment(&cfg, "directory", -1)
+	if cfg.Segments[0] != "directory" || cfg.Segments[1] != "git-branch" {
+		t.Errorf("left boundary reorder should be no-op: %v", cfg.Segments)
+	}
+
+	// git-branch is already last; moving right is a no-op.
+	reorderSegment(&cfg, "git-branch", +1)
+	if cfg.Segments[0] != "directory" || cfg.Segments[1] != "git-branch" {
+		t.Errorf("right boundary reorder should be no-op: %v", cfg.Segments)
+	}
+
+	// A valid reorder still works.
+	reorderSegment(&cfg, "git-branch", -1)
+	if cfg.Segments[0] != "git-branch" || cfg.Segments[1] != "directory" {
+		t.Errorf("expected swap, got %v", cfg.Segments)
+	}
+}
+
+func TestSetSegmentColorEnablesSegment(t *testing.T) {
+	initSegments(nil)
+	cfg := defaultConfig()
+	setSegmentEnabled(&cfg, "cost", false)
+	if contains(cfg.Segments, "cost") {
+		t.Fatal("cost should be disabled before test")
+	}
+
+	setSegmentColor(&cfg, "cost", "red")
+	if !contains(cfg.Segments, "cost") {
+		t.Error("setSegmentColor should enable the segment so the color is visible")
+	}
+	if cfg.Colors["cost"] != "red" {
+		t.Errorf("expected color override red, got %q", cfg.Colors["cost"])
+	}
+}
+
+func contains(ids []string, id string) bool {
+	for _, x := range ids {
+		if x == id {
+			return true
+		}
+	}
+	return false
+}
+
 // ─── Fuzzy matching ──────────────────────────────────────────────────
 
 func TestFuzzyScoreSubsequence(t *testing.T) {
@@ -280,6 +373,23 @@ func TestFuzzyScoreSubsequence(t *testing.T) {
 	}
 	if _, ok := fuzzyScore("", "anything"); !ok {
 		t.Error("empty query should match")
+	}
+}
+
+func TestFuzzyScoreMultibyte(t *testing.T) {
+	// Segment ids/descriptions may contain multibyte runes; matching must index
+	// by rune, not byte, or it will skip/misalign characters.
+	if _, ok := fuzzyScore("中文", "中文测试"); !ok {
+		t.Error("expected '中文' to match '中文测试'")
+	}
+	if _, ok := fuzzyScore("éco", "économie"); !ok {
+		t.Error("expected 'éco' to match 'économie'")
+	}
+	if _, ok := fuzzyScore("禁用", "enable 禁用 cost"); !ok {
+		t.Error("expected multibyte query to match mixed haystack")
+	}
+	if _, ok := fuzzyScore("中不", "中文测试"); ok {
+		t.Error("expected non-subsequence '中不' not to match '中文测试'")
 	}
 }
 
