@@ -11,10 +11,11 @@ import (
 var reTviewTag = regexp.MustCompile(`\[[a-zA-Z0-9#,:_\- ]*\]`)
 
 // dropTviewTags removes tview color/style region tags but leaves tview's
-// literal-bracket escaping ("[]") intact, so two tview strings that escape the
-// same underlying text compare equal. Used to compare the cursor-painted line
-// against the same line rendered through the normal (non-cursor) ansiToTview
-// path — the bracket-escaping then cancels out on both sides.
+// literal-bracket escaping ("[[" and "]]") intact, so two tview strings that
+// escape the same underlying text compare equal. Used to compare the
+// cursor-painted line against the same line rendered through the normal
+// (non-cursor) ansiToTview path — the bracket-escaping then cancels out on
+// both sides.
 func dropTviewTags(s string) string {
 	return reTviewTag.ReplaceAllString(s, "")
 }
