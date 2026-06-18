@@ -450,3 +450,73 @@ func TestDSLTooManyLines(t *testing.T) {
 		t.Errorf("expected a >9-lines diagnostic, got: %s", joinDSLErrs(errs))
 	}
 }
+
+// TestDSLRoundTripPreservesLineGap checks that an empty render line (a gap
+// between lines 1 and 3) survives a config → DSL → config round-trip instead
+// of collapsing line 3 down to line 2.
+func TestDSLRoundTripPreservesLineGap(t *testing.T) {
+	initSegments(nil)
+	in := normalize(config{
+		Segments: []string{"directory", "cost"},
+		Lines:    map[string]int{"cost": 3},
+	})
+	got, text := roundTrip(t, in)
+
+	if effectiveLine("directory", got) != 1 {
+		t.Errorf("directory effectiveLine: got %d want 1", effectiveLine("directory", got))
+	}
+	if effectiveLine("cost", got) != 3 {
+		t.Errorf("cost effectiveLine: got %d want 3\nDSL:\n%s", effectiveLine("cost", got), text)
+	}
+	if got.Lines["cost"] != 3 {
+		t.Errorf("cost line override lost: got %v\nDSL:\n%s", got.Lines, text)
+	}
+	// The DSL must contain an explicit blank line for the gap.
+	if !strings.Contains(text, "\n\n") {
+		t.Errorf("DSL should contain a blank line for the gap:\n%s", text)
+	}
+}
+
+// TestDSLCRLFNoCorruption ensures trailing \r characters do not end up inside
+// tokens or bracket values.
+func TestDSLCRLFNoCorruption(t *testing.T) {
+	initSegments(nil)
+	got, errs := parseDSL("directory\r\ncost[color=cyan]\r\n")
+	if len(errs) != 0 {
+		t.Fatalf("unexpected errors: %s", joinDSLErrs(errs))
+	}
+	if effectiveLine("directory", got) != 1 {
+		t.Errorf("directory line: got %d want 1", effectiveLine("directory", got))
+	}
+	if got.Colors["cost"] != "cyan" {
+		t.Errorf("cost color: got %q want cyan", got.Colors["cost"])
+	}
+}
+
+// TestDSLTrailingJunkAfterBracket rejects text after a closing ']'.
+func TestDSLTrailingJunkAfterBracket(t *testing.T) {
+	initSegments(nil)
+	got, errs := parseDSL("cost[color=cyan]junk\n")
+	found := false
+	for _, e := range errs {
+		if strings.Contains(e.Msg, "trailing text after ']") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a trailing-junk diagnostic, got: %s", joinDSLErrs(errs))
+	}
+	// The leading segment id should still be parsed so the token is not lost.
+	if !contains(got.Segments, "cost") {
+		t.Errorf("expected segment %q to be parsed despite the trailing junk, got %v", "cost", got.Segments)
+	}
+}
+
+func contains(ids []string, id string) bool {
+	for _, x := range ids {
+		if x == id {
+			return true
+		}
+	}
+	return false
+}
