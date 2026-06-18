@@ -24,6 +24,9 @@ func dispatch() {
 		case "configure":
 			runConfigure()
 			return
+		case "palette":
+			runPalette()
+			return
 		case "install":
 			runInstall(os.Args[2:])
 			return

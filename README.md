@@ -265,6 +265,14 @@ An interactive TUI: segment list (left), description panel (right), a **live pre
 
 In the flyout (`o`): `space`/`enter` toggles or cycles, `←`/`→` adjusts numbers (`Shift` for coarse steps), and `enter` on a color row opens the swatch picker.
 
+### Command palette
+
+```bash
+claude-statusline palette
+```
+
+An intent-driven alternative to the segment list. The **live preview is the only persistent screen**; every change is a fuzzy-searchable command you summon from a palette (`^P` or `:`) and **name by intent** instead of hunting a list — type `disable cost`, `context bar width`, `move git line 2`, `theme nord`, `preset zen`, or `reflow group`. The command set is generated from the segment registry and the settings schema, so it always matches what is actually configurable (new segments, settings, and plugins appear automatically). Int settings open a small prompt; color settings open the same swatch picker. Same config model, same `config.toml` save path as `configure` — `s` saves, `w` cycles preview width, `v` renders to your real terminal, `?` shows help.
+
 ### Presets
 
 Eight named layouts, applied from the TUI (`p`) or used as your config baseline:
