@@ -17,6 +17,9 @@ import (
 
 func effectiveLine(id string, cfg config) int {
 	if override, ok := cfg.Lines[id]; ok && override >= 1 {
+		if override > maxRenderLine {
+			return maxRenderLine
+		}
 		return override
 	}
 	if s, ok := segmentByID(id); ok {
@@ -28,6 +31,9 @@ func effectiveLine(id string, cfg config) int {
 // offLine is the sentinel "line" used for the disabled-segment group in the
 // grouped list view. It sorts after every real render line (1–9).
 const offLine = 100
+
+// maxRenderLine is the highest valid render line. Lines are 1–9.
+const maxRenderLine = 9
 
 // selectedRowStyle is the highlight style for the currently-selected row in
 // every TUI list (home segment list, options flyout, and the modal pickers).
@@ -78,11 +84,11 @@ func groupRows(visible []segmentInfo, cfg config) (rows []listRow, rowToSeg []in
 	// Enabled segments, grouped by line in ascending (render) order. A line
 	// header is emitted only when at least one of its segments is visible.
 	lines, byLine := enabledLinesAsc(cfg)
-	placed := map[string]bool{}
+	placed := map[string]struct{}{}
 	for _, l := range lines {
 		anyVisible := false
 		for _, id := range byLine[l] {
-			placed[id] = true
+			placed[id] = struct{}{}
 			if _, ok := idxByID[id]; ok {
 				anyVisible = true
 			}
@@ -95,7 +101,7 @@ func groupRows(visible []segmentInfo, cfg config) (rows []listRow, rowToSeg []in
 	// Off group: visible segments not enabled, in visible order.
 	var off []string
 	for _, s := range visible {
-		if !placed[s.id] {
+		if _, ok := placed[s.id]; !ok {
 			off = append(off, s.id)
 		}
 	}
@@ -126,7 +132,7 @@ func assignLineCfg(cfg *config, id string, line int) {
 // anchor (anchor == "" → move to the end). Both must already be present.
 func reorderSegmentBefore(cfg *config, id, anchor string) {
 	// Remove id.
-	rest := cfg.Segments[:0:0]
+	rest := make([]string, 0, len(cfg.Segments))
 	for _, sid := range cfg.Segments {
 		if sid != id {
 			rest = append(rest, sid)
@@ -150,11 +156,11 @@ func reorderSegmentBefore(cfg *config, id, anchor string) {
 // and the enabled segments on each, in cfg.Segments (render) order.
 func enabledLinesAsc(cfg config) (lines []int, byLine map[int][]string) {
 	byLine = map[int][]string{}
-	seen := map[int]bool{}
+	seen := map[int]struct{}{}
 	for _, id := range cfg.Segments {
 		l := effectiveLine(id, cfg)
-		if !seen[l] {
-			seen[l] = true
+		if _, ok := seen[l]; !ok {
+			seen[l] = struct{}{}
 			lines = append(lines, l)
 		}
 		byLine[l] = append(byLine[l], id)
@@ -198,47 +204,67 @@ func moveSegmentInGroup(cfg *config, id string, step int) bool {
 	myLine := effectiveLine(id, *cfg)
 	lines, byLine := enabledLinesAsc(*cfg)
 	peers := byLine[myLine]
-	pos := -1
-	for i, sid := range peers {
-		if sid == id {
-			pos = i
-			break
-		}
-	}
-	// Index of myLine among occupied lines.
-	li := -1
-	for i, l := range lines {
-		if l == myLine {
-			li = i
-			break
-		}
+	pos := indexOfString(peers, id)
+	li := indexOfInt(lines, myLine)
+	if pos < 0 || li < 0 {
+		return false
 	}
 
 	if step > 0 { // down
-		if pos < len(peers)-1 {
-			// Swap with the next peer within the line (cfg order).
-			reorderSegmentBefore(cfg, peers[pos+1], id) // put next peer before id
-			return true
+		return moveEnabledDown(cfg, id, lines, byLine, peers, pos, li)
+	}
+	return moveEnabledUp(cfg, id, lines, byLine, peers, pos, li)
+}
+
+// indexOfString returns the index of target in slice, or -1.
+func indexOfString(slice []string, target string) int {
+	for i, s := range slice {
+		if s == target {
+			return i
 		}
-		// Last peer on its line: cross the header below.
-		if li+1 < len(lines) {
-			// Into the next occupied line, at its top.
-			target := lines[li+1]
-			assignLineCfg(cfg, id, target)
-			reorderSegmentBefore(cfg, id, byLine[target][0]) // id at top of target group
-			return true
+	}
+	return -1
+}
+
+// indexOfInt returns the index of target in slice, or -1.
+func indexOfInt(slice []int, target int) int {
+	for i, n := range slice {
+		if n == target {
+			return i
 		}
-		if myLine < 9 {
-			// New empty line below (id is the sole occupant; keep cfg position).
-			assignLineCfg(cfg, id, myLine+1)
-			return true
-		}
-		// Last line, last peer: drop into the off group (disable).
-		removeSegment(cfg, id)
+	}
+	return -1
+}
+
+// moveEnabledDown moves an enabled segment one slot down in the grouped order.
+func moveEnabledDown(cfg *config, id string, lines []int, byLine map[int][]string, peers []string, pos, li int) bool {
+	myLine := lines[li]
+	if pos < len(peers)-1 {
+		// Swap with the next peer within the line (cfg order).
+		reorderSegmentBefore(cfg, peers[pos+1], id) // put next peer before id
 		return true
 	}
+	// Last peer on its line: cross the header below.
+	if li+1 < len(lines) {
+		// Into the next occupied line, at its top.
+		target := lines[li+1]
+		assignLineCfg(cfg, id, target)
+		reorderSegmentBefore(cfg, id, byLine[target][0]) // id at top of target group
+		return true
+	}
+	if myLine < maxRenderLine {
+		// New empty line below (id is the sole occupant; keep cfg position).
+		assignLineCfg(cfg, id, myLine+1)
+		return true
+	}
+	// Last line, last peer: drop into the off group (disable).
+	removeSegment(cfg, id)
+	return true
+}
 
-	// up
+// moveEnabledUp moves an enabled segment one slot up in the grouped order.
+func moveEnabledUp(cfg *config, id string, lines []int, byLine map[int][]string, peers []string, pos, li int) bool {
+	myLine := lines[li]
 	if pos > 0 {
 		// Swap with the previous peer within the line.
 		reorderSegmentBefore(cfg, id, peers[pos-1]) // id before previous peer
@@ -250,22 +276,7 @@ func moveSegmentInGroup(cfg *config, id string, step int) bool {
 		target := lines[li-1]
 		group := byLine[target]
 		assignLineCfg(cfg, id, target)
-		// Place id immediately after the last segment of the target group.
-		afterAnchor := ""
-		// Find the segment that currently follows the target group's last
-		// element in cfg.Segments; insert before it (== after the group).
-		lastInGroup := group[len(group)-1]
-		idxLast := -1
-		for i, sid := range cfg.Segments {
-			if sid == lastInGroup {
-				idxLast = i
-				break
-			}
-		}
-		if idxLast >= 0 && idxLast+1 < len(cfg.Segments) && cfg.Segments[idxLast+1] != id {
-			afterAnchor = cfg.Segments[idxLast+1]
-		}
-		reorderSegmentBefore(cfg, id, afterAnchor)
+		reorderSegmentBefore(cfg, id, anchorAfterGroup(cfg.Segments, group, id))
 		return true
 	}
 	if myLine > 1 {
@@ -276,9 +287,24 @@ func moveSegmentInGroup(cfg *config, id string, step int) bool {
 	return false
 }
 
+// anchorAfterGroup returns the segment in cfgOrder that immediately follows
+// the last element of group, or "" if the group is at the end of the order or
+// the follower is id itself.
+func anchorAfterGroup(cfgOrder, group []string, id string) string {
+	if len(group) == 0 {
+		return ""
+	}
+	lastInGroup := group[len(group)-1]
+	idxLast := indexOfString(cfgOrder, lastInGroup)
+	if idxLast >= 0 && idxLast+1 < len(cfgOrder) && cfgOrder[idxLast+1] != id {
+		return cfgOrder[idxLast+1]
+	}
+	return ""
+}
+
 // removeSegment drops a segment id from cfg.Segments (disable).
 func removeSegment(cfg *config, id string) {
-	out := cfg.Segments[:0:0]
+	out := make([]string, 0, len(cfg.Segments))
 	for _, sid := range cfg.Segments {
 		if sid != id {
 			out = append(out, sid)
