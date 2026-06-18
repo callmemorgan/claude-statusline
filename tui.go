@@ -217,6 +217,15 @@ func runConfigure() {
 		SetText(markdownToTview(readmeContent))
 	readmeView.SetBorder(true).SetTitle(" README (↑/↓ scroll • q/Esc back) ")
 
+	// Scenario matrix overlay: the live config rendered across many runtime
+	// conditions at once (m). Read-only and scrollable; refreshed from cfg
+	// every time it's opened so edits show immediately.
+	matrixView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetScrollable(true).
+		SetWrap(false)
+	matrixView.SetBorder(true).SetTitle(" Scenario matrix (↑/↓ scroll • q/Esc close) ")
+
 	// ─── Flyout Panel ────────────────────────────────────────────────────
 
 	flyoutTitle := tview.NewTextView().
@@ -493,6 +502,11 @@ func runConfigure() {
 	// (track the preview panel's real width), else a fixed column count.
 	previewWidth := 0
 
+	// currentScreenWidth is the terminal width captured by the before-draw hook;
+	// refreshMatrix uses it because the overlay's inner rect is zero before draw.
+	currentScreenWidth := 0
+	lastMatrixWidth := -1
+
 	// refreshPreview re-renders the preview text at the effective width. With
 	// an override, lines render verbatim with a dim ruler at the constraint
 	// column; in auto mode they're left-trimmed to sit flush in the panel.
@@ -534,6 +548,64 @@ func runConfigure() {
 		} else if panelW > 0 {
 			previewBox.SetTitle(fmt.Sprintf(" Preview (auto · %d cols) ", panelW))
 		}
+	}
+
+	// refreshMatrix re-renders the scenario matrix from the current cfg. Every
+	// pane runs through the SAME buildStatusline as the live preview, at its own
+	// width, so editing config updates all panes simultaneously. Output is
+	// colored via tview tags (same path as the preview) and width-checked so
+	// overflowing panes are flagged.
+	refreshMatrix := func() {
+		now := scenarioNow()
+		c := currentPalette(cfg)
+		scs := curatedScenarios(now)
+
+		// Divider rule spans the overlay's inner width so pane boundaries are
+		// obvious while scrolling (only ~3 panes fit at once at 142x40).
+		// matrixView.GetInnerRect() is zero before the overlay is drawn, so we
+		// derive the inner width from the terminal size captured by the
+		// before-draw hook (minus the overlay's left and right border).
+		ruleW := currentScreenWidth - 2
+		if ruleW < 20 {
+			ruleW = 76
+		}
+
+		var b strings.Builder
+		for _, sc := range scs {
+			// Same builder as the live preview and the `matrix` subcommand.
+			// scenarioFits measures visible width (ANSI stripped), so the
+			// colored render is checked for overflow without a second build.
+			lines := renderScenario(sc, cfg, c, now)
+			over := !scenarioFits(lines, sc.Width)
+
+			// Pane header: a divider rule, then a bold title with a
+			// right-aligned fit badge, the note, and a compact stats line. The
+			// overflow flag lives in the title badge so it's visible the moment
+			// a pane scrolls into view, not buried in the metadata line.
+			title := tview.Escape(sc.Name)
+			badge := "[green::b] FITS [-:-:-]"
+			if over {
+				badge = "[black:red:b] OVERFLOWS [-:-:-]"
+			}
+			// TaggedStringWidth strips tview color tags, so the badge is
+			// measured by its plain text (e.g. " FITS " or " OVERFLOWS ").
+			badgeW := tview.TaggedStringWidth(badge)
+			gap := ruleW - visibleWidth(sc.Name) - badgeW - 2 // 2 = "▸ "
+			if gap < 1 {
+				gap = 1
+			}
+			b.WriteString("[gray]" + strings.Repeat("─", ruleW) + "[-]\n")
+			b.WriteString("[white::b]▸ " + title + "[-:-:-]" +
+				strings.Repeat(" ", gap) + badge + "\n")
+			b.WriteString("[gray]" + tview.Escape(sc.Note) + "[-]\n")
+			b.WriteString(fmt.Sprintf("[darkcyan]%d cols · reflow %s · %d line(s)[-]\n\n",
+				sc.Width, scenarioReflowLabel(sc, cfg), len(lines)))
+			body := joinScenarioLines(lines)
+			b.WriteString(ansiToTview(body))
+			b.WriteString("\n\n")
+		}
+		matrixView.SetText(b.String())
+		matrixView.ScrollToBeginning()
 	}
 
 	// scheduleDemoTick drives demo mode the same way the flyout stress test
@@ -736,6 +808,22 @@ func runConfigure() {
 				}
 			}
 			return event
+		}
+		if pageName == "matrix" {
+			switch event.Key() {
+			case tcell.KeyEscape:
+				pages.SwitchToPage("configure")
+				app.SetFocus(list)
+				return nil
+			case tcell.KeyRune:
+				switch event.Rune() {
+				case 'q', 'Q', 'm', 'M':
+					pages.SwitchToPage("configure")
+					app.SetFocus(list)
+					return nil
+				}
+			}
+			return event // ↑/↓/PgUp/PgDn scroll the matrix view
 		}
 		if pageName == "flyout" {
 			switch event.Key() {
@@ -983,6 +1071,12 @@ func runConfigure() {
 				}
 				refreshPreview()
 				return nil
+			case 'm', 'M':
+				refreshMatrix()
+				pages.SwitchToPage("matrix")
+				app.SetFocus(matrixView)
+				lastMatrixWidth = currentScreenWidth
+				return nil
 			case 'd', 'D':
 				demoActive = !demoActive
 				if demoActive {
@@ -1143,6 +1237,7 @@ func runConfigure() {
 	pages.AddPage("configure", flex, true, true)
 	pages.AddPage("help", helpView, true, false)
 	pages.AddPage("readme", readmeView, true, false)
+	pages.AddPage("matrix", matrixView, true, false)
 	pages.AddPage("flyout", flyoutFlex, true, false)
 
 	// Re-render the preview when the terminal (and so the panel) resizes —
@@ -1160,8 +1255,13 @@ func runConfigure() {
 		}
 		if sw, _ := screen.Size(); sw != lastScreenWidth {
 			lastScreenWidth = sw
+			currentScreenWidth = sw
 			flex.ResizeItem(help, footerRows(footerText("main"), sw), 0)
 			flyoutFlex.ResizeItem(flyoutHelp, footerRows(footerText("flyout"), sw), 0)
+			if pageName, _ := pages.GetFrontPage(); pageName == "matrix" && sw != lastMatrixWidth {
+				lastMatrixWidth = sw
+				refreshMatrix()
+			}
 		}
 		return false
 	})

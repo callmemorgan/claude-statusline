@@ -28,6 +28,7 @@ var keymap = []keyBinding{
 	{Keys: "p", Action: "presets", Desc: "Apply a named layout preset with live preview", Context: "main", Footer: true},
 	{Keys: "/", Action: "find", Desc: "Filter the segment list (enter keeps it, esc clears it)", Context: "main", Footer: true},
 	{Keys: "w", Action: "width", Desc: "Cycle the preview width (auto/80/60/40) to check the layout", Context: "main", Footer: true},
+	{Keys: "m", Action: "matrix", Desc: "Open the scenario matrix: your config rendered across many widths and data conditions at once (overflow flagged)", Context: "main", Footer: true},
 	{Keys: "d", Action: "demo", Desc: "Animate the whole preview: bars sweep, countdowns tick, cost grows (session-only)", Context: "main", Footer: true},
 	{Keys: "v", Action: "view", Desc: "Hide the TUI and render the statusline directly in your terminal, to check the theme against its real colors and background", Context: "main", Footer: true},
 	{Keys: "r", Action: "reset", Desc: "Reset the configuration to defaults (asks first)", Context: "main", Footer: true},

@@ -21,7 +21,13 @@ Commands:
   uninstall    Remove the statusline wiring (--restore swaps the backup back).
   configure    Interactive TUI: toggle/order segments, themes, presets,
                colors, per-segment settings, live width-aware preview,
-               animated demo mode, render-in-terminal theme check.
+               scenario matrix (m), animated demo mode, render-in-terminal
+               theme check.
+  matrix       Render your config across a curated set of scenarios (narrow
+               vs wide, no-git, high cost, near rate-limit, fresh/minimal),
+               each through the real builder at its own width, and print
+               them as labelled panes with overflow flagged.
+               Flags: --plain (no color) · --reflow off|cascade|group
   version      Show this binary's version. (The statusline's own "version"
                segment shows the calling tool's version, not this binary's.)
   debug        Read JSON from stdin and print a schema-comparison table plus
