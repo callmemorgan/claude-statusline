@@ -5,7 +5,8 @@
 schema_version = 1
 
 # theme: built-in color palette.
-#   classic (default) | catppuccin-mocha | nord | dracula | gruvbox-dark | tokyo-night
+#   classic (default) | catppuccin-mocha | nord | dracula | gruvbox-dark |
+#   tokyo-night | newsprint
 # "classic" is the original pre-1.0 16-color look ("original" works as an alias).
 theme = "classic"
 
