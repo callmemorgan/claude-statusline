@@ -233,6 +233,14 @@ func TestAssembleWizardConfig_NoDuplicateSegments(t *testing.T) {
 	}
 }
 
+func TestDensityInfo_FallsBackToBalanced(t *testing.T) {
+	got := densityInfo(wizardDensity(999))
+	want := wizardDensities()[1]
+	if got != want {
+		t.Errorf("densityInfo(invalid) = %+v, want %+v", got, want)
+	}
+}
+
 func TestAssembledConfigRendersThroughPipeline(t *testing.T) {
 	// The assembled config must drive buildStatusline without panicking and
 	// produce a non-empty render with the sample payload (sanity that the
@@ -303,9 +311,9 @@ func TestDeriveWizardChoices_RoundTripsCustomConfig(t *testing.T) {
 		t.Error("git status not recovered")
 	}
 	reassembled := assembleWizardConfig(derived, registeredSegments)
-	if !reflect.DeepEqual(sortedCopy(orig.Segments), sortedCopy(reassembled.Segments)) {
-		t.Errorf("segment set drifted on round-trip:\n orig: %v\n re:   %v",
-			sortedCopy(orig.Segments), sortedCopy(reassembled.Segments))
+	if !reflect.DeepEqual(orig.Segments, reassembled.Segments) {
+		t.Errorf("segment order drifted on round-trip:\n orig: %v\n re:   %v",
+			orig.Segments, reassembled.Segments)
 	}
 }
 
@@ -338,12 +346,6 @@ func sortedKeys(m map[string]bool) []string {
 			out = append(out, k)
 		}
 	}
-	sort.Strings(out)
-	return out
-}
-
-func sortedCopy(s []string) []string {
-	out := append([]string(nil), s...)
 	sort.Strings(out)
 	return out
 }
