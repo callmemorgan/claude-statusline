@@ -31,16 +31,6 @@ import (
 // legible thing on screen, not the least.
 var selectionBG = tcell.NewRGBColor(58, 91, 219) // indigo (#3a5bdb)
 
-func effectiveLine(id string, cfg config) int {
-	if override, ok := cfg.Lines[id]; ok && override >= 1 {
-		return override
-	}
-	if s, ok := segmentByID(id); ok {
-		return s.line
-	}
-	return 1
-}
-
 // filterSegments returns the segments whose id or description contains the
 // query (case-insensitive). An empty query returns everything.
 func filterSegments(all []segmentInfo, query string) []segmentInfo {
@@ -230,6 +220,9 @@ func runConfigure() {
 		SetWrap(false).
 		SetText(buildHelpText())
 	helpView.SetBorder(true).SetTitle(" Help (r README • q/Esc close) ")
+
+	// helpBackPage is the page to return to when the help overlay is closed.
+	helpBackPage := "configure"
 
 	// Full README behind the help overlay.
 	readmeView := tview.NewTextView().
@@ -423,76 +416,13 @@ func runConfigure() {
 
 	// ─── Cursor helpers ──────────────────────────────────────────────────
 
-	// cursorSegment returns the segment id under the cursor, or "".
-	cursorSegment := func() string {
-		if curLine >= 0 && curLine < len(curSpans) {
-			row := curSpans[curLine]
-			if curCol >= 0 && curCol < len(row) {
-				return row[curCol].ID
-			}
-		}
-		return ""
-	}
-
-	// clampCursor keeps (curLine,curCol) on a real span and syncs cursorID. It
-	// prefers to re-find cursorID after a rebuild so the cursor tracks the same
-	// segment across toggles and moves.
-	clampCursor := func() {
-		// Drop empty (spacer) rows from consideration by clamping into range.
-		if len(curSpans) == 0 {
-			curLine, curCol, cursorID = 0, 0, ""
-			return
-		}
-		// Try to follow cursorID to wherever it moved.
-		if cursorID != "" {
-			for li, row := range curSpans {
-				for ci, sp := range row {
-					if sp.ID == cursorID {
-						curLine, curCol = li, ci
-						return
-					}
-				}
-			}
-		}
-		// Otherwise clamp to the nearest valid position.
-		if curLine >= len(curSpans) {
-			curLine = len(curSpans) - 1
-		}
-		if curLine < 0 {
-			curLine = 0
-		}
-		// Skip empty rows by scanning for the next non-empty one.
-		if len(curSpans[curLine]) == 0 {
-			placed := false
-			for d := 0; d < len(curSpans) && !placed; d++ {
-				for _, cand := range []int{curLine - d, curLine + d} {
-					if cand >= 0 && cand < len(curSpans) && len(curSpans[cand]) > 0 {
-						curLine, placed = cand, true
-						break
-					}
-				}
-			}
-		}
-		if curLine < 0 || curLine >= len(curSpans) || len(curSpans[curLine]) == 0 {
-			curCol, cursorID = 0, ""
-			return
-		}
-		if curCol >= len(curSpans[curLine]) {
-			curCol = len(curSpans[curLine]) - 1
-		}
-		if curCol < 0 {
-			curCol = 0
-		}
-		cursorID = curSpans[curLine][curCol].ID
-	}
-
 	// previewWidth is the user's width override for testing reflow: 0 = auto
 	// (track the preview panel's real width), else a fixed column count.
 	previewWidth := 0
 
 	// describeCursor renders the description panel for the cursor's segment.
 	describeCursor := func() {
-		id := cursorSegment()
+		id := cursorSegment(curSpans, curLine, curCol)
 		if id == "" {
 			if len(cfg.Segments) == 0 {
 				descView.SetText("[gray]No segments enabled. Press [::b]a[::-] to add one.[-]")
@@ -535,14 +465,14 @@ func runConfigure() {
 		in := buildInput{P: p, C: currentPalette(cfg), Cfg: cfg, State: pvState, Width: width, Now: time.Now()}
 		lines, spans := buildStatuslineSpans(in)
 		curSpans = spans
-		clampCursor()
+		curLine, curCol, cursorID = clampCursor(curSpans, cursorID, curLine, curCol)
 
 		// Paint the cursor/selection highlight over the cursor's span. We
 		// rebuild each physical line from its spans so the highlight wraps
 		// exactly the segment's cells, leaving the rest of the REAL render
 		// untouched. Lines with no span (spacers) and the off-cursor portions
 		// pass through verbatim.
-		curID := cursorSegment()
+		curID := cursorSegment(curSpans, curLine, curCol)
 		var rendered []string
 		for li, l := range lines {
 			row := spans[li]
@@ -627,45 +557,6 @@ func runConfigure() {
 		paletteFlex.SetTitle(fmt.Sprintf(" Add segment (%d off) — enter insert · esc cancel ", n))
 	}
 
-	// insertSegmentAtCursor adds id to the render set, placing it on the
-	// cursor's current line, immediately after the cursor's segment so it lands
-	// where the user is pointing.
-	insertSegmentAtCursor := func(id string) {
-		cursorID = id // follow the freshly added segment across the rebuild
-		mutate(func() {
-			anchorID := cursorSegment()
-			anchorLine := 0
-			if anchorID != "" {
-				anchorLine = effectiveLine(anchorID, cfg)
-			}
-			// Drop any stale enabled entry first (shouldn't happen — palette
-			// only lists off segments — but stay defensive).
-			for i, sid := range cfg.Segments {
-				if sid == id {
-					cfg.Segments = append(cfg.Segments[:i], cfg.Segments[i+1:]...)
-					break
-				}
-			}
-			// Assign the new segment to the cursor's line.
-			if anchorID != "" {
-				assignSegmentLine(&cfg, id, anchorLine)
-			}
-			// Insert right after the anchor in cfg.Segments; else append.
-			insertAt := len(cfg.Segments)
-			if anchorID != "" {
-				for i, sid := range cfg.Segments {
-					if sid == anchorID {
-						insertAt = i + 1
-						break
-					}
-				}
-			}
-			cfg.Segments = append(cfg.Segments, "")
-			copy(cfg.Segments[insertAt+1:], cfg.Segments[insertAt:])
-			cfg.Segments[insertAt] = id
-		})
-	}
-
 	openPalette := func() {
 		paletteFilter.SetText("")
 		refreshPalette()
@@ -698,7 +589,11 @@ func runConfigure() {
 			id := visible[idx].id
 			pages.SwitchToPage("configure")
 			app.SetFocus(preview)
-			insertSegmentAtCursor(id)
+			mutate(func() {
+				if newID, ok := insertSegmentAtCursor(&cfg, curSpans, curLine, curCol, cursorID, id); ok {
+					cursorID = newID
+				}
+			})
 			flash("green", "added "+id)
 		}
 	})
@@ -717,133 +612,15 @@ func runConfigure() {
 			case '/':
 				app.SetFocus(paletteFilter)
 				return nil
+			case '?':
+				helpBackPage = "palette"
+				pages.SwitchToPage("help")
+				app.SetFocus(helpView)
+				return nil
 			}
 		}
 		return event
 	})
-
-	// ─── Grab/move mode mutations (REAL spatial movement) ────────────────
-
-	// moveCursorSegmentHoriz swaps the grabbed segment with its adjacent peer
-	// on the same line (reorder within line).
-	moveCursorSegmentHoriz := func(dir int) {
-		id := cursorSegment()
-		if id == "" {
-			return
-		}
-		myLine := effectiveLine(id, cfg)
-		var peers []int
-		for i, sid := range cfg.Segments {
-			if effectiveLine(sid, cfg) == myLine {
-				peers = append(peers, i)
-			}
-		}
-		pos := -1
-		for i, pi := range peers {
-			if cfg.Segments[pi] == id {
-				pos = i
-				break
-			}
-		}
-		if pos < 0 {
-			return
-		}
-		target := pos + dir
-		if target < 0 || target >= len(peers) {
-			return
-		}
-		cursorID = id // keep the cursor on the grabbed segment across the rebuild
-		mutate(func() {
-			cfg.Segments[peers[pos]], cfg.Segments[peers[target]] =
-				cfg.Segments[peers[target]], cfg.Segments[peers[pos]]
-		})
-	}
-
-	// moveCursorSegmentVert relocates the grabbed segment to the adjacent line
-	// (real "move this segment to another line"), placing it at the column-
-	// nearest slot on the destination line. This is the spatial verb that
-	// collapses the old line + move-row gestures.
-	moveCursorSegmentVert := func(dir int) {
-		id := cursorSegment()
-		if id == "" {
-			return
-		}
-		myLine := effectiveLine(id, cfg)
-		targetLine := myLine + dir
-		if targetLine < 1 || targetLine > 9 {
-			return
-		}
-		cursorID = id // keep the cursor on the grabbed segment across the rebuild
-		// Where on the destination line should it land? Use the grabbed
-		// segment's current column to pick the nearest insertion slot among the
-		// destination line's existing spans.
-		var anchorBefore string // insert before this segment id (or "" = append)
-		if curLine >= 0 && curLine < len(curSpans) {
-			myCol := 0
-			if curCol >= 0 && curCol < len(curSpans[curLine]) {
-				myCol = curSpans[curLine][curCol].Col
-			}
-			// Pick the drop slot on the destination line: the first dest-line
-			// peer whose rendered column is at or past the grabbed segment's
-			// column. Peers are taken in cfg order so insertion preserves it.
-			var destPeers []string
-			for _, sid := range cfg.Segments {
-				if sid != id && effectiveLine(sid, cfg) == targetLine {
-					destPeers = append(destPeers, sid)
-				}
-			}
-			// Map each dest peer to its rendered column if visible this frame.
-			colOf := map[string]int{}
-			for _, r := range curSpans {
-				for _, sp := range r {
-					colOf[sp.ID] = sp.Col
-				}
-			}
-			for _, sid := range destPeers {
-				if c, ok := colOf[sid]; ok && c >= myCol {
-					anchorBefore = sid
-					break
-				}
-			}
-		}
-		mutate(func() {
-			// Reassign line.
-			assignSegmentLine(&cfg, id, targetLine)
-			// Reposition in cfg.Segments so order among dest peers matches the
-			// drop column. Remove then re-insert.
-			for i, sid := range cfg.Segments {
-				if sid == id {
-					cfg.Segments = append(cfg.Segments[:i], cfg.Segments[i+1:]...)
-					break
-				}
-			}
-			insertAt := len(cfg.Segments)
-			if anchorBefore != "" {
-				for i, sid := range cfg.Segments {
-					if sid == anchorBefore {
-						insertAt = i
-						break
-					}
-				}
-			} else {
-				// Append after the last dest-line peer so it lands at the end
-				// of the destination line rather than the very end of all
-				// segments (which could be a different line).
-				last := -1
-				for i, sid := range cfg.Segments {
-					if effectiveLine(sid, cfg) == targetLine {
-						last = i
-					}
-				}
-				if last >= 0 {
-					insertAt = last + 1
-				}
-			}
-			cfg.Segments = append(cfg.Segments, "")
-			copy(cfg.Segments[insertAt+1:], cfg.Segments[insertAt:])
-			cfg.Segments[insertAt] = id
-		})
-	}
 
 	// ─── Color picker for the cursor's segment color setting ─────────────
 
@@ -959,7 +736,7 @@ func runConfigure() {
 		case tview.MouseLeftDoubleClick:
 			if preview.InRect(event.Position()) && hit() {
 				refreshPreview()
-				if id := cursorSegment(); id != "" {
+				if id := cursorSegment(curSpans, curLine, curCol); id != "" {
 					openFlyout(id)
 				}
 				return tview.MouseConsumed, nil
@@ -1023,14 +800,22 @@ func runConfigure() {
 		if pageName == "help" {
 			switch event.Key() {
 			case tcell.KeyEscape:
-				pages.SwitchToPage("configure")
-				app.SetFocus(preview)
+				pages.SwitchToPage(helpBackPage)
+				if helpBackPage == "palette" {
+					app.SetFocus(paletteList)
+				} else {
+					app.SetFocus(preview)
+				}
 				return nil
 			case tcell.KeyRune:
 				switch event.Rune() {
 				case 'q', 'Q':
-					pages.SwitchToPage("configure")
-					app.SetFocus(preview)
+					pages.SwitchToPage(helpBackPage)
+					if helpBackPage == "palette" {
+						app.SetFocus(paletteList)
+					} else {
+						app.SetFocus(preview)
+					}
 					return nil
 				case 'r', 'R':
 					pages.SwitchToPage("readme")
@@ -1140,16 +925,32 @@ func runConfigure() {
 				updateStrip()
 				return nil
 			case tcell.KeyLeft:
-				moveCursorSegmentHoriz(-1)
+				mutate(func() {
+					if newID, moved := moveCursorSegmentHoriz(&cfg, curSpans, curLine, curCol, -1); moved {
+						cursorID = newID
+					}
+				})
 				return nil
 			case tcell.KeyRight:
-				moveCursorSegmentHoriz(1)
+				mutate(func() {
+					if newID, moved := moveCursorSegmentHoriz(&cfg, curSpans, curLine, curCol, 1); moved {
+						cursorID = newID
+					}
+				})
 				return nil
 			case tcell.KeyUp:
-				moveCursorSegmentVert(-1)
+				mutate(func() {
+					if newID, moved := moveCursorSegmentVert(&cfg, curSpans, curLine, curCol, -1); moved {
+						cursorID = newID
+					}
+				})
 				return nil
 			case tcell.KeyDown:
-				moveCursorSegmentVert(1)
+				mutate(func() {
+					if newID, moved := moveCursorSegmentVert(&cfg, curSpans, curLine, curCol, 1); moved {
+						cursorID = newID
+					}
+				})
 				return nil
 			case tcell.KeyRune:
 				switch event.Rune() {
@@ -1216,12 +1017,12 @@ func runConfigure() {
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case ' ':
-				if id := cursorSegment(); id != "" {
+				if id := cursorSegment(curSpans, curLine, curCol); id != "" {
 					toggleSegment(id)
 				}
 				return nil
 			case 'm', 'M':
-				if id := cursorSegment(); id != "" {
+				if id := cursorSegment(curSpans, curLine, curCol); id != "" {
 					grabbing = id
 					// Snapshot so esc can cancel the in-place move mutations.
 					grabSnapshot = cloneConfig(cfg)
@@ -1238,16 +1039,17 @@ func runConfigure() {
 				openPalette()
 				return nil
 			case 'o', 'O':
-				if id := cursorSegment(); id != "" {
+				if id := cursorSegment(curSpans, curLine, curCol); id != "" {
 					openFlyout(id)
 				}
 				return nil
 			case 'h', 'H', '?':
+				helpBackPage = "configure"
 				pages.SwitchToPage("help")
 				app.SetFocus(helpView)
 				return nil
 			case 'c':
-				id := cursorSegment()
+				id := cursorSegment(curSpans, curLine, curCol)
 				if id == "" {
 					return nil
 				}
@@ -1275,7 +1077,7 @@ func runConfigure() {
 				})
 				return nil
 			case 'C':
-				id := cursorSegment()
+				id := cursorSegment(curSpans, curLine, curCol)
 				if id == "" {
 					return nil
 				}
@@ -1537,114 +1339,4 @@ func runConfigure() {
 		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
 		os.Exit(1)
 	}
-}
-
-// ─── Cursor painting helpers (TUI-only) ──────────────────────────────────
-
-// nearestSpanCol returns the index of the span whose start column is closest to
-// targetCol, used to keep the cursor near the same horizontal position when it
-// jumps between lines.
-func nearestSpanCol(row []segSpan, targetCol int) int {
-	best, bestDist := 0, 1<<30
-	for i, sp := range row {
-		d := sp.Col - targetCol
-		if d < 0 {
-			d = -d
-		}
-		if d < bestDist {
-			best, bestDist = i, d
-		}
-	}
-	return best
-}
-
-// applyWidthRuler appends the dim width ruler when a fixed preview width is set,
-// matching the old preview's constraint marker. Returns the (still ANSI) line.
-func applyWidthRuler(line string, previewWidth int) string {
-	if previewWidth <= 0 {
-		return line
-	}
-	pad := previewWidth - visibleWidth(line)
-	if pad < 0 {
-		pad = 0
-	}
-	return line + strings.Repeat(" ", pad) + "\x1b[90m│\x1b[0m"
-}
-
-// paintCursorLine rebuilds one physical line from its spans, wrapping the span
-// at curCol in a tview highlight region (reverse-video for the cursor; a yellow
-// background while grabbing). The REAL rendered text of every segment is kept
-// verbatim — only the bracketing region tags differ, so colors stay real. The
-// non-span gaps (leading padding, separators) are reproduced from the original
-// line by slicing on visible columns.
-func paintCursorLine(line string, row []segSpan, curCol int, grabbing bool) string {
-	if curCol < 0 || curCol >= len(row) {
-		return ansiToTview(line)
-	}
-	// Work in visible columns. Reconstruct: gap-before-span0, span0, gap,
-	// span1, ... by walking the stripped line and re-inserting the original
-	// ANSI runs. Simpler and robust: take the original line's runes (with
-	// ANSI), and split at the cursor span's visible column boundaries.
-	target := row[curCol]
-	pre := sliceVisible(line, 0, target.Col)
-	seg := sliceVisible(line, target.Col, target.Col+target.Width)
-	post := sliceVisible(line, target.Col+target.Width, -1)
-
-	// White text on a solid truecolor background — the cursor must be the most
-	// legible thing on the preview line. Indigo for the resting cursor, amber
-	// while grabbing, matching the list selection color elsewhere. Hex (not the
-	// 16-color names) so headless capture and real terminals agree.
-	hi := "[white:#3a5bdb:b]"
-	if grabbing {
-		hi = "[black:#ffb000:b]"
-	}
-	var b strings.Builder
-	b.WriteString(ansiToTview(pre))
-	b.WriteString(hi)
-	// Strip ANSI inside the highlighted segment so the reverse-video region
-	// reads cleanly; the segment's own foreground would otherwise fight the
-	// highlight background.
-	b.WriteString(tview.Escape(stripANSI(seg)))
-	b.WriteString("[-:-:-]")
-	b.WriteString(ansiToTview(post))
-	return b.String()
-}
-
-// sliceVisible returns the substring of s (which may contain ANSI escapes)
-// spanning visible columns [start,end). end<0 means "to the end". ANSI escape
-// sequences are preserved with the runs they precede so colors stay intact for
-// the parts outside any highlight.
-func sliceVisible(s string, start, end int) string {
-	var b strings.Builder
-	col := 0
-	i := 0
-	runes := []rune(s)
-	for i < len(runes) {
-		// Pass through an ANSI escape sequence wholesale.
-		if runes[i] == '\x1b' && i+1 < len(runes) && runes[i+1] == '[' {
-			j := i + 2
-			for j < len(runes) && runes[j] != 'm' {
-				j++
-			}
-			if j < len(runes) {
-				j++ // include the 'm'
-			}
-			seq := string(runes[i:j])
-			// Emit escapes if we are inside the visible window (or before it,
-			// so the active color carries into the window). To keep colors
-			// correct for the chosen slice we emit escapes whenever col is
-			// within [0,end) — they are zero-width so they don't shift columns.
-			if end < 0 || col <= end {
-				b.WriteString(seq)
-			}
-			i = j
-			continue
-		}
-		if col >= start && (end < 0 || col < end) {
-			b.WriteRune(runes[i])
-		}
-		col++
-		i++
-	}
-	return b.String()
 }

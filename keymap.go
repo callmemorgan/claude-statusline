@@ -36,6 +36,7 @@ var keymap = []keyBinding{
 
 	{Keys: "↑↓/type", Action: "find", Desc: "In the add palette: type to filter, ↑/↓ to choose", Context: "palette", Footer: true},
 	{Keys: "enter", Action: "insert", Desc: "Insert the chosen segment at the cursor", Context: "palette", Footer: true},
+	{Keys: "?", Action: "help", Desc: "Show help", Context: "palette", Footer: true},
 	{Keys: "q/esc", Action: "close", Desc: "Close the palette without adding", Context: "palette", Footer: true},
 
 	{Keys: "space/enter", Action: "toggle/cycle", Desc: "Toggle a switch or cycle an option", Context: "flyout", Footer: true},
