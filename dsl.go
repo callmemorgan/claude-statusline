@@ -225,14 +225,26 @@ func parseDSL(text string) (config, []dslError) {
 
 	seen := map[string]int{} // segment id → first buffer line (duplicate detection)
 	renderLine := 0          // increments per non-directive layout line
+	layoutStarted := false   // true once we've seen the first layout line
 
 	lines := strings.Split(text, "\n")
 	for i, raw := range lines {
 		lineNo := i + 1
+		// Trim trailing carriage returns so CRLF does not corrupt bracket parsing.
+		raw = strings.TrimSuffix(raw, "\r")
 		trimmed := strings.TrimSpace(raw)
 
 		if trimmed == "" {
-			// Blank line: skip, does not consume a render line.
+			// A blank line before the first layout line is just a directive
+			// separator; once layout lines have started, blanks are explicit
+			// empty render lines and must consume a line slot to keep gaps
+			// round-trip stable.
+			if layoutStarted {
+				renderLine++
+				if renderLine > 9 {
+					errs = append(errs, dslError{Line: lineNo, Msg: fmt.Sprintf("more than 9 layout lines; line %d ignored (statuslines have at most 9 lines)", renderLine)})
+				}
+			}
 			continue
 		}
 		if strings.HasPrefix(trimmed, "#") {
@@ -243,6 +255,7 @@ func parseDSL(text string) (config, []dslError) {
 		}
 
 		// A layout line. Each consumes the next render line slot.
+		layoutStarted = true
 		renderLine++
 		if renderLine > 9 {
 			errs = append(errs, dslError{Line: lineNo, Msg: fmt.Sprintf("more than 9 layout lines; line %d ignored (statuslines have at most 9 lines)", renderLine)})
@@ -358,10 +371,16 @@ func parseToken(word string, lineNo, col int) (dslToken, []dslError) {
 		return tok, errs
 	}
 	tok.id = strings.TrimSpace(string(wr[:br]))
-	inner := wr[br+1:]
-	if n := len(inner); n > 0 && inner[n-1] == ']' {
-		inner = inner[:n-1]
+	closeIdx := runeIndex(wr[br+1:], ']')
+	if closeIdx < 0 {
+		errs = append(errs, dslError{Line: lineNo, Col: col + br, Msg: fmt.Sprintf("unclosed '[' in token %q", word)})
+		return tok, errs
 	}
+	closeIdxAbs := br + 1 + closeIdx
+	if closeIdxAbs != len(wr)-1 {
+		errs = append(errs, dslError{Line: lineNo, Col: col + closeIdxAbs, Msg: fmt.Sprintf("trailing text after ']' in token %q", word)})
+	}
+	inner := wr[br+1 : closeIdxAbs]
 	// Column where the bracket body begins (rune-based).
 	bodyCol := col + br + 1
 	for _, part := range splitOverrides(inner) {
