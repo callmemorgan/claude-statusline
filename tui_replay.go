@@ -56,7 +56,7 @@ func (s *scrubberState) selectSession(i int) {
 type scrubberView struct {
 	page    tview.Primitive
 	seed    func()      // (re)load sessions and reset to the latest frame
-	refresh func()       // re-render the current frame (call after a cfg edit)
+	refresh func()      // re-render the current frame (call after a cfg edit)
 	list    *tview.List // the segment toggle list (focus target)
 	state   *scrubberState
 }

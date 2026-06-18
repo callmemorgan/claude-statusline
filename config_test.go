@@ -255,11 +255,11 @@ check_hours = 12
 	}
 
 	cases := []struct {
-		name      string
-		in        updateConfig
-		wantMode  string
-		wantH     *int
-		wantWarn  bool
+		name     string
+		in       updateConfig
+		wantMode string
+		wantH    *int
+		wantWarn bool
 	}{
 		{"bad-mode-warns", updateConfig{Mode: "loud", CheckHours: &h24}, "", &h24, true},
 		{"hours-too-low", updateConfig{Mode: "notify", CheckHours: &h0}, "notify", nil, true},
