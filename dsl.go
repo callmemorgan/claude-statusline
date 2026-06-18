@@ -372,13 +372,12 @@ func parseToken(word string, lineNo, col int) (dslToken, []dslError) {
 	}
 	tok.id = strings.TrimSpace(string(wr[:br]))
 	closeIdx := runeIndex(wr[br+1:], ']')
-	if closeIdx < 0 {
-		errs = append(errs, dslError{Line: lineNo, Col: col + br, Msg: fmt.Sprintf("unclosed '[' in token %q", word)})
-		return tok, errs
-	}
-	closeIdxAbs := br + 1 + closeIdx
-	if closeIdxAbs != len(wr)-1 {
-		errs = append(errs, dslError{Line: lineNo, Col: col + closeIdxAbs, Msg: fmt.Sprintf("trailing text after ']' in token %q", word)})
+	closeIdxAbs := len(wr) // default: parse everything after '[' if unclosed
+	if closeIdx >= 0 {
+		closeIdxAbs = br + 1 + closeIdx
+		if closeIdxAbs != len(wr)-1 {
+			errs = append(errs, dslError{Line: lineNo, Col: col + closeIdxAbs, Msg: fmt.Sprintf("trailing text after ']' in token %q", word)})
+		}
 	}
 	inner := wr[br+1 : closeIdxAbs]
 	// Column where the bracket body begins (rune-based).
