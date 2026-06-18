@@ -1,5 +1,8 @@
 # Changelog
 
+## v1.3.1 — 2026-06-18
+- New `newsprint` theme: warm greys and sepia tones on dark stock.
+
 ## v1.3.0 — 2026-06-15
 - **Install via npm.** `npm i -g @morgan.rebrand/claude-statusline` now works on macOS, Linux, and Windows. The main package is a tiny Node shim that execs the correct prebuilt binary from a per-platform `optionalDependencies` package; every GitHub release publishes them automatically with npm trusted publishing (OIDC, no token) and provenance. Homebrew and manual installs remain the lowest-latency options since the npm shim pays one Node spawn per render.
 - `auto` update mode now recognizes npm installs and leaves them alone — npm owns the binary, so self-swap would fight the package manager. The `update` segment and `claude-statusline update` print `npm update -g @morgan.rebrand/claude-statusline` for npm installs instead.
