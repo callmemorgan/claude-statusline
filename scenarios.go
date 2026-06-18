@@ -215,8 +215,14 @@ func withScenarioReflow(cfg config, reflow string) config {
 // pass a real palette to show colors. The clock is fixed to scenarioNow so
 // output is deterministic.
 func renderScenario(sc scenario, cfg config, c palette, now time.Time) []string {
+	// Propagate the scenario width into the payload so width-aware segments
+	// (notably plugins via STATUSLINE_COLUMNS) see the same budget the matrix
+	// pane is rendered at. Copy first so scenario definitions don't leak
+	// mutations between panes.
+	p := sc.P
+	p.TerminalWidth = sc.Width
 	return buildStatusline(buildInput{
-		P:     sc.P,
+		P:     p,
 		C:     c,
 		Cfg:   withScenarioReflow(cfg, sc.Reflow),
 		State: sc.State,

@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -223,5 +226,50 @@ func TestScenarioReflowLabel(t *testing.T) {
 	}
 	if got := scenarioReflowLabel(scenario{}, config{}); got != "off" {
 		t.Errorf("default reflow label = %q, want off", got)
+	}
+}
+
+// TestScenarioPropagatesTerminalWidth verifies that a scenario's Width is copied
+// into the payload's TerminalWidth before rendering. Width-aware plugins receive
+// STATUSLINE_COLUMNS from the payload, not from buildInput.Width, so without
+// this propagation every pane would report 0 columns.
+func TestScenarioPropagatesTerminalWidth(t *testing.T) {
+	script := filepath.Join(t.TempDir(), "width-plugin.sh")
+	body := "#!/bin/sh\necho \"cols=$STATUSLINE_COLUMNS\"\n"
+	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Restore the default segment registry after this test so later tests see
+	// the normal built-in segments.
+	oldSegments := registeredSegments
+	t.Cleanup(func() { registeredSegments = oldSegments })
+
+	def := pluginDef{ID: "width", Command: script}
+	initSegments([]pluginDef{def})
+	clearPluginCache()
+
+	cfg := config{Segments: []string{"width"}}
+	p := payloadMinimal(matrixNow)
+
+	for _, width := range []int{40, 80, 200} {
+		sc := scenario{P: p, Width: width}
+		lines := renderScenario(sc, cfg, palette{}, matrixNow)
+		want := "cols=" + strconv.Itoa(width)
+		found := false
+		for _, l := range lines {
+			if strings.Contains(l, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("width %d: expected output to contain %q, got:\n%s", width, want, strings.Join(lines, "\n"))
+		}
+	}
+
+	// The original payload must not be mutated by renderScenario.
+	if p.TerminalWidth != 0 {
+		t.Errorf("renderScenario mutated the source payload's TerminalWidth: got %d", p.TerminalWidth)
 	}
 }
