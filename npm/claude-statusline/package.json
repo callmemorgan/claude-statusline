@@ -1,17 +1,8 @@
 {
   "name": "@morgan.rebrand/claude-statusline",
   "version": "0.0.0",
-  "description": "Statusline renderer for Claude Code, Antigravity CLI, and pi",
+  "description": "Statusline renderer for Claude Code and Antigravity CLI",
   "license": "MIT",
-  "keywords": ["pi-package"],
-  "pi": {
-    "extensions": ["./extensions"]
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-ai": "*",
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/callmemorgan/claude-statusline.git"
@@ -21,8 +12,7 @@
     "claude-statusline": "bin/claude-statusline.js"
   },
   "files": [
-    "bin/",
-    "extensions/"
+    "bin/"
   ],
   "engines": {
     "node": ">=14"
