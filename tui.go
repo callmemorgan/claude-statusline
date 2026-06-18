@@ -41,6 +41,123 @@ func filterSegments(all []segmentInfo, query string) []segmentInfo {
 	return out
 }
 
+// canvasReorderHoriz swaps id with its neighbour among the segments on the
+// same render line (dir -1 = earlier slot, +1 = later). No-op at the ends.
+// It mutates cfg.Segments in place and returns true if a swap happened.
+func canvasReorderHoriz(cfg *config, id string, dir int) bool {
+	myLine := effectiveLine(id, *cfg)
+	var peers []int // indices into cfg.Segments on this line, in order
+	for i, sid := range cfg.Segments {
+		if effectiveLine(sid, *cfg) == myLine {
+			peers = append(peers, i)
+		}
+	}
+	pos := -1
+	for i, pi := range peers {
+		if cfg.Segments[pi] == id {
+			pos = i
+			break
+		}
+	}
+	if pos < 0 {
+		return false
+	}
+	tgt := pos + dir
+	if tgt < 0 || tgt >= len(peers) {
+		return false
+	}
+	cfg.Segments[peers[pos]], cfg.Segments[peers[tgt]] =
+		cfg.Segments[peers[tgt]], cfg.Segments[peers[pos]]
+	return true
+}
+
+// canvasMoveVert moves id to the adjacent render line (dir -1 = up, +1 =
+// down), clamped to 1-9, and regroups it in cfg.Segments so it sits with that
+// line's other segments. Setting the line back to natural drops the override.
+// It mutates cfg and returns true if the move happened.
+func canvasMoveVert(cfg *config, id string, dir int) bool {
+	s, ok := segmentByID(id)
+	if !ok {
+		return false
+	}
+	myLine := effectiveLine(id, *cfg)
+	target := myLine + dir
+	if target < 1 || target > 9 {
+		return false
+	}
+	if cfg.Lines == nil {
+		cfg.Lines = make(map[string]int)
+	}
+	if target == s.line {
+		delete(cfg.Lines, id)
+	} else {
+		cfg.Lines[id] = target
+	}
+	// Regroup in cfg.Segments: place id adjacent to the target line's
+	// run. Moving down → after the last target-line segment; moving up →
+	// before the first. Computed against the slice *without* id.
+	rest := []string{}
+	for _, sid := range cfg.Segments {
+		if sid != id {
+			rest = append(rest, sid)
+		}
+	}
+	insertAt := len(rest)
+	if dir > 0 { // after the last segment already on the target line
+		insertAt = 0
+		for i, sid := range rest {
+			if effectiveLine(sid, *cfg) == target {
+				insertAt = i + 1
+			}
+		}
+		if insertAt == 0 { // target line empty: keep id where it was-ish
+			insertAt = len(rest)
+		}
+	} else { // before the first segment on the target line
+		insertAt = len(rest)
+		for i, sid := range rest {
+			if effectiveLine(sid, *cfg) == target {
+				insertAt = i
+				break
+			}
+		}
+		if insertAt == len(rest) {
+			// Target line is empty: place before the first segment on the
+			// closest occupied line above target, or at the head if there
+			// is no higher occupied line.
+			bestLine := -1
+			for _, sid := range rest {
+				l := effectiveLine(sid, *cfg)
+				if l < target && l > bestLine {
+					bestLine = l
+				}
+			}
+			if bestLine >= 0 {
+				for i, sid := range rest {
+					if effectiveLine(sid, *cfg) == bestLine {
+						insertAt = i
+						break
+					}
+				}
+			} else {
+				insertAt = 0
+			}
+		}
+	}
+	if insertAt < 0 {
+		insertAt = 0
+	}
+	if insertAt > len(rest) {
+		insertAt = len(rest)
+	}
+	out := make([]string, 0, len(rest)+1)
+	out = append(out, rest[:insertAt]...)
+	out = append(out, id)
+	out = append(out, rest[insertAt:]...)
+	cfg.Segments = out
+	return true
+}
+
 // footerRows returns how many rows a footer needs at the given width, using
 // tview's own word-wrap so the count matches what gets drawn. Clamped to 3 so
 // a pathologically narrow terminal can't squeeze the segment list away.
@@ -269,6 +386,13 @@ func runConfigure() {
 		}
 		if pane == "drawer" {
 			grabbed = ""
+			// Rebuild the canvas so the grab marker clears; preserve the
+			// current canvas selection.
+			canvasSel := ""
+			if id, ok := canvasSelectedID(); ok {
+				canvasSel = id
+			}
+			rebuildCanvas(canvasSel)
 		}
 		focusPane = pane
 		app.SetFocus(focusedPrimitive())
@@ -481,23 +605,6 @@ func runConfigure() {
 		updateUI()
 	}
 
-	toggleSegment := func(id string) {
-		mutate(func() {
-			found := -1
-			for i, segID := range cfg.Segments {
-				if segID == id {
-					found = i
-					break
-				}
-			}
-			if found >= 0 {
-				cfg.Segments = append(cfg.Segments[:found], cfg.Segments[found+1:]...)
-			} else {
-				cfg.Segments = append(cfg.Segments, id)
-			}
-		})
-	}
-
 	// ─── Canvas repositioning ────────────────────────────────────────────
 
 	// segIndex returns id's index in cfg.Segments, or -1.
@@ -572,32 +679,11 @@ func runConfigure() {
 
 	// canvasReorderHoriz swaps id with its neighbour among the segments on the
 	// same render line (dir -1 = earlier slot, +1 = later). No-op at the ends.
-	canvasReorderHoriz := func(id string, dir int) bool {
-		myLine := effectiveLine(id, cfg)
-		var peers []int // indices into cfg.Segments on this line, in order
-		for i, sid := range cfg.Segments {
-			if effectiveLine(sid, cfg) == myLine {
-				peers = append(peers, i)
-			}
-		}
-		pos := -1
-		for i, pi := range peers {
-			if cfg.Segments[pi] == id {
-				pos = i
-				break
-			}
-		}
-		if pos < 0 {
+	canvasReorderHorizFn := func(id string, dir int) bool {
+		if !canvasReorderHoriz(&cfg, id, dir) {
 			return false
 		}
-		tgt := pos + dir
-		if tgt < 0 || tgt >= len(peers) {
-			return false
-		}
-		mutate(func() {
-			cfg.Segments[peers[pos]], cfg.Segments[peers[tgt]] =
-				cfg.Segments[peers[tgt]], cfg.Segments[peers[pos]]
-		})
+		mutate(func() {})
 		rebuildCanvas(id)
 		return true
 	}
@@ -605,66 +691,11 @@ func runConfigure() {
 	// canvasMoveVert moves id to the adjacent render line (dir -1 = up, +1 =
 	// down), clamped to 1-9, and regroups it in cfg.Segments so it sits with that
 	// line's other segments. Setting the line back to natural drops the override.
-	canvasMoveVert := func(id string, dir int) bool {
-		s, ok := segmentByID(id)
-		if !ok {
+	canvasMoveVertFn := func(id string, dir int) bool {
+		if !canvasMoveVert(&cfg, id, dir) {
 			return false
 		}
-		myLine := effectiveLine(id, cfg)
-		target := myLine + dir
-		if target < 1 || target > 9 {
-			return false
-		}
-		mutate(func() {
-			if cfg.Lines == nil {
-				cfg.Lines = make(map[string]int)
-			}
-			if target == s.line {
-				delete(cfg.Lines, id)
-			} else {
-				cfg.Lines[id] = target
-			}
-			// Regroup in cfg.Segments: place id adjacent to the target line's
-			// run. Moving down → after the last target-line segment; moving up →
-			// before the first. Computed against the slice *without* id.
-			rest := []string{}
-			for _, sid := range cfg.Segments {
-				if sid != id {
-					rest = append(rest, sid)
-				}
-			}
-			insertAt := len(rest)
-			if dir > 0 { // after the last segment already on the target line
-				insertAt = 0
-				for i, sid := range rest {
-					if effectiveLine(sid, cfg) == target {
-						insertAt = i + 1
-					}
-				}
-				if insertAt == 0 { // target line empty: keep id where it was-ish
-					insertAt = len(rest)
-				}
-			} else { // before the first segment on the target line
-				insertAt = len(rest)
-				for i, sid := range rest {
-					if effectiveLine(sid, cfg) == target {
-						insertAt = i
-						break
-					}
-				}
-			}
-			if insertAt < 0 {
-				insertAt = 0
-			}
-			if insertAt > len(rest) {
-				insertAt = len(rest)
-			}
-			out := make([]string, 0, len(rest)+1)
-			out = append(out, rest[:insertAt]...)
-			out = append(out, id)
-			out = append(out, rest[insertAt:]...)
-			cfg.Segments = out
-		})
+		mutate(func() {})
 		rebuildCanvas(id)
 		return true
 	}
@@ -700,7 +731,7 @@ func runConfigure() {
 		}
 		if action == tview.MouseLeftDoubleClick {
 			drawer.SetCurrentItem(clickedIdx)
-			toggleSegment(drawerSegs[clickedIdx].id) // off → on (to canvas)
+			enableToCanvas(drawerSegs[clickedIdx].id) // off → on, focus canvas
 			return tview.MouseConsumed, nil
 		}
 		if action == tview.MouseLeftClick {
@@ -1030,7 +1061,13 @@ func runConfigure() {
 		if want >= 0 {
 			canvas.SetCurrentItem(want)
 		}
-		canvas.SetTitle(fmt.Sprintf(" Canvas · layout (%d on) ", len(cfg.Segments)))
+		knownOn := 0
+		for _, sid := range cfg.Segments {
+			if _, ok := segmentByID(sid); ok {
+				knownOn++
+			}
+		}
+		canvas.SetTitle(fmt.Sprintf(" Canvas · layout (%d on) ", knownOn))
 	}
 
 	// Update both panes and the preview from the current cfg.
@@ -1100,16 +1137,23 @@ func runConfigure() {
 
 	applyFilter := func(query string) {
 		// The filter only narrows the drawer (the inventory of off segments).
-		rebuildDrawer(query)
+		// Preserve the current drawer selection so the description stays on
+		// the same item when the query still admits it.
+		prevSel := ""
+		if focusPane == "drawer" {
+			if seg, ok := selectedSegment(); ok {
+				prevSel = seg.id
+			}
+		}
+		rebuildDrawer(prevSel)
 		refreshPreview()
 		updateStrip()
-		if len(drawerSegs) > 0 {
-			drawer.SetCurrentItem(0)
-			if focusPane == "drawer" {
-				describeSegment(drawerSegs[0])
+		if focusPane == "drawer" {
+			if seg, ok := selectedSegment(); ok {
+				describeSegment(seg)
+			} else if len(drawerSegs) == 0 {
+				descView.SetText("(no available segments match)")
 			}
-		} else if focusPane == "drawer" {
-			descView.SetText("(no available segments match)")
 		}
 	}
 
@@ -1395,6 +1439,9 @@ func runConfigure() {
 						}
 						ensureEnabled(seg.id)
 					})
+					if grabbed == seg.id {
+						grabbed = ""
+					}
 					// Sending to a line implies it's on the canvas now.
 					setFocusPane("canvas")
 					rebuildCanvas(seg.id)
@@ -1449,6 +1496,7 @@ func runConfigure() {
 								applyPreset(&cfg, p)
 								dirty = true
 								activePreset = id
+								grabbed = ""
 								flash("green", "preset: "+id+" (not yet saved)")
 							}
 						} else {
@@ -1550,7 +1598,7 @@ func runConfigure() {
 				if down {
 					dir = 1
 				}
-				canvasMoveVert(grabbed, dir)
+				canvasMoveVertFn(grabbed, dir)
 				return nil
 			}
 			// Canvas navigation must skip the inert line-header rows.
@@ -1587,7 +1635,7 @@ func runConfigure() {
 				if right {
 					dir = 1
 				}
-				canvasReorderHoriz(grabbed, dir)
+				canvasReorderHorizFn(grabbed, dir)
 				return nil
 			}
 			// Otherwise ←/→ move focus between panes: ← to the drawer, → to the
@@ -1669,7 +1717,10 @@ func runConfigure() {
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			returnToConfigure()
 			if buttonLabel == "Reset" {
-				mutate(func() { cfg = defaultConfig() })
+				mutate(func() {
+					cfg = defaultConfig()
+					grabbed = ""
+				})
 				flash("yellow", "reset to defaults (not yet saved)")
 			}
 		})
