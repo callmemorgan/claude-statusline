@@ -213,7 +213,7 @@ TITLEBAR = 34
 PRE_PAD_TOP = 4
 PRE_PAD_BOTTOM = 18
 LINE_HEIGHT = 23
-WINDOW_WIDTH = 950
+WINDOW_WIDTH = 1150
 
 PAGE = """<!doctype html>
 <meta charset="utf-8">
