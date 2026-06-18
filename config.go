@@ -348,6 +348,26 @@ func validateConfig(cfg *config) []configWarning {
 		warns = append(warns, configWarning{Path: "release_notes.duration_seconds", Msg: fmt.Sprintf("%d out of range 0-600 (using %d)", *d, defaultAnnounceSeconds)})
 		cfg.ReleaseNotes.DurationSeconds = nil
 	}
+	if cfg.ReleaseNotes.MaxLines != nil {
+		switch v := cfg.ReleaseNotes.MaxLines.(type) {
+		case int64:
+			if v < 0 {
+				warns = append(warns, configWarning{Path: "release_notes.max_lines", Msg: fmt.Sprintf("%d out of range (using %d)", v, defaultMaxLines)})
+				cfg.ReleaseNotes.MaxLines = nil
+			}
+		case string:
+			switch strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(v, "_", "-"), " ", "-")) {
+			case "status-line", "same-as-status-line", "statusline", "same-as-statusline":
+				// ok
+			default:
+				warns = append(warns, configWarning{Path: "release_notes.max_lines", Msg: fmt.Sprintf("%q is not an integer or status-line (using %d)", v, defaultMaxLines)})
+				cfg.ReleaseNotes.MaxLines = nil
+			}
+		default:
+			warns = append(warns, configWarning{Path: "release_notes.max_lines", Msg: fmt.Sprintf("%q is not an integer or status-line (using %d)", fmt.Sprintf("%v", v), defaultMaxLines)})
+			cfg.ReleaseNotes.MaxLines = nil
+		}
+	}
 	switch cfg.Update.Mode {
 	case "", "notify", "auto", "off":
 	default:

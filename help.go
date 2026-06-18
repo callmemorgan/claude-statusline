@@ -62,7 +62,8 @@ Configuration:
   [state]      session history store powering burn rates and projections
                (enabled, retention_hours)
   [release_notes]  post-upgrade announcement: announce (default true),
-               duration_seconds (default 25, 0 = off)
+               duration_seconds (default 25, 0 = off),
+               max_lines (default 10, 0 = status-line, or "status-line")
   [update]     background update check + segment: mode (notify|auto|off,
                default notify), check_hours (1-168, default 24);
                auto is a no-op for npm installs

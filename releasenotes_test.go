@@ -499,7 +499,7 @@ func TestReleaseNotesConfigRoundTrip(t *testing.T) {
 	t.Run("TOML round-trip", func(t *testing.T) {
 		announce := false
 		dur := 60
-		loaded := config{ReleaseNotes: releaseNotesConfig{Announce: &announce, DurationSeconds: &dur}}
+		loaded := config{ReleaseNotes: releaseNotesConfig{Announce: &announce, DurationSeconds: &dur, MaxLines: int64(12)}}
 		data, err := marshalConfigTOML(loaded)
 		if err != nil {
 			t.Fatal(err)
@@ -517,17 +517,23 @@ func TestReleaseNotesConfigRoundTrip(t *testing.T) {
 		if got.ReleaseNotes.DurationSeconds == nil || *got.ReleaseNotes.DurationSeconds != 60 {
 			t.Errorf("DurationSeconds not preserved: %+v", got.ReleaseNotes.DurationSeconds)
 		}
+		if got.ReleaseNotes.MaxLines == nil || got.ReleaseNotes.resolvedMaxLines() != 12 {
+			t.Errorf("MaxLines not preserved: %+v", got.ReleaseNotes.MaxLines)
+		}
 	})
 	t.Run("mergeWithDefaults preserves", func(t *testing.T) {
 		announce := false
 		dur := 0
-		loaded := config{Segments: []string{}, ReleaseNotes: releaseNotesConfig{Announce: &announce, DurationSeconds: &dur}}
+		loaded := config{Segments: []string{}, ReleaseNotes: releaseNotesConfig{Announce: &announce, DurationSeconds: &dur, MaxLines: "status-line"}}
 		got := mergeWithDefaults(loaded)
 		if got.ReleaseNotes.Announce == nil || *got.ReleaseNotes.Announce != false {
 			t.Errorf("Announce lost in merge: %+v", got.ReleaseNotes.Announce)
 		}
 		if got.ReleaseNotes.DurationSeconds == nil || *got.ReleaseNotes.DurationSeconds != 0 {
 			t.Errorf("DurationSeconds lost in merge: %+v", got.ReleaseNotes.DurationSeconds)
+		}
+		if got.ReleaseNotes.MaxLines == nil || got.ReleaseNotes.resolvedMaxLines() != sameAsStatusLineSentinel {
+			t.Errorf("MaxLines lost in merge: %+v", got.ReleaseNotes.MaxLines)
 		}
 	})
 	t.Run("out of range duration warns and resets", func(t *testing.T) {
@@ -554,6 +560,89 @@ func TestReleaseNotesConfigRoundTrip(t *testing.T) {
 		}
 		if r.duration() != 25*time.Second {
 			t.Errorf("duration() default = %v, want 25s", r.duration())
+		}
+		if r.resolvedMaxLines() != defaultMaxLines {
+			t.Errorf("resolvedMaxLines() default = %d, want %d", r.resolvedMaxLines(), defaultMaxLines)
+		}
+	})
+}
+
+// ─── resolvedMaxLines ─────────────────────────────────────────────────
+
+func TestResolvedMaxLines(t *testing.T) {
+	cases := []struct {
+		name string
+		val  any
+		want int
+	}{
+		{"nil", nil, defaultMaxLines},
+		{"int64 10", int64(10), 10},
+		{"int 0", 0, 0},
+		{"status-line", "status-line", sameAsStatusLineSentinel},
+		{"same-as-status-line", "same-as-status-line", sameAsStatusLineSentinel},
+		{"statusline", "statusline", sameAsStatusLineSentinel},
+		{"same-as-statusline", "same-as-statusline", sameAsStatusLineSentinel},
+		{"uppercase", "STATUS-LINE", sameAsStatusLineSentinel},
+		{"underscores", "same_as_status_line", sameAsStatusLineSentinel},
+		{"spaces", "same as status line", sameAsStatusLineSentinel},
+		{"invalid string", "nope", defaultMaxLines},
+		{"invalid type", 1.5, defaultMaxLines},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := releaseNotesConfig{MaxLines: tc.val}
+			if got := r.resolvedMaxLines(); got != tc.want {
+				t.Errorf("got %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
+// ─── validateConfig max_lines ─────────────────────────────────────────
+
+func TestValidateMaxLines(t *testing.T) {
+	t.Run("negative int warns and resets", func(t *testing.T) {
+		cfg := config{ReleaseNotes: releaseNotesConfig{MaxLines: int64(-5)}}
+		warns := validateConfig(&cfg)
+		found := false
+		for _, w := range warns {
+			if w.Path == "release_notes.max_lines" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected warning, got %+v", warns)
+		}
+		if cfg.ReleaseNotes.MaxLines != nil {
+			t.Errorf("expected nil after reset, got %+v", cfg.ReleaseNotes.MaxLines)
+		}
+	})
+	t.Run("invalid string warns and resets", func(t *testing.T) {
+		cfg := config{ReleaseNotes: releaseNotesConfig{MaxLines: "lots"}}
+		warns := validateConfig(&cfg)
+		found := false
+		for _, w := range warns {
+			if w.Path == "release_notes.max_lines" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected warning, got %+v", warns)
+		}
+		if cfg.ReleaseNotes.MaxLines != nil {
+			t.Errorf("expected nil after reset, got %+v", cfg.ReleaseNotes.MaxLines)
+		}
+	})
+	t.Run("valid symbolic accepted", func(t *testing.T) {
+		cfg := config{ReleaseNotes: releaseNotesConfig{MaxLines: "status-line"}}
+		warns := validateConfig(&cfg)
+		for _, w := range warns {
+			if w.Path == "release_notes.max_lines" {
+				t.Errorf("unexpected warning: %+v", w)
+			}
+		}
+		if cfg.ReleaseNotes.MaxLines == nil {
+			t.Error("expected MaxLines preserved")
 		}
 	})
 }
@@ -909,8 +998,10 @@ func TestMaybeReleaseTakeoverSaveFailure(t *testing.T) {
 
 	t.Run("upgrade with writable state fires", func(t *testing.T) {
 		setupPrev(t)
-		got := maybeReleaseTakeover(releaseNotesConfig{}, lines, palette{}, 80, 1, now)
-		if len(got) != 1 || got[0] == lines[0] {
+		// Pin to the statusline line count so the save-failure assertion stays
+		// focused on whether the takeover fires at all.
+		got := maybeReleaseTakeover(releaseNotesConfig{MaxLines: "status-line"}, lines, palette{}, 80, 1, now)
+		if len(got) != len(lines) || got[0] == lines[0] {
 			t.Fatalf("takeover did not fire: %q", got)
 		}
 		if !strings.Contains(got[0], "v1.1.0") {
@@ -927,6 +1018,67 @@ func TestMaybeReleaseTakeoverSaveFailure(t *testing.T) {
 		got := maybeReleaseTakeover(releaseNotesConfig{}, lines, palette{}, 80, 1, now)
 		if len(got) != 1 || got[0] != lines[0] {
 			t.Fatalf("takeover not suppressed on save failure: %q", got)
+		}
+	})
+}
+
+// TestMaybeReleaseTakeoverMaxLines verifies that max_lines expands (or limits)
+// the takeover line count relative to the statusline's own line count.
+func TestMaybeReleaseTakeoverMaxLines(t *testing.T) {
+	oldVersion := version
+	version = "1.5.0"
+	t.Cleanup(func() { version = oldVersion })
+
+	lines := []string{"line1", "line2"} // statusline uses 2 lines
+	now := time.Unix(1_750_000_000, 0)
+
+	setupPrev := func(t *testing.T) {
+		t.Helper()
+		base := t.TempDir()
+		t.Setenv("XDG_STATE_HOME", base)
+		dir := filepath.Join(base, "claude-statusline")
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		data, _ := json.Marshal(versionSeen{Version: "1.0.0", FirstSeen: 0})
+		if err := os.WriteFile(filepath.Join(dir, "last-version.json"), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	t.Run("default expands to 10 lines", func(t *testing.T) {
+		setupPrev(t)
+		got := maybeReleaseTakeover(releaseNotesConfig{}, lines, palette{}, 80, 1, now)
+		if len(got) != 10 {
+			t.Errorf("len = %d, want 10", len(got))
+		}
+	})
+	t.Run("numeric max_lines honored", func(t *testing.T) {
+		setupPrev(t)
+		got := maybeReleaseTakeover(releaseNotesConfig{MaxLines: int64(5)}, lines, palette{}, 80, 1, now)
+		if len(got) != 5 {
+			t.Errorf("len = %d, want 5", len(got))
+		}
+	})
+	t.Run("status-line keeps statusline line count", func(t *testing.T) {
+		setupPrev(t)
+		got := maybeReleaseTakeover(releaseNotesConfig{MaxLines: "status-line"}, lines, palette{}, 80, 1, now)
+		if len(got) != len(lines) {
+			t.Errorf("len = %d, want %d", len(got), len(lines))
+		}
+	})
+	t.Run("max_lines 0 means same as statusline", func(t *testing.T) {
+		setupPrev(t)
+		got := maybeReleaseTakeover(releaseNotesConfig{MaxLines: int64(0)}, lines, palette{}, 80, 1, now)
+		if len(got) != len(lines) {
+			t.Errorf("len = %d, want %d", len(got), len(lines))
+		}
+	})
+	t.Run("max_lines never shrinks below statusline", func(t *testing.T) {
+		setupPrev(t)
+		got := maybeReleaseTakeover(releaseNotesConfig{MaxLines: int64(1)}, lines, palette{}, 80, 1, now)
+		if len(got) != len(lines) {
+			t.Errorf("len = %d, want %d (should not shrink)", len(got), len(lines))
 		}
 	})
 }

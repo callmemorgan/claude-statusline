@@ -541,9 +541,10 @@ The first time the binary renders under a new version, the statusline briefly re
 [release_notes]
 announce = true
 duration_seconds = 25   # 0 disables the takeover entirely
+max_lines = 10          # 0 or "status-line" keeps the statusline's own height
 ```
 
-`announce = false` and `duration_seconds = 0` both fully disable it. Source builds (`version = "dev"`) never announce and never write the version state file. An unwritable state directory degrades silently — your render is unaffected, and nothing is printed to stderr.
+`announce = false` and `duration_seconds = 0` both fully disable it. `max_lines` controls how tall the announcement can grow: the default is 10, so most minor-version updates fit entirely; set it to `0` or `"status-line"` to keep the announcement at the same height as your normal statusline. Source builds (`version = "dev"`) never announce and never write the version state file. An unwritable state directory degrades silently — your render is unaffected, and nothing is printed to stderr.
 
 ---
 

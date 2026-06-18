@@ -7,6 +7,9 @@ much larger values (e.g. 99999) to force top placement. Bullets without a
 marker default to importance 0.
 -->
 
+## v1.5.1 — 2026-06-18
+- [4] **Configurable takeover height.** The post-upgrade announcement now expands up to `[release_notes].max_lines` (default 10), so typical minor-version updates fit without truncation. Set `max_lines = 0` or `max_lines = "status-line"` to keep the announcement at your statusline's normal height.
+
 ## v1.5.0 — 2026-06-18
 - [5] **Importance-weighted release notes.** CHANGELOG.md bullets can now carry a leading `[N]` marker; the post-upgrade takeover and `release-notes` subcommand sort bullets by importance so the most impactful changes are seen first.
 - [3] `release-notes vX.Y.Z..vA.B.C` prints a cross-version summary of the highest-importance bullets between two versions, sorted by priority.

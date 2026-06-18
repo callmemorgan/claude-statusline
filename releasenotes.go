@@ -121,6 +121,11 @@ func parseChangelog(raw string) []releaseNote {
 type releaseNotesConfig struct {
 	Announce        *bool `toml:"announce,omitempty"`         // default true
 	DurationSeconds *int  `toml:"duration_seconds,omitempty"` // default 25, 0 disables
+	// MaxLines controls how many lines the post-upgrade takeover may occupy.
+	// It can be an integer (0 = same as the statusline) or one of the symbolic
+	// strings "status-line", "same-as-status-line", "statusline", or
+	// "same-as-statusline". nil defaults to defaultMaxLines.
+	MaxLines any `toml:"max_lines,omitempty"`
 }
 
 func (r releaseNotesConfig) announce() bool {
@@ -131,11 +136,38 @@ func (r releaseNotesConfig) announce() bool {
 // unset (validateConfig also resets out-of-range values to this default).
 const defaultAnnounceSeconds = 25
 
+// defaultMaxLines is the takeover line budget when max_lines is unset.
+const defaultMaxLines = 10
+
+// sameAsStatusLineSentinel is returned by resolvedMaxLines to mean "use the
+// statusline's own line count".
+const sameAsStatusLineSentinel = -1
+
 func (r releaseNotesConfig) duration() time.Duration {
 	if r.DurationSeconds == nil {
 		return defaultAnnounceSeconds * time.Second
 	}
 	return time.Duration(*r.DurationSeconds) * time.Second
+}
+
+// resolvedMaxLines returns the configured max_lines value normalized into a
+// line count. A negative result means "same as the statusline".
+func (r releaseNotesConfig) resolvedMaxLines() int {
+	if r.MaxLines == nil {
+		return defaultMaxLines
+	}
+	switch v := r.MaxLines.(type) {
+	case int64:
+		return int(v)
+	case int:
+		return v
+	case string:
+		switch strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(v, "_", "-"), " ", "-")) {
+		case "status-line", "same-as-status-line", "statusline", "same-as-statusline":
+			return sameAsStatusLineSentinel
+		}
+	}
+	return defaultMaxLines
 }
 
 // versionSeen is the on-disk record of "what version did this machine last
@@ -436,7 +468,12 @@ func maybeReleaseTakeover(cfg releaseNotesConfig, lines []string, c palette, wid
 		return lines
 	}
 	notes := parseChangelog(changelogRaw)
-	n := max(len(lines), 1)
+	statusLines := max(len(lines), 1)
+	maxLines := cfg.resolvedMaxLines()
+	if maxLines == sameAsStatusLineSentinel || maxLines <= 0 {
+		maxLines = statusLines
+	}
+	n := max(statusLines, maxLines)
 	var target releaseNote
 	if len(notes) == 0 {
 		target = releaseNote{Version: current}

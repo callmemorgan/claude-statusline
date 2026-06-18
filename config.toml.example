@@ -143,6 +143,7 @@ timeout_ms = 200
 # [release_notes]
 # announce = true
 # duration_seconds = 25   # 0 disables the takeover entirely
+# max_lines = 10          # 0 or "status-line" keeps the statusline's own height
 
 # Update checking: "notify" shows an ⬆ segment when a new release exists,
 # "auto" additionally installs it in the background (non-Homebrew, non-npm
