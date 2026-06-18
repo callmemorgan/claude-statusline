@@ -251,6 +251,21 @@ func runPalette() {
 					app.SetFocus(preview)
 				}
 			})
+		modal.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+			switch event.Key() {
+			case tcell.KeyEscape:
+				pages.RemovePage("confirm")
+				app.SetFocus(preview)
+				return nil
+			case tcell.KeyRune:
+				if event.Rune() == 'q' || event.Rune() == 'Q' {
+					pages.RemovePage("confirm")
+					app.SetFocus(preview)
+					return nil
+				}
+			}
+			return event
+		})
 		pages.AddPage("confirm", floatPicker(modal, 60, 7), true, true)
 		app.SetFocus(modal)
 	}
@@ -400,7 +415,7 @@ func runPalette() {
 
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		pageName, _ := pages.GetFrontPage()
-		if pageName == "palette" || isPickerPage(pageName) || pageName == "prompt" {
+		if isPaletteOverlayPage(pageName) {
 			return event // overlays handle their own keys
 		}
 		switch event.Key() {
@@ -499,6 +514,13 @@ func runPalette() {
 	appRunning.Store(false)
 }
 
+// isPaletteOverlayPage reports whether the named page handles its own keyboard
+// input instead of falling through to the global quit/palette shortcuts.
+func isPaletteOverlayPage(name string) bool {
+	return name == "palette" || isPickerPage(name) || name == "prompt" ||
+		name == "help" || name == "confirm" || name == "palquit"
+}
+
 // requestQuitPalette shows a save/discard/cancel modal when there are unsaved
 // changes, else stops immediately.
 func requestQuitPalette(app *tview.Application, pages *tview.Pages, dirty bool, doSave func() bool, stopFlash, onStop func()) {
@@ -533,6 +555,19 @@ func requestQuitPalette(app *tview.Application, pages *tview.Pages, dirty bool, 
 				pages.RemovePage("palquit")
 			}
 		})
+	modal.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyEscape:
+			pages.RemovePage("palquit")
+			return nil
+		case tcell.KeyRune:
+			if event.Rune() == 'q' || event.Rune() == 'Q' {
+				pages.RemovePage("palquit")
+				return nil
+			}
+		}
+		return event
+	})
 	pages.AddPage("palquit", modal, true, true)
 	app.SetFocus(modal)
 }
