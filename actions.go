@@ -31,6 +31,10 @@ const (
 	actionColorPicker
 	// actionPrompt asks for a free-text value, validated+applied via SetValue.
 	actionPrompt
+	// actionConfirm asks the user before running Apply.
+	actionConfirm
+	// actionSave is handled by the palette host (it calls doSave).
+	actionSave
 )
 
 // action is a single palette command. Title is what the user reads; Search is
@@ -42,18 +46,19 @@ type action struct {
 	Search string
 	Kind   actionKind
 
-	// Apply runs for actionApply actions.
+	// Apply runs for actionApply and actionConfirm actions.
 	Apply func(*config)
 
-	// Color-picker actions: the segment whose primary color override is set,
-	// and a setter the palette calls with the picked spec.
-	ColorTarget string
-	SetColor    func(*config, string)
+	// Color-picker actions: a setter the palette calls with the picked spec.
+	SetColor func(*config, string)
 
 	// Prompt actions: a one-line label and a setter that returns an error when
 	// the typed value is invalid (so the palette can surface it).
 	PromptLabel string
 	SetValue    func(*config, string) error
+
+	// Confirm actions: body text for the confirmation modal.
+	ConfirmText string
 }
 
 // ─── Generation ──────────────────────────────────────────────────────
@@ -133,11 +138,10 @@ func segmentActions(cfg config, seg segmentInfo, isEnabled bool) []action {
 	// Set primary color: one quick command per cycle color, plus a picker entry
 	// and a "default" (clear override) entry.
 	acts = append(acts, action{
-		Title:       "Set " + id + " color (picker)",
-		Search:      searchKey("color colour picker swatch", id, seg.desc),
-		Kind:        actionColorPicker,
-		ColorTarget: id,
-		SetColor:    func(c *config, spec string) { setSegmentColor(c, id, spec) },
+		Title:    "Set " + id + " color (picker)",
+		Search:   searchKey("color colour picker swatch", id, seg.desc),
+		Kind:     actionColorPicker,
+		SetColor: func(c *config, spec string) { setSegmentColor(c, id, spec) },
 	})
 	for _, name := range colorCycle {
 		spec := name
@@ -209,11 +213,10 @@ func settingActions(seg segmentInfo, sp settingSpec) []action {
 		)
 	case kindColor:
 		acts = append(acts, action{
-			Title:       fmt.Sprintf("Set %s · %s (picker)", id, label),
-			Search:      searchKey("color colour picker swatch", base),
-			Kind:        actionColorPicker,
-			ColorTarget: id,
-			SetColor:    func(c *config, spec string) { setSettingValue(c, id, sp, spec) },
+			Title:    fmt.Sprintf("Set %s · %s (picker)", id, label),
+			Search:   searchKey("color colour picker swatch", base),
+			Kind:     actionColorPicker,
+			SetColor: func(c *config, spec string) { setSettingValue(c, id, sp, spec) },
 		})
 		for _, opt := range sp.Options {
 			o := opt
@@ -228,8 +231,7 @@ func settingActions(seg segmentInfo, sp settingSpec) []action {
 }
 
 // globalActions emits the config-wide commands: themes, presets, reflow modes,
-// separators, and reset/save markers (save is handled by the palette host but
-// listed here so it is fuzzy-findable).
+// separators, reset, and save.
 func globalActions(cfg config) []action {
 	var acts []action
 
@@ -278,9 +280,17 @@ func globalActions(cfg config) []action {
 	}
 
 	acts = append(acts, action{
-		Title:  "Reset to defaults",
-		Search: searchKey("reset defaults clear start over", ""),
-		Apply:  func(c *config) { *c = defaultConfig() },
+		Title:       "Reset to defaults",
+		Search:      searchKey("reset defaults clear start over", ""),
+		Kind:        actionConfirm,
+		ConfirmText: "Reset all settings to defaults? This cannot be undone.",
+		Apply:       func(c *config) { *c = defaultConfig() },
+	})
+
+	acts = append(acts, action{
+		Title:  "Save configuration",
+		Search: searchKey("save configuration file toml", ""),
+		Kind:   actionSave,
 	})
 
 	return acts
@@ -432,25 +442,45 @@ func setSettingValue(c *config, id string, sp settingSpec, value string) {
 	writeSegmentSetting(c, id, sp.Key, sp.coerce(value))
 }
 
-// setSettingFromText parses a free-text int value, validates it against the
-// spec bounds, and applies it. Returns an error the palette surfaces inline.
+// setSettingFromText parses a free-text value, validates it against the spec,
+// and applies it. Returns an error the palette surfaces inline.
 func setSettingFromText(c *config, id string, sp settingSpec, raw string) error {
 	raw = strings.TrimSpace(raw)
-	if sp.Kind != kindInt {
-		setSettingValue(c, id, sp, raw)
-		return nil
+	switch sp.Kind {
+	case kindInt:
+		n, err := parseIntStrict(raw)
+		if err != nil {
+			return fmt.Errorf("not a number: %q", raw)
+		}
+		if n < sp.Min || n > sp.Max {
+			return fmt.Errorf("must be %d..%d", sp.Min, sp.Max)
+		}
+		writeSegmentSetting(c, id, sp.Key, n)
+	case kindEnum:
+		for _, o := range sp.Options {
+			if o == raw {
+				writeSegmentSetting(c, id, sp.Key, raw)
+				return nil
+			}
+		}
+		return fmt.Errorf("must be one of: %s", strings.Join(sp.Options, ", "))
+	case kindColor:
+		if !validColorSpec(raw) {
+			return fmt.Errorf("invalid color spec %q", raw)
+		}
+		writeSegmentSetting(c, id, sp.Key, raw)
+	case kindBool:
+		switch strings.ToLower(raw) {
+		case "true", "yes", "on", "1":
+			writeSegmentSetting(c, id, sp.Key, true)
+		case "false", "no", "off", "0":
+			writeSegmentSetting(c, id, sp.Key, false)
+		default:
+			return fmt.Errorf("must be true/false")
+		}
+	default:
+		return fmt.Errorf("unsupported setting kind")
 	}
-	n, err := parseIntStrict(raw)
-	if err != nil {
-		return fmt.Errorf("not a number: %q", raw)
-	}
-	if n < sp.Min || n > sp.Max {
-		return fmt.Errorf("must be %d..%d", sp.Min, sp.Max)
-	}
-	if _, ok := segmentByID(id); !ok {
-		return fmt.Errorf("unknown segment %q", id)
-	}
-	writeSegmentSetting(c, id, sp.Key, n)
 	return nil
 }
 
@@ -505,13 +535,14 @@ func fuzzyScore(query, haystack string) (int, bool) {
 	if query == "" {
 		return 0, true
 	}
-	h := strings.ToLower(haystack)
+	h := []rune(strings.ToLower(haystack))
+	qr := []rune(query)
 	score := 0
 	hi := 0
 	run := 0
 	prevBoundary := true // start of string counts as a boundary
-	for qi := 0; qi < len(query); qi++ {
-		qc := query[qi]
+	for qi := 0; qi < len(qr); qi++ {
+		qc := qr[qi]
 		found := false
 		for ; hi < len(h); hi++ {
 			boundary := prevBoundary
@@ -539,7 +570,7 @@ func fuzzyScore(query, haystack string) (int, bool) {
 	}
 	// Prefer shorter haystacks (tighter matches) and exact-substring hits.
 	score -= len(h) / 16
-	if strings.Contains(h, query) {
+	if strings.Contains(string(h), query) {
 		score += 5
 	}
 	return score, true
