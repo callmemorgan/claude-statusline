@@ -102,7 +102,7 @@ func canvasMoveVert(cfg *config, id string, dir int) bool {
 			rest = append(rest, sid)
 		}
 	}
-	insertAt := len(rest)
+	var insertAt int
 	if dir > 0 { // after the last segment already on the target line
 		insertAt = 0
 		for i, sid := range rest {
@@ -1420,33 +1420,6 @@ func runConfigure() {
 					}
 				}
 				return nil
-			default:
-				r := event.Rune()
-				if r >= '1' && r <= '9' {
-					seg, ok := selectedSegment()
-					if !ok {
-						return nil
-					}
-					mutate(func() {
-						n := int(r - '0')
-						if cfg.Lines == nil {
-							cfg.Lines = make(map[string]int)
-						}
-						if seg.line == n {
-							delete(cfg.Lines, seg.id)
-						} else {
-							cfg.Lines[seg.id] = n
-						}
-						ensureEnabled(seg.id)
-					})
-					if grabbed == seg.id {
-						grabbed = ""
-					}
-					// Sending to a line implies it's on the canvas now.
-					setFocusPane("canvas")
-					rebuildCanvas(seg.id)
-					return nil
-				}
 			case 't', 'T':
 				origTheme := cfg.Theme
 				openThemePicker(app, pages, cfg.Theme,
@@ -1562,6 +1535,33 @@ func runConfigure() {
 			case 'q', 'Q':
 				requestQuit()
 				return nil
+			default:
+				r := event.Rune()
+				if r >= '1' && r <= '9' {
+					seg, ok := selectedSegment()
+					if !ok {
+						return nil
+					}
+					mutate(func() {
+						n := int(r - '0')
+						if cfg.Lines == nil {
+							cfg.Lines = make(map[string]int)
+						}
+						if seg.line == n {
+							delete(cfg.Lines, seg.id)
+						} else {
+							cfg.Lines[seg.id] = n
+						}
+						ensureEnabled(seg.id)
+					})
+					if grabbed == seg.id {
+						grabbed = ""
+					}
+					// Sending to a line implies it's on the canvas now.
+					setFocusPane("canvas")
+					rebuildCanvas(seg.id)
+					return nil
+				}
 			}
 		case tcell.KeyEscape:
 			if dropGrabbed() {
