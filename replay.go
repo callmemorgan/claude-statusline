@@ -252,41 +252,55 @@ func reconstructAt(samples []sample, idx int, base payload, anchors resetAnchors
 
 // ─── replay subcommand ───────────────────────────────────────────────
 
+// replayFlags holds the parsed flags for the `replay` subcommand.
+type replayFlags struct {
+	list   bool
+	dump   bool
+	sessID string
+}
+
+// parseReplayArgs parses the `replay` subcommand arguments. It returns an
+// error for unknown flags or a --session/-s flag that is missing its value.
+func parseReplayArgs(args []string) (replayFlags, error) {
+	var f replayFlags
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--list" || a == "-l":
+			f.list = true
+		case a == "--frames" || a == "--dump":
+			f.dump = true
+		case a == "--session" || a == "-s":
+			if i+1 >= len(args) {
+				return replayFlags{}, fmt.Errorf("--session requires a value")
+			}
+			i++
+			f.sessID = args[i]
+		case strings.HasPrefix(a, "--session="):
+			f.sessID = strings.TrimPrefix(a, "--session=")
+		default:
+			return replayFlags{}, fmt.Errorf("unknown argument %q", a)
+		}
+	}
+	return f, nil
+}
+
 // runReplay is the `replay` subcommand. With an interactive terminal and no
 // dump flag it launches the in-TUI scrubber; otherwise (or with --list /
 // --frames) it prints recorded sessions or a non-interactive frame dump, so
 // the reconstruction is observable without a tty. It never touches the bare
 // render path and never writes config.
 func runReplay(args []string) {
-	var (
-		listOnly bool
-		dump     bool
-		sessID   string
-	)
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case a == "--list" || a == "-l":
-			listOnly = true
-		case a == "--frames" || a == "--dump":
-			dump = true
-		case a == "--session" || a == "-s":
-			if i+1 < len(args) {
-				i++
-				sessID = args[i]
-			}
-		case strings.HasPrefix(a, "--session="):
-			sessID = strings.TrimPrefix(a, "--session=")
-		default:
-			fmt.Fprintf(os.Stderr, "replay: unknown argument %q\n", a)
-			os.Exit(2)
-		}
+	flags, err := parseReplayArgs(args)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "replay: %v\n", err)
+		os.Exit(2)
 	}
 
 	now := time.Now()
 	sessions := listReplaySessions(now)
 
-	if listOnly {
+	if flags.list {
 		fmt.Printf("recorded sessions under %s:\n", stateDir())
 		for _, s := range sessions {
 			fmt.Printf("  %s\n", s.Label)
