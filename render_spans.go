@@ -4,22 +4,19 @@ import "sort"
 
 // assignSegmentLine sets cfg.Lines[id] to line, deleting the entry when line
 // equals the segment's natural line so the saved config stays minimal. Shared
-// by the TUI's add/move gestures.
+// by the TUI's add/move gestures. Unknown segment ids keep their override
+// verbatim rather than being silently normalized to line 1.
 func assignSegmentLine(cfg *config, id string, line int) {
-	natural := 1
-	if s, ok := segmentByID(id); ok {
-		natural = s.line
-	}
-	if line == natural {
+	if s, ok := segmentByID(id); ok && line == s.line {
 		if cfg.Lines != nil {
 			delete(cfg.Lines, id)
 		}
-	} else {
-		if cfg.Lines == nil {
-			cfg.Lines = make(map[string]int)
-		}
-		cfg.Lines[id] = line
+		return
 	}
+	if cfg.Lines == nil {
+		cfg.Lines = make(map[string]int)
+	}
+	cfg.Lines[id] = line
 }
 
 // ─── Position-aware statusline build (TUI-only) ──────────────────────────────
