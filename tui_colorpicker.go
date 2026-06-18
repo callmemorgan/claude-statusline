@@ -84,7 +84,7 @@ func openColorPicker(app *tview.Application, pages *tview.Pages, c palette, titl
 	for _, e := range entries {
 		if e.header != "" {
 			if col != 0 {
-				row, col = row+1, 0
+				row++
 			}
 			cell := tview.NewTableCell("[::b]" + e.header + "[-:-:-]").
 				SetSelectable(false).

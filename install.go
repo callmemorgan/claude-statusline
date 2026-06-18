@@ -158,11 +158,10 @@ func userHome() string {
 }
 
 type installTarget struct {
-	name      string
-	path      string
-	key       string
-	value     string // JSON value to splice in
-	pathKnown bool
+	name  string
+	path  string
+	key   string
+	value string // JSON value to splice in
 }
 
 // resolveCommand returns "claude-statusline" when PATH resolves to this very
@@ -257,7 +256,7 @@ func confirm(prompt string, assumeYes bool) bool {
 	}
 	fmt.Printf("%s [y/N] ", prompt)
 	var answer string
-	fmt.Scanln(&answer)
+	fmt.Scanln(&answer) //nolint:errcheck // best-effort prompt read; empty answer defaults to "no"
 	answer = strings.ToLower(strings.TrimSpace(answer))
 	return answer == "y" || answer == "yes"
 }
