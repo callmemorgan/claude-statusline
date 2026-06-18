@@ -131,6 +131,17 @@ func deriveWizardChoices(cfg config) wizardChoices {
 		return defaultWizardChoices()
 	}
 
+	// Explicit empty slice means "hide everything"; preserve that intent rather
+	// than falling back to defaults.
+	if len(cfg.Segments) == 0 {
+		return wizardChoices{
+			Categories: map[string]bool{},
+			Density:    densityBalanced,
+			Theme:      cfg.Theme,
+			GitStatus:  false,
+		}
+	}
+
 	present := map[string]bool{}
 	for _, id := range cfg.Segments {
 		present[id] = true

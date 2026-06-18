@@ -270,6 +270,13 @@ func TestDeriveWizardChoices_NilSegmentsGivesDefaults(t *testing.T) {
 	}
 }
 
+func TestDeriveWizardChoices_EmptySegmentsStaysEmpty(t *testing.T) {
+	got := deriveWizardChoices(config{Segments: []string{}})
+	if len(got.Categories) != 0 {
+		t.Errorf("empty segments should yield empty categories; got %v", got.Categories)
+	}
+}
+
 func TestDeriveWizardChoices_RoundTripsCustomConfig(t *testing.T) {
 	initSegments(nil)
 	// Build a config via the wizard, derive choices back, re-assemble, and
