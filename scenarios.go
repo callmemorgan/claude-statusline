@@ -27,7 +27,7 @@ func scenarioNow() time.Time { return time.Unix(1750000000, 0) }
 type scenario struct {
 	Name   string        // pane label, e.g. "wide · full"
 	Note   string        // one-line description of the condition under test
-	P       payload       // the payload to render
+	P      payload       // the payload to render
 	State  *sessionState // optional history (nil = no state-derived features)
 	Width  int           // render width in columns (drives reflow)
 	Reflow string        // "", "off", "cascade", "group" — overrides cfg.Reflow
