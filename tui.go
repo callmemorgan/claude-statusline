@@ -502,6 +502,11 @@ func runConfigure() {
 	// (track the preview panel's real width), else a fixed column count.
 	previewWidth := 0
 
+	// currentScreenWidth is the terminal width captured by the before-draw hook;
+	// refreshMatrix uses it because the overlay's inner rect is zero before draw.
+	currentScreenWidth := 0
+	lastMatrixWidth := -1
+
 	// refreshPreview re-renders the preview text at the effective width. With
 	// an override, lines render verbatim with a dim ruler at the constraint
 	// column; in auto mode they're left-trimmed to sit flush in the panel.
@@ -557,7 +562,10 @@ func runConfigure() {
 
 		// Divider rule spans the overlay's inner width so pane boundaries are
 		// obvious while scrolling (only ~3 panes fit at once at 142x40).
-		_, _, ruleW, _ := matrixView.GetInnerRect()
+		// matrixView.GetInnerRect() is zero before the overlay is drawn, so we
+		// derive the inner width from the terminal size captured by the
+		// before-draw hook (minus the overlay's left and right border).
+		ruleW := currentScreenWidth - 2
 		if ruleW < 20 {
 			ruleW = 76
 		}
@@ -579,10 +587,9 @@ func runConfigure() {
 			if over {
 				badge = "[black:red:b] OVERFLOWS [-:-:-]"
 			}
-			badgeW := 6 // " FITS "
-			if over {
-				badgeW = 11 // " OVERFLOWS "
-			}
+			// TaggedStringWidth strips tview color tags, so the badge is
+			// measured by its plain text (e.g. " FITS " or " OVERFLOWS ").
+			badgeW := tview.TaggedStringWidth(badge)
 			gap := ruleW - visibleWidth(sc.Name) - badgeW - 2 // 2 = "▸ "
 			if gap < 1 {
 				gap = 1
@@ -1068,6 +1075,7 @@ func runConfigure() {
 				refreshMatrix()
 				pages.SwitchToPage("matrix")
 				app.SetFocus(matrixView)
+				lastMatrixWidth = currentScreenWidth
 				return nil
 			case 'd', 'D':
 				demoActive = !demoActive
@@ -1247,8 +1255,13 @@ func runConfigure() {
 		}
 		if sw, _ := screen.Size(); sw != lastScreenWidth {
 			lastScreenWidth = sw
+			currentScreenWidth = sw
 			flex.ResizeItem(help, footerRows(footerText("main"), sw), 0)
 			flyoutFlex.ResizeItem(flyoutHelp, footerRows(footerText("flyout"), sw), 0)
+			if pageName, _ := pages.GetFrontPage(); pageName == "matrix" && sw != lastMatrixWidth {
+				lastMatrixWidth = sw
+				refreshMatrix()
+			}
 		}
 		return false
 	})
