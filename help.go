@@ -22,6 +22,14 @@ Commands:
   configure    Interactive TUI: toggle/order segments, themes, presets,
                colors, per-segment settings, live width-aware preview,
                animated demo mode, render-in-terminal theme check.
+               (Press R inside it for the session-replay scrubber.)
+  replay       Session-replay scrubber: step a recorded session's timeline
+               and watch the real statusline animate while you tune, so the
+               trend/projection/rate segments (cost-rate, context trend,
+               rate-limit projections) come alive. Falls back to a synthetic
+               rising session when none are recorded.
+               Flags: --list (list recorded sessions) · --frames (dump every
+                      frame instead of the TUI) · --session ID.
   version      Show this binary's version. (The statusline's own "version"
                segment shows the calling tool's version, not this binary's.)
   debug        Read JSON from stdin and print a schema-comparison table plus

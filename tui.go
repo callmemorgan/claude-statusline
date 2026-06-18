@@ -24,6 +24,49 @@ func effectiveLine(id string, cfg config) int {
 	return 1
 }
 
+// segmentEnabled reports whether id is in cfg.Segments.
+func segmentEnabled(cfg config, id string) bool {
+	for _, segID := range cfg.Segments {
+		if segID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// toggleSegmentIn flips a segment's presence in cfg.Segments.
+func toggleSegmentIn(cfg *config, id string) {
+	for i, segID := range cfg.Segments {
+		if segID == id {
+			cfg.Segments = append(cfg.Segments[:i], cfg.Segments[i+1:]...)
+			return
+		}
+	}
+	cfg.Segments = append(cfg.Segments, id)
+}
+
+// ensureSegmentEnabled appends a segment that's being customized while off.
+func ensureSegmentEnabled(cfg *config, id string) {
+	if !segmentEnabled(*cfg, id) {
+		cfg.Segments = append(cfg.Segments, id)
+	}
+}
+
+// assignSegmentLine moves a segment to line n (1–9), clearing the override
+// when n is the segment's natural line, and enables it on edit. natural is the
+// segment's default line (effectiveLine without an override).
+func assignSegmentLine(cfg *config, id string, natural, n int) {
+	if cfg.Lines == nil {
+		cfg.Lines = make(map[string]int)
+	}
+	if natural == n {
+		delete(cfg.Lines, id)
+	} else {
+		cfg.Lines[id] = n
+	}
+	ensureSegmentEnabled(cfg, id)
+}
+
 // filterSegments returns the segments whose id or description contains the
 // query (case-insensitive). An empty query returns everything.
 func filterSegments(all []segmentInfo, query string) []segmentInfo {
@@ -337,31 +380,11 @@ func runConfigure() {
 	}
 
 	toggleSegment := func(id string) {
-		mutate(func() {
-			found := -1
-			for i, segID := range cfg.Segments {
-				if segID == id {
-					found = i
-					break
-				}
-			}
-			if found >= 0 {
-				cfg.Segments = append(cfg.Segments[:found], cfg.Segments[found+1:]...)
-			} else {
-				cfg.Segments = append(cfg.Segments, id)
-			}
-		})
+		mutate(func() { toggleSegmentIn(&cfg, id) })
 	}
 
 	// ensureEnabled appends a segment that's being customized while off.
-	ensureEnabled := func(id string) {
-		for _, segID := range cfg.Segments {
-			if segID == id {
-				return
-			}
-		}
-		cfg.Segments = append(cfg.Segments, id)
-	}
+	ensureEnabled := func(id string) { ensureSegmentEnabled(&cfg, id) }
 
 	list.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
 		if action == tview.MouseLeftDoubleClick && list.InRect(event.Position()) {
@@ -675,6 +698,10 @@ func runConfigure() {
 	// quitModal guards unsaved changes; resetModal guards the reset key.
 	var quitModal, resetModal *tview.Modal
 
+	// scrubber is the session-replay page; declared here so the input handler
+	// can reference it, assigned once cfg/mutate/flash exist (below).
+	var scrubber *scrubberView
+
 	requestQuit := func() {
 		if !dirty {
 			app.Stop()
@@ -772,6 +799,34 @@ func runConfigure() {
 					applyFlyoutChange(currentFlyoutSegment, specs[idx], &cfg, delta)
 					dirty = true
 					updateFlyout()
+					return nil
+				}
+			}
+			return event
+		}
+		if pageName == "scrubber" {
+			// The scrubber's segment list owns ←/→/⇧←/→/1-9/space/,/. via its
+			// own InputCapture; here we only handle exit and save.
+			switch event.Key() {
+			case tcell.KeyEscape:
+				pages.SwitchToPage("configure")
+				app.SetFocus(list)
+				updateUI()
+				return nil
+			case tcell.KeyRune:
+				switch event.Rune() {
+				case 'q', 'Q':
+					pages.SwitchToPage("configure")
+					app.SetFocus(list)
+					updateUI()
+					return nil
+				case 's', 'S':
+					doSave()
+					scrubber.refresh()
+					return nil
+				case '?':
+					pages.SwitchToPage("help")
+					app.SetFocus(helpView)
 					return nil
 				}
 			}
@@ -899,16 +954,7 @@ func runConfigure() {
 						return nil
 					}
 					mutate(func() {
-						n := int(r - '0')
-						if cfg.Lines == nil {
-							cfg.Lines = make(map[string]int)
-						}
-						if seg.line == n {
-							delete(cfg.Lines, seg.id)
-						} else {
-							cfg.Lines[seg.id] = n
-						}
-						ensureEnabled(seg.id)
+						assignSegmentLine(&cfg, seg.id, seg.line, int(r-'0'))
 					})
 					return nil
 				}
@@ -983,6 +1029,13 @@ func runConfigure() {
 				}
 				refreshPreview()
 				return nil
+			case 'R':
+				// Open the session-replay scrubber, seeded with the latest
+				// recorded session (or the synthetic fallback).
+				scrubber.seed()
+				pages.SwitchToPage("scrubber")
+				app.SetFocus(scrubber.list)
+				return nil
 			case 'd', 'D':
 				demoActive = !demoActive
 				if demoActive {
@@ -1016,7 +1069,7 @@ func runConfigure() {
 					_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 				})
 				return nil
-			case 'r', 'R':
+			case 'r':
 				pages.SwitchToPage("reset")
 				app.SetFocus(resetModal)
 				return nil
@@ -1140,10 +1193,17 @@ func runConfigure() {
 		AddItem(statusStrip, 1, 0, false).
 		AddItem(help, 1, 0, false)
 
+	// Session-replay scrubber page: replays a recorded session's evolving
+	// payload+state so the user can watch the real statusline animate while
+	// tuning. Shares this screen's cfg/mutate/flash so edits round-trip
+	// identically; on exit the main preview is refreshed.
+	scrubber = buildScrubberPage(&cfg, mutate, flash)
+
 	pages.AddPage("configure", flex, true, true)
 	pages.AddPage("help", helpView, true, false)
 	pages.AddPage("readme", readmeView, true, false)
 	pages.AddPage("flyout", flyoutFlex, true, false)
+	pages.AddPage("scrubber", scrubber.page, true, false)
 
 	// Re-render the preview when the terminal (and so the panel) resizes —
 	// only the text is recomputed, never the list, to avoid re-entrancy —

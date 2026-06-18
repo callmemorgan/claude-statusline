@@ -30,6 +30,7 @@ var keymap = []keyBinding{
 	{Keys: "w", Action: "width", Desc: "Cycle the preview width (auto/80/60/40) to check the layout", Context: "main", Footer: true},
 	{Keys: "d", Action: "demo", Desc: "Animate the whole preview: bars sweep, countdowns tick, cost grows (session-only)", Context: "main", Footer: true},
 	{Keys: "v", Action: "view", Desc: "Hide the TUI and render the statusline directly in your terminal, to check the theme against its real colors and background", Context: "main", Footer: true},
+	{Keys: "R", Action: "replay", Desc: "Open the session-replay scrubber: replay a recorded session's evolving state and watch the trend/projection/rate segments come alive across the timeline while you tune", Context: "main", Footer: true},
 	{Keys: "r", Action: "reset", Desc: "Reset the configuration to defaults (asks first)", Context: "main", Footer: true},
 	{Keys: "s", Action: "save", Desc: "Save to config.toml and keep editing", Context: "main", Footer: true},
 	{Keys: "q", Action: "quit", Desc: "Quit (asks if there are unsaved changes)", Context: "main", Footer: true},
@@ -41,6 +42,16 @@ var keymap = []keyBinding{
 	{Keys: "⇧←/→", Action: "coarse", Desc: "Adjust a numeric setting in larger steps", Context: "flyout", Footer: true},
 	{Keys: "↑/↓", Action: "nav", Desc: "Move between settings", Context: "flyout", Footer: true},
 	{Keys: "q/esc", Action: "close", Desc: "Close the flyout", Context: "flyout", Footer: true},
+
+	{Keys: "←/→", Action: "step", Desc: "Step the replay timeline one sample", Context: "scrubber", Footer: true},
+	{Keys: "⇧←/→", Action: "jump", Desc: "Jump the replay timeline ~10% of the session", Context: "scrubber", Footer: true},
+	{Keys: ",/.", Action: "session", Desc: "Switch to the previous / next recorded session", Context: "scrubber", Footer: true},
+	{Keys: "space", Action: "toggle", Desc: "Toggle the selected segment (re-renders the frame live)", Context: "scrubber", Footer: true},
+	{Keys: "1-9", Action: "line", Desc: "Move the selected segment to line N (re-renders the frame live)", Context: "scrubber", Footer: true},
+	{Keys: "↑/↓", Action: "nav", Desc: "Move the segment selection", Context: "scrubber", Footer: true},
+	{Keys: "s", Action: "save", Desc: "Save to config.toml", Context: "scrubber", Footer: true},
+	{Keys: "?", Action: "help", Desc: "Show help", Context: "scrubber", Footer: true},
+	{Keys: "q/esc", Action: "back", Desc: "Return to the segment list", Context: "scrubber", Footer: true},
 }
 
 // footerText renders the footer hint line for a context.

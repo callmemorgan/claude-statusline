@@ -258,12 +258,17 @@ An interactive TUI: segment list (left), description panel (right), a **live pre
 | `w` | Cycle preview width (auto → 80 → 60 → 40) to check the layout |
 | `d` | Demo mode — animate the whole preview: bars sweep, countdowns tick, cost grows |
 | `v` | Hide the TUI and render directly in your terminal — check the theme against your real colors and background |
+| `R` | Session-replay scrubber — step a recorded session's timeline (`←`/`→`) and watch the real statusline animate while you tune |
 | `r` | Reset to defaults (asks first) |
 | `s` | Save and keep editing (`✓ Saved` flash) |
 | `q` / `Esc` | Quit — asks if there are unsaved changes |
 | `h` / `?` | Help overlay (`r` inside it opens the full README) |
 
 In the flyout (`o`): `space`/`enter` toggles or cycles, `←`/`→` adjusts numbers (`Shift` for coarse steps), and `enter` on a color row opens the swatch picker.
+
+### Session-replay scrubber (`R`)
+
+Press `R` in `configure` (or run `claude-statusline replay`) to open the scrubber: it loads a recorded session from `$XDG_STATE_HOME/claude-statusline/sessions/` and *replays* its evolving payload+state so you watch the real statusline animate while you tune. `←`/`→` step the timeline (`Shift` jumps ~10%, `,`/`.` switch sessions); each frame reconstructs the exact `(payload, state, clock)` that existed at that sample and renders through the same builder the render path uses — so the **trend/projection/rate** segments (`cost-rate`, the `context-window` trend, rate-limit projections) actually come alive across the scrub, which a static preview can't show. Toggling a segment or moving it to a line (`space`, `1`–`9`) re-renders the current frame live and saves to the same `config.toml` (`s`). With no recorded sessions it falls back to a synthetic rising session so the mode is always demonstrable. `claude-statusline replay --list` lists sessions; `--frames` dumps every frame non-interactively.
 
 ### Presets
 
