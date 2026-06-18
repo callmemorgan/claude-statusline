@@ -16,6 +16,7 @@ package main
 
 import (
 	"sort"
+	"strconv"
 	"time"
 )
 
@@ -82,6 +83,15 @@ type packResult struct {
 	Dropped []string   // segments that didn't fit, in priority order
 }
 
+// countPlaced returns the total number of segments packed into res.Lines.
+func countPlaced(res packResult) int {
+	n := 0
+	for _, l := range res.Lines {
+		n += len(l)
+	}
+	return n
+}
+
 // packMeasureInput carries the deterministic inputs the solver uses to measure
 // rendered widths. Tests inject a fixed payload/state/clock; the TUI injects its
 // synthetic preview data. The palette is always empty (color-free) so widths are
@@ -90,13 +100,36 @@ type packMeasureInput struct {
 	P     payload
 	State *sessionState
 	Now   time.Time
+	// widthCache memoizes segmentRenderWidth results across solver runs within
+	// a single auto-layout session. The key encodes the segment id and the
+	// style under which it was measured, because density/spacing affects width.
+	widthCache map[string]cachedWidth
+}
+
+// cachedWidth is a segment width memo entry.
+type cachedWidth struct {
+	width int
+	ok    bool
 }
 
 // segmentRenderWidth measures one segment's rendered visible width under the
 // given base config + measurement input, by rendering a single-segment config
 // through the real builder. Hidden segments (auto-hide on missing data) return
 // (0, false) and are skipped by the packer.
+//
+// WIDTH-AGNOSTIC INVARIANT: the measurement passes Width: 0 to buildStatusline,
+// so segments are rendered unconstrained. The auto-layout solver therefore
+// assumes no segment's output depends on ctx.Width. If a future segment starts
+// reading ctx.Width, TestSegmentRenderWidthAgnostic will fail, flagging that
+// the solver needs to measure at the budget width instead.
 func segmentRenderWidth(id string, base config, mi packMeasureInput) (int, bool) {
+	key := widthCacheKey(id, base.Style)
+	if mi.widthCache != nil {
+		if cw, ok := mi.widthCache[key]; ok {
+			return cw.width, cw.ok
+		}
+	}
+
 	probe := base
 	probe.Segments = []string{id}
 	// Pin the probe to line 1 so the segment's own line is the only non-empty
@@ -109,7 +142,7 @@ func segmentRenderWidth(id string, base config, mi packMeasureInput) (int, bool)
 		C:     palette{}, // empty palette ⇒ color-free ⇒ pure rune width
 		Cfg:   probe,
 		State: mi.State,
-		Width: 0, // unconstrained: render the segment verbatim
+		Width: 0, // unconstrained: render the segment verbatim (see invariant above)
 		Now:   mi.Now,
 	})
 	// The segment renders empty (auto-hidden) ⇒ no non-empty line to measure.
@@ -121,11 +154,29 @@ func segmentRenderWidth(id string, base config, mi packMeasureInput) (int, bool)
 		}
 	}
 	if line == "" {
+		if mi.widthCache != nil {
+			mi.widthCache[key] = cachedWidth{width: 0, ok: false}
+		}
 		return 0, false
 	}
 	// joinParts prepends `padding` spaces; strip it back off so we measure the
 	// segment's own width independent of line padding.
-	return visibleWidth(line) - styleFor(probe, palette{}).padding, true
+	w := visibleWidth(line) - styleFor(probe, palette{}).padding
+	if mi.widthCache != nil {
+		mi.widthCache[key] = cachedWidth{width: w, ok: true}
+	}
+	return w, true
+}
+
+// widthCacheKey encodes a segment id + the style that affects its spacing into
+// a single cache key. Density presets change separator/padding, so the same
+// segment may have different widths under different densities.
+func widthCacheKey(id string, st styleConfig) string {
+	pad := -1
+	if st.Padding != nil {
+		pad = *st.Padding
+	}
+	return id + "#" + st.Separator + "#" + st.SeparatorCustom + "#" + strconv.Itoa(pad)
 }
 
 // packLayout is the pure solver. Given a base config (theme/colors/settings/
@@ -138,6 +189,10 @@ func segmentRenderWidth(id string, base config, mi packMeasureInput) (int, bool)
 // map iteration, time.Now, or global mutable state leaks in (the measurement
 // uses an empty palette and the injected clock). Unit-tested in autolayout_test.
 func packLayout(base config, priorities []string, budget autoLayoutBudget, mi packMeasureInput) packResult {
+	if mi.widthCache == nil {
+		mi.widthCache = map[string]cachedWidth{}
+	}
+
 	dense := withDensity(base, budget.density())
 	st := styleFor(dense, palette{})
 	maxLines := budget.maxLines()
@@ -222,10 +277,13 @@ func packLayout(base config, priorities []string, budget autoLayoutBudget, mi pa
 
 // withDensity returns a copy of base with its [style] replaced by the density
 // preset. Used both for measurement and for the emitted concrete config.
+// A user-customized separator_custom glyph is preserved because it is not part
+// of the density semantics and would be tedious to recreate after each solve.
 func withDensity(base config, density string) config {
 	out := base
 	if s, ok := densityStyles[density]; ok {
 		out.Style = s
+		out.Style.SeparatorCustom = base.Style.SeparatorCustom
 	}
 	return out
 }
@@ -263,7 +321,11 @@ func applyPackResult(cfg *config, res packResult, density string) {
 	// cascading segments across the boundaries it deliberately chose.
 	cfg.Reflow = "group"
 	if s, ok := densityStyles[density]; ok {
+		// Preserve a user-customized separator glyph; density only owns the
+		// separator style and padding.
+		preservedCustom := cfg.Style.SeparatorCustom
 		cfg.Style = s
+		cfg.Style.SeparatorCustom = preservedCustom
 	}
 }
 

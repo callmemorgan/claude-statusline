@@ -721,13 +721,9 @@ func runConfigure(args ...string) {
 			// concrete (Segments/Lines/Reflow/Style set by applyPackResult).
 			cfg.AutoLayout = autoLayoutConfig{Priorities: prios, Budget: budget}
 		})
-		placed := 0
-		for _, l := range res.Lines {
-			placed += len(l)
-		}
 		pages.SwitchToPage("configure")
 		app.SetFocus(list)
-		flash("green", fmt.Sprintf("auto-layout applied — %d placed, %d dropped (not yet saved)", placed, len(res.Dropped)))
+		flash("green", fmt.Sprintf("auto-layout applied — %d placed, %d dropped (not yet saved)", countPlaced(res), len(res.Dropped)))
 	}
 	openAutoLayout := func() {
 		autoLayout.seed(cfg, autoLayoutMeasureInput(pvState), currentPalette(cfg))

@@ -147,6 +147,7 @@ func newAutoLayoutModel(app *tview.Application, pages *tview.Pages) *autoLayoutM
 // then renders. Focus lands on the priority list.
 func (m *autoLayoutModel) seed(cfg config, mi packMeasureInput, pal palette) {
 	m.mi = mi
+	m.mi.widthCache = map[string]cachedWidth{}
 	m.palette = pal
 	// Re-use persisted priorities/budget if present, else derive from the
 	// current layout so the ranking starts from what the user already has.
@@ -229,12 +230,8 @@ func (m *autoLayoutModel) refresh() {
 		m.budgetList.SetCurrentItem(bIdx)
 	}
 
-	placed := 0
-	for _, l := range res.Lines {
-		placed += len(l)
-	}
 	m.results.SetText(fmt.Sprintf("[white]%d placed[-] · [red]%d dropped[-] · %d/%d lines",
-		placed, len(res.Dropped), len(res.Lines), m.budget.maxLines()))
+		countPlaced(res), len(res.Dropped), len(res.Lines), m.budget.maxLines()))
 
 	// Live preview through the REAL builder, with the solved concrete config.
 	cfg := config{}

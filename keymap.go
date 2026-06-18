@@ -44,7 +44,9 @@ var keymap = []keyBinding{
 	{Keys: "q/esc", Action: "close", Desc: "Close the flyout", Context: "flyout", Footer: true},
 
 	{Keys: "⇧↑/↓", Action: "rank", Desc: "Move the selected segment up / down the priority ranking", Context: "autolayout", Footer: true},
+	{Keys: "j/k", Action: "rank (vi)", Desc: "Move the selected segment down / up the priority ranking (vi-style aliases)", Context: "autolayout", Footer: true},
 	{Keys: "tab", Action: "panes", Desc: "Switch focus between the priority list and the budget knobs", Context: "autolayout", Footer: true},
+	{Keys: "b", Action: "budget pane", Desc: "Move focus to the budget pane", Context: "autolayout", Footer: true},
 	{Keys: "←/→", Action: "budget", Desc: "Adjust the focused budget knob (width / max lines / density)", Context: "autolayout", Footer: true},
 	{Keys: "enter/a", Action: "apply", Desc: "Apply the packed layout to the config (concrete Segments/Lines/Reflow)", Context: "autolayout", Footer: true},
 	{Keys: "q/esc", Action: "cancel", Desc: "Close without applying", Context: "autolayout", Footer: true},

@@ -274,7 +274,9 @@ Instead of placing segments on lines by hand, **rank them by priority and set a 
 claude-statusline configure --auto-layout
 ```
 
-You edit two things: a **priority ranking** (`Shift+↑`/`Shift+↓` to move a segment up or down) and a **budget** (`Tab` to the budget pane, `←`/`→` to adjust *max width*, *max lines*, and *density* — `compact`/`comfortable`/`airy`). The solver packs the highest-priority segments first, spilling lower-priority ones to later lines and **dropping** them once the line budget is exhausted, with a live preview rendered through the real statusline builder. Each priority entry is tagged `L1`/`L2`/… where it landed, or `drop` if it didn't fit.
+You edit two things: a **priority ranking** (`Shift+↑`/`Shift+↓` or `j`/`k` to move a segment up or down) and a **budget** (`Tab` or `b` to the budget pane, `←`/`→` to adjust *max width*, *max lines*, and *density* — `compact`/`comfortable`/`airy`). The solver packs the highest-priority segments first, spilling lower-priority ones to later lines and **dropping** them once the line budget is exhausted, with a live preview rendered through the real statusline builder. Each priority entry is tagged `L1`/`L2`/… where it landed, or `drop` if it didn't fit.
+
+The solver assumes each segment's rendered width is independent of the terminal width, and it always emits `reflow = "group"` so the packed line boundaries survive terminal resizing. Density presets overwrite `separator` and `padding`, but a customized `separator_custom` glyph is preserved.
 
 This is a **design-time** solver: pressing `enter`/`a` emits a *concrete* config (`segments`, `[lines]`, `reflow = "group"`, `[style]`) through the same model the manual editor saves through — the render path is untouched. The priority ranking and budget are also persisted as optional `[auto_layout]` metadata so you can re-open `L` and re-tune later. Hand-editing `[auto_layout]` does nothing until you re-run the solver.
 

@@ -412,3 +412,255 @@ func TestBudgetAccessorDefaults(t *testing.T) {
 		t.Error("maxLines not clamped to 9")
 	}
 }
+
+// TestSegmentRenderWidthAgnostic guards the auto-layout invariant: segments are
+// measured with Width: 0 and must not change width when the terminal width
+// changes. If this test fails, the solver needs to measure at the budget width
+// instead of assuming width independence.
+func TestSegmentRenderWidthAgnostic(t *testing.T) {
+	initSegments(nil)
+	mi := packTestInput(t)
+	for _, s := range registeredSegments {
+		w0, ok0 := renderSegmentAtWidth(s.id, 0, mi)
+		w200, ok200 := renderSegmentAtWidth(s.id, 200, mi)
+		if ok0 != ok200 {
+			t.Errorf("%s: visibility differs between width 0 and 200", s.id)
+			continue
+		}
+		if ok0 && w0 != w200 {
+			t.Errorf("%s: width depends on terminal width (%d at 0 cols, %d at 200 cols); auto-layout assumes segments are width-agnostic", s.id, w0, w200)
+		}
+	}
+}
+
+// renderSegmentAtWidth renders a single segment at the given terminal width and
+// returns its visible width (with padding stripped). It mirrors the measurement
+// logic in segmentRenderWidth but exposes the width parameter for testing.
+func renderSegmentAtWidth(id string, width int, mi packMeasureInput) (int, bool) {
+	probe := config{}
+	probe.Segments = []string{id}
+	probe.Lines = map[string]int{id: 1}
+	probe.Reflow = ""
+	lines := buildStatusline(buildInput{
+		P:     mi.P,
+		C:     palette{},
+		Cfg:   probe,
+		State: mi.State,
+		Width: width,
+		Now:   mi.Now,
+	})
+	var line string
+	for _, l := range lines {
+		if visibleWidth(l) > 0 {
+			line = l
+			break
+		}
+	}
+	if line == "" {
+		return 0, false
+	}
+	return visibleWidth(line) - styleFor(probe, palette{}).padding, true
+}
+
+// TestSegmentRenderWidthCache verifies the memoization layer in
+// segmentRenderWidth populates the cache and returns consistent results.
+func TestSegmentRenderWidthCache(t *testing.T) {
+	initSegments(nil)
+	mi := packMeasureInput{P: packTestInput(t).P, State: packTestInput(t).State, Now: testNow, widthCache: map[string]cachedWidth{}}
+	base := config{}
+
+	w1, ok1 := segmentRenderWidth("directory", base, mi)
+	if !ok1 {
+		t.Fatal("directory segment hidden on first measure")
+	}
+	if len(mi.widthCache) == 0 {
+		t.Error("widthCache was not populated")
+	}
+	w2, ok2 := segmentRenderWidth("directory", base, mi)
+	if w1 != w2 || ok1 != ok2 {
+		t.Errorf("cached width mismatch: first (%d,%v) second (%d,%v)", w1, ok1, w2, ok2)
+	}
+}
+
+// TestSegmentRenderWidthCachePerStyle verifies the cache key includes style, so
+// the same segment measured under two densities occupies two distinct cache
+// entries (even if the segment itself happens to be the same width in both).
+func TestSegmentRenderWidthCachePerStyle(t *testing.T) {
+	initSegments(nil)
+	mi := packMeasureInput{P: packTestInput(t).P, State: packTestInput(t).State, Now: testNow, widthCache: map[string]cachedWidth{}}
+
+	compact := withDensity(config{}, "compact")
+	airy := withDensity(config{}, "airy")
+
+	_, _ = segmentRenderWidth("directory", compact, mi)
+	_, _ = segmentRenderWidth("directory", airy, mi)
+	if len(mi.widthCache) != 2 {
+		t.Errorf("expected 2 cached entries (one per style), got %d", len(mi.widthCache))
+	}
+}
+
+// TestWithDensityPreservesSeparatorCustom verifies density presets preserve a
+// user-customized separator glyph while still applying the density's separator
+// style and padding.
+func TestWithDensityPreservesSeparatorCustom(t *testing.T) {
+	base := config{}
+	base.Style.Separator = "custom"
+	base.Style.SeparatorCustom = "::"
+	base.Style.Padding = ptrInt(5)
+
+	dense := withDensity(base, "compact")
+	if dense.Style.Separator != "space" {
+		t.Errorf("Separator = %q, want space", dense.Style.Separator)
+	}
+	if dense.Style.SeparatorCustom != "::" {
+		t.Errorf("SeparatorCustom = %q, want preserved '::'", dense.Style.SeparatorCustom)
+	}
+	if dense.Style.Padding == nil || *dense.Style.Padding != 0 {
+		t.Errorf("Padding = %v, want 0", dense.Style.Padding)
+	}
+}
+
+// TestApplyPackResultPreservesSeparatorCustom verifies the emitted concrete
+// config keeps a user-customized separator glyph even though density sets the
+// separator style.
+func TestApplyPackResultPreservesSeparatorCustom(t *testing.T) {
+	initSegments(nil)
+	res := packResult{Lines: [][]string{{"directory"}}}
+	cfg := config{}
+	cfg.Style.SeparatorCustom = "::"
+	applyPackResult(&cfg, res, "compact")
+
+	if cfg.Style.SeparatorCustom != "::" {
+		t.Errorf("SeparatorCustom = %q, want preserved '::'", cfg.Style.SeparatorCustom)
+	}
+}
+
+// TestPackLayoutExactFit verifies a segment whose width exactly matches the
+// first-line budget is placed solo with no drops.
+func TestPackLayoutExactFit(t *testing.T) {
+	initSegments(nil)
+	mi := packTestInput(t)
+	budget := autoLayoutBudget{Density: "compact"}
+	dense := withDensity(config{}, budget.density())
+	st := styleFor(dense, palette{})
+
+	w, ok := segmentRenderWidth("directory", dense, mi)
+	if !ok {
+		t.Fatal("directory segment hidden")
+	}
+	// budget.width is the user-visible column budget; lineBudget subtracts the
+	// safety margin and line-1 timing suffix reserve. Set it so padding + width
+	// exactly equals the first-line budget.
+	budget.Width = w + st.padding + safetyMargin + timingSuffixReserve
+
+	res := packLayout(config{}, []string{"directory"}, budget, mi)
+	if len(res.Lines) != 1 || len(res.Lines[0]) != 1 || res.Lines[0][0] != "directory" {
+		t.Fatalf("expected directory placed solo on line 1, got %#v", res)
+	}
+	if len(res.Dropped) != 0 {
+		t.Errorf("expected no drops, got %v", res.Dropped)
+	}
+}
+
+// TestPackLayoutEmptyWhenAllHidden verifies that when every candidate segment
+// auto-hides (no source data), the solver returns an empty layout with no
+// crashes and no spurious drops.
+func TestPackLayoutEmptyWhenAllHidden(t *testing.T) {
+	initSegments(nil)
+	t.Setenv("HOME", t.TempDir())
+	p := loadPayload(t, "minimal.json")
+	mi := packMeasureInput{P: p, State: nil, Now: testNow}
+	prios := []string{"rate-limit-5h", "rate-limit-7d", "cost"}
+
+	res := packLayout(config{}, prios, autoLayoutBudget{Width: 80, MaxLines: 3}, mi)
+	if len(flatten(res)) != 0 {
+		t.Errorf("expected no placed segments, got %v", flatten(res))
+	}
+	if len(res.Dropped) != 0 {
+		t.Errorf("expected no drops when all candidates hide, got %v", res.Dropped)
+	}
+}
+
+// TestPackLayoutDropsWhenBudgetExhausted verifies lower-priority segments are
+// dropped once the line budget is exhausted, and that dropped segments never
+// outrank placed ones.
+func TestPackLayoutDropsWhenBudgetExhausted(t *testing.T) {
+	initSegments(nil)
+	mi := packTestInput(t)
+	prios := []string{"directory", "git-branch", "model", "context-window", "rate-limit-5h", "rate-limit-7d"}
+	budget := autoLayoutBudget{Width: 30, MaxLines: 1, Density: "comfortable"}
+
+	res := packLayout(config{}, prios, budget, mi)
+	if len(res.Lines) != 1 {
+		t.Fatalf("MaxLines=1 must produce exactly 1 line, got %d", len(res.Lines))
+	}
+	if len(res.Dropped) == 0 {
+		t.Fatal("tight budget must drop some segments")
+	}
+
+	rank := map[string]int{}
+	for i, id := range prios {
+		rank[id] = i
+	}
+	maxPlaced := -1
+	for _, id := range res.Lines[0] {
+		if rank[id] > maxPlaced {
+			maxPlaced = rank[id]
+		}
+	}
+	for _, id := range res.Dropped {
+		if rank[id] < maxPlaced {
+			t.Errorf("dropped %q (rank %d) outranks a placed segment (max placed rank %d)", id, rank[id], maxPlaced)
+		}
+	}
+}
+
+// TestSegmentRenderWidthNaturalLine verifies segmentRenderWidth correctly
+// measures a segment whose natural line is not 1 by pinning it to line 1. This
+// is the "multi-line" measurement case: without the pin, the segment would emit
+// a leading empty line and be mis-measured.
+func TestSegmentRenderWidthNaturalLine(t *testing.T) {
+	initSegments(nil)
+	mi := packTestInput(t)
+	s, ok := segmentByID("model")
+	if !ok {
+		t.Fatal("model segment not registered")
+	}
+	if s.line == 1 {
+		t.Skip("model is now line 1; pick another natural-line-2 segment")
+	}
+
+	measured, ok := segmentRenderWidth("model", config{}, mi)
+	if !ok {
+		t.Fatal("model segment hidden")
+	}
+
+	// Render model at its natural line and compare widths.
+	cfg := config{Segments: []string{"model"}}
+	lines := buildStatusline(buildInput{P: mi.P, C: palette{}, Cfg: cfg, State: mi.State, Width: 0, Now: mi.Now})
+	var natural string
+	for _, l := range lines {
+		if visibleWidth(l) > 0 {
+			natural = l
+			break
+		}
+	}
+	if natural == "" {
+		t.Fatal("model did not render at natural line")
+	}
+	naturalWidth := visibleWidth(natural) - styleFor(cfg, palette{}).padding
+	if measured != naturalWidth {
+		t.Errorf("segmentRenderWidth measured %d, want %d (natural line width)", measured, naturalWidth)
+	}
+}
+
+// TestCountPlaced verifies the helper used by the TUI result strings.
+func TestCountPlaced(t *testing.T) {
+	res := packResult{
+		Lines:   [][]string{{"a", "b"}, {"c"}, {}, {"d", "e", "f"}},
+		Dropped: []string{"x"},
+	}
+	if got := countPlaced(res); got != 6 {
+		t.Errorf("countPlaced = %d, want 6", got)
+	}
+}
