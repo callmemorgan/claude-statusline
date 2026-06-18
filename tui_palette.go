@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -76,17 +77,39 @@ func runPalette() {
 	pages := tview.NewPages()
 
 	flashGen := 0
+	var flashTimer *time.Timer
+	var appRunning atomic.Bool
+	appRunning.Store(true)
 	flash := func(color, msg string) {
+		if flashTimer != nil {
+			flashTimer.Stop()
+		}
 		flashGen++
 		gen := flashGen
 		stripRight.SetText(fmt.Sprintf("[%s]%s[-] ", color, msg))
-		time.AfterFunc(2500*time.Millisecond, func() {
+		flashTimer = time.AfterFunc(2500*time.Millisecond, func() {
+			if !appRunning.Load() {
+				return
+			}
 			app.QueueUpdateDraw(func() {
+				if !appRunning.Load() {
+					return
+				}
 				if flashGen == gen {
 					stripRight.SetText("")
 				}
 			})
 		})
+	}
+
+	stopFlash := func() {
+		if flashTimer != nil {
+			flashTimer.Stop()
+		}
+	}
+
+	markExiting := func() {
+		appRunning.Store(false)
 	}
 
 	updateStrip := func() {
@@ -216,6 +239,22 @@ func runPalette() {
 		app.SetFocus(preview)
 	}
 
+	showConfirm := func(text string, onYes func()) {
+		modal := tview.NewModal().
+			SetText(text).
+			AddButtons([]string{"Yes", "No"}).
+			SetDoneFunc(func(_ int, label string) {
+				pages.RemovePage("confirm")
+				if label == "Yes" {
+					onYes()
+				} else {
+					app.SetFocus(preview)
+				}
+			})
+		pages.AddPage("confirm", floatPicker(modal, 60, 7), true, true)
+		app.SetFocus(modal)
+	}
+
 	openPalette := func() {
 		allActions = generateActions(cfg)
 		palInput.SetText("")
@@ -275,6 +314,15 @@ func runPalette() {
 				refreshPreview()
 				flash("green", "✓ "+a.Title)
 			})
+		case actionConfirm:
+			closePalette()
+			showConfirm(a.ConfirmText, func() {
+				applyMut(a.Apply)
+				flash("green", "✓ "+a.Title)
+			})
+		case actionSave:
+			closePalette()
+			doSave()
 		default:
 			applyMut(a.Apply)
 			flash("green", "✓ "+a.Title)
@@ -399,16 +447,16 @@ func runPalette() {
 			case 's', 'S':
 				doSave()
 				return nil
-			case 'h', 'H', '?':
+			case '?':
 				pages.SwitchToPage("help")
 				app.SetFocus(helpView)
 				return nil
 			case 'q', 'Q':
-				requestQuitPalette(app, pages, dirty, doSave)
+				requestQuitPalette(app, pages, dirty, doSave, stopFlash, markExiting)
 				return nil
 			}
 		case tcell.KeyEscape:
-			requestQuitPalette(app, pages, dirty, doSave)
+			requestQuitPalette(app, pages, dirty, doSave, stopFlash, markExiting)
 			return nil
 		}
 		return event
@@ -448,13 +496,23 @@ func runPalette() {
 		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
 		os.Exit(1)
 	}
+	appRunning.Store(false)
 }
 
 // requestQuitPalette shows a save/discard/cancel modal when there are unsaved
 // changes, else stops immediately.
-func requestQuitPalette(app *tview.Application, pages *tview.Pages, dirty bool, doSave func() bool) {
-	if !dirty {
+func requestQuitPalette(app *tview.Application, pages *tview.Pages, dirty bool, doSave func() bool, stopFlash, onStop func()) {
+	if stopFlash != nil {
+		stopFlash()
+	}
+	stop := func() {
+		if onStop != nil {
+			onStop()
+		}
 		app.Stop()
+	}
+	if !dirty {
+		stop()
 		return
 	}
 	modal := tview.NewModal().
@@ -464,13 +522,13 @@ func requestQuitPalette(app *tview.Application, pages *tview.Pages, dirty bool, 
 			switch label {
 			case "Save & quit":
 				if doSave() {
-					app.Stop()
+					stop()
 					fmt.Printf("Saved to %s\n", configPath())
 					return
 				}
 				pages.RemovePage("palquit")
 			case "Discard":
-				app.Stop()
+				stop()
 			default:
 				pages.RemovePage("palquit")
 			}
