@@ -177,47 +177,117 @@ func wizardLineFor(segID string, naturalLine int, d wizardDensity) int {
 }
 
 // assembleWizardConfig turns high-level choices into a full config that
-// round-trips through the normal save path. It enumerates the registry (so
-// plugin segments and the real natural lines are honored), emits the chosen
-// categories' segments in category order, applies the density line mapping,
-// sets the theme, and applies the one git-status tweak. The result is run
-// through validateConfig so it is normalized exactly like a hand-edited file.
+// round-trips through the normal save path. It starts from the config that was
+// loaded when the wizard launched, then mutates only the fields the wizard
+// controls: theme, segment list/density, and the git-status toggle. Existing
+// plugins, custom colors, style, update/release_notes settings, color_depth,
+// reflow, and unrelated per-segment settings are preserved.
 //
 // registry is normally registeredSegments; it is a parameter so tests can pass
 // a deterministic set without depending on plugin registration.
-func assembleWizardConfig(choices wizardChoices, registry []segmentInfo) config {
+func assembleWizardConfig(base config, choices wizardChoices, registry []segmentInfo) config {
 	known := make(map[string]segmentInfo, len(registry))
 	for _, s := range registry {
 		known[s.id] = s
 	}
 
-	cfg := config{}
+	cfg := copyWizardConfigBase(base)
 	cfg.Theme = normalizeWizardTheme(choices.Theme)
 
-	// Collect segment IDs in category order, de-duplicated, registry-validated.
-	seen := map[string]bool{}
-	var segs []string
+	// Classify which segments belong to wizard categories and which categories
+	// are selected, so we can add/remove only the segments the wizard controls.
+	selectedSeg := map[string]bool{}
+	categorySeg := map[string]bool{}
 	for _, cat := range wizardCategories() {
-		if !choices.Categories[cat.ID] {
-			continue
-		}
 		for _, id := range cat.Segments {
+			categorySeg[id] = true
+			if choices.Categories[cat.ID] {
+				selectedSeg[id] = true
+			}
+		}
+	}
+
+	var segs []string
+	switch {
+	case base.Segments == nil:
+		// No explicit segment list: build the opinionated wizard layout from the
+		// selected categories, then auto-append plugin segments exactly like
+		// mergeWithDefaults does when segments is absent.
+		seen := map[string]bool{}
+		for _, cat := range wizardCategories() {
+			if !choices.Categories[cat.ID] {
+				continue
+			}
+			for _, id := range cat.Segments {
+				if seen[id] {
+					continue
+				}
+				if _, ok := known[id]; !ok {
+					continue
+				}
+				seen[id] = true
+				segs = append(segs, id)
+			}
+		}
+		inSegs := map[string]bool{}
+		for _, id := range segs {
+			inSegs[id] = true
+		}
+		for _, p := range base.Plugins {
+			if len(p.Fields) > 0 {
+				for _, f := range p.Fields {
+					if f.ID != "" && !inSegs[f.ID] {
+						inSegs[f.ID] = true
+						segs = append(segs, f.ID)
+					}
+				}
+			} else if p.ID != "" && !inSegs[p.ID] {
+				inSegs[p.ID] = true
+				segs = append(segs, p.ID)
+			}
+		}
+	case len(base.Segments) == 0:
+		// Explicit "hide everything" survives untouched.
+		segs = []string{}
+	default:
+		// Preserve plugin/custom segments that are not part of any category,
+		// then append the selected category segments in category order. This
+		// keeps plugin segment IDs and user-defined custom segments while
+		// letting the wizard add/remove its built-in categories. The update
+		// segment is always appended at the end below, so drop any existing
+		// placement to keep the output stable.
+		seen := map[string]bool{}
+		for _, id := range base.Segments {
+			if categorySeg[id] || id == "update" {
+				continue
+			}
 			if seen[id] {
 				continue
 			}
-			if _, ok := known[id]; !ok {
-				continue // unknown ID (registry drift / plugin-only) — skip safely
-			}
 			seen[id] = true
 			segs = append(segs, id)
+		}
+		for _, cat := range wizardCategories() {
+			if !choices.Categories[cat.ID] {
+				continue
+			}
+			for _, id := range cat.Segments {
+				if seen[id] {
+					continue
+				}
+				if _, ok := known[id]; !ok {
+					continue
+				}
+				seen[id] = true
+				segs = append(segs, id)
+			}
 		}
 	}
 
 	// Always offer the update notice when anything else is shown — it
 	// self-hides when no update is pending, so it costs a newcomer nothing.
 	if len(segs) > 0 {
-		if _, ok := known["update"]; ok && !seen["update"] {
-			seen["update"] = true
+		if _, ok := known["update"]; ok && !hasSeg(segs, "update") {
 			segs = append(segs, "update")
 		}
 	}
@@ -229,27 +299,41 @@ func assembleWizardConfig(choices wizardChoices, registry []segmentInfo) config 
 	}
 	cfg.Segments = segs
 
-	// Per-segment line overrides from the density mapping. An override equal
-	// to the segment's natural line is omitted (effectiveLine treats absence
-	// and equality identically, and validateConfig would otherwise carry a
-	// redundant entry).
-	for _, id := range segs {
-		info := known[id]
-		line := wizardLineFor(id, info.line, choices.Density)
-		if line != info.line {
-			if cfg.Lines == nil {
-				cfg.Lines = map[string]int{}
-			}
-			cfg.Lines[id] = line
+	// Apply density line mapping on top of any existing line overrides.
+	lines := map[string]int{}
+	if base.Lines != nil {
+		for k, v := range base.Lines {
+			lines[k] = v
 		}
 	}
+	for _, id := range segs {
+		info, ok := known[id]
+		if !ok {
+			continue
+		}
+		line := wizardLineFor(id, info.line, choices.Density)
+		if line != info.line {
+			lines[id] = line
+		} else {
+			delete(lines, id)
+		}
+	}
+	if len(lines) == 0 {
+		lines = nil
+	}
+	cfg.Lines = lines
 
 	// The one surfaced per-segment tweak: rich git status. Apply it through
-	// the same prune cycle the editor uses so only non-default keys persist.
-	if choices.GitStatus && seen["git-branch"] {
+	// the same prune cycle the editor uses so only non-default keys persist,
+	// while leaving unrelated per-segment settings untouched.
+	if hasSeg(segs, "git-branch") {
 		if seg, ok := known["git-branch"]; ok {
 			s := settingsFor(cfg, seg)
-			s["git_status"] = true
+			if choices.GitStatus {
+				s["git_status"] = true
+			} else {
+				s["git_status"] = false
+			}
 			setSegmentSettings(&cfg, "git-branch", pruneSettings(seg, s))
 		}
 	}
@@ -258,6 +342,33 @@ func assembleWizardConfig(choices wizardChoices, registry []segmentInfo) config 
 	// indistinguishable from a hand-edited file.
 	validateConfig(&cfg)
 	return cfg
+}
+
+// copyWizardConfigBase returns a shallow copy of base with a deep copy of
+// Settings so the wizard can mutate per-segment overrides without changing the
+// caller's config.
+func copyWizardConfigBase(base config) config {
+	cfg := base
+	if base.Settings != nil {
+		cfg.Settings = make(map[string]map[string]any, len(base.Settings))
+		for segID, vals := range base.Settings {
+			inner := make(map[string]any, len(vals))
+			for k, v := range vals {
+				inner[k] = v
+			}
+			cfg.Settings[segID] = inner
+		}
+	}
+	return cfg
+}
+
+func hasSeg(segs []string, id string) bool {
+	for _, s := range segs {
+		if s == id {
+			return true
+		}
+	}
+	return false
 }
 
 // normalizeWizardTheme maps the picker's "classic" sentinel to the empty

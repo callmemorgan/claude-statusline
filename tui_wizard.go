@@ -71,6 +71,10 @@ type wizardState struct {
 	// pvState is the synthetic session history so state-driven segments render.
 	pvState *sessionState
 
+	// baseConfig is the config that was loaded when the wizard launched. The
+	// wizard mutates only the fields it controls and preserves everything else.
+	baseConfig config
+
 	// onDone is invoked when the wizard finishes or is cancelled: finished is
 	// true with the assembled config on accept, false on cancel.
 	onDone func(cfg config, finished bool)
@@ -88,12 +92,13 @@ const wizardPageName = "wizard"
 // The flow drives onDone exactly once.
 func openWizard(app *tview.Application, pages *tview.Pages, start config, onDone func(cfg config, finished bool)) {
 	ws := &wizardState{
-		app:     app,
-		pages:   pages,
-		choices: deriveWizardChoices(start),
-		step:    stepCategories,
-		pvState: previewState(time.Now()),
-		onDone:  onDone,
+		app:        app,
+		pages:      pages,
+		choices:    deriveWizardChoices(start),
+		step:       stepCategories,
+		pvState:    previewState(time.Now()),
+		baseConfig: start,
+		onDone:     onDone,
 	}
 
 	ws.preview = tview.NewTextView().SetDynamicColors(true).SetWrap(false)
@@ -194,7 +199,7 @@ func deriveWizardChoices(cfg config) wizardChoices {
 // liveConfig is the config assembled from the current choices — what the
 // preview renders and what gets saved.
 func (ws *wizardState) liveConfig() config {
-	return assembleWizardConfig(ws.choices, registeredSegments)
+	return assembleWizardConfig(ws.baseConfig, ws.choices, registeredSegments)
 }
 
 // refreshPreview re-renders the live preview through the real pipeline.
