@@ -83,10 +83,9 @@ type wizardState struct {
 // step rather than registering one page per step.
 const wizardPageName = "wizard"
 
-// openWizard builds and shows the wizard on the given app/pages. setupPreview,
-// if true, installs the synthetic git preview globals and resets them via the
-// caller-provided cleanup (the standalone entry owns the defer; the in-TUI
-// entry already has them set). The flow drives onDone exactly once.
+// openWizard builds and shows the wizard on the given app/pages. start is the
+// existing config used to seed initial choices (nil Segments means defaults).
+// The flow drives onDone exactly once.
 func openWizard(app *tview.Application, pages *tview.Pages, start config, onDone func(cfg config, finished bool)) {
 	ws := &wizardState{
 		app:     app,
