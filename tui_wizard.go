@@ -510,7 +510,12 @@ func runWizard() {
 		os.Exit(1)
 	}
 
-	cfg, _ := loadConfigWarn()
+	cfg, warns := loadConfigWarn()
+	if os.Getenv("STATUSLINE_VERBOSE") != "" {
+		for _, w := range warns {
+			fmt.Fprintf(os.Stderr, "claude-statusline: config: %s\n", w)
+		}
+	}
 	initSegments(cfg.Plugins)
 
 	// Synthetic git/stash results so the rich-status preview renders; reset to
