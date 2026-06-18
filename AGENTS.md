@@ -61,6 +61,15 @@ state file  → loadState()/Record() ───────┘            └→ 
 - **Versioning**: MAJOR.MINOR.REVISION — not strict SemVer. Bump REVISION for bugfixes and features; MINOR for larger milestones.
 - **Colors**: always respect `NO_COLOR` and `TERM=dumb` (empty palette). Use `palette` fields or `resolveColorSpec` — never hardcode ANSI codes in renderers. Settings-driven colors must also pass through `resolveColor`, which returns "" when colors are off.
 - **Section dividers** use the pattern: `// ─── Section Name ───────────────────────────────────────────────────────────`
+- **Commit messages** use [Conventional Commits](https://www.conventionalcommits.org/) with a scope when helpful:
+  - `feat(segment): add git-stash segment`
+  - `fix(update): refresh the Homebrew tap before brew upgrade`
+  - `docs: changelog for v1.3.2`
+  - `ci: resolve release-workflow warnings`
+  - `refactor: tryAcquireLock takes a staleness duration`
+  - `chore: ignore .worktrees/`
+  
+  Use lowercase after the colon, imperative mood, and keep the summary under 72 characters. History before this convention is frozen; do not rewrite it.
 - **`AGENTS.md` is an identical copy of this file.** When editing `CLAUDE.md`, copy it over `AGENTS.md` so they stay in sync.
 
 ## Releases
