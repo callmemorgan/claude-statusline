@@ -44,7 +44,7 @@ Configuration:
    config.json.bak)
 
   theme        classic | catppuccin-mocha | nord | dracula | gruvbox-dark |
-               tokyo-night (truecolor, with 256/16-color fallback);
+               tokyo-night | newsprint (truecolor, with 256/16-color fallback);
                classic is the pre-1.0 default look (alias: original)
   preset       named layout used when 'segments' is absent: classic, minimal,
                zen, cost-tracker, git-focus, vim-coder, quota-watch,

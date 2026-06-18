@@ -6,7 +6,7 @@ A fast statusline renderer for [Claude Code](https://claude.ai/code) and [Antigr
 
 Both tools pipe a JSON payload to this binary on every turn. It renders a colored, multi-line summary in your terminal:
 
-- **Six built-in themes** — classic, Catppuccin Mocha, Nord, Dracula, Gruvbox Dark, Tokyo Night — in truecolor with automatic 256/16-color fallback.
+- **Seven built-in themes** — classic, Catppuccin Mocha, Nord, Dracula, Gruvbox Dark, Tokyo Night, Newsprint — in truecolor with automatic 256/16-color fallback.
 - **Burn-rate intelligence** — rate-limit projections (`→58%` at reset), cost per hour (`$1.84/h`), and time-to-compact estimates (`↗ ~35m`), computed from your session's own history.
 - **One-command setup** — `claude-statusline install` wires everything up and verifies it.
 - **A real configuration TUI** — live width-aware preview, theme and preset pickers, a color swatch picker, per-segment settings, search, an animated demo mode, and a render-in-your-terminal view for honest theme checking.
@@ -168,13 +168,14 @@ Segments that receive no data from the active tool hide themselves automatically
 ## Themes
 
 ```toml
-theme = "tokyo-night"   # classic | catppuccin-mocha | nord | dracula | gruvbox-dark | tokyo-night
+theme = "tokyo-night"   # classic | catppuccin-mocha | nord | dracula | gruvbox-dark |
+                        # tokyo-night | newsprint
 ```
 
 Themes map fifteen semantic roles (model, dir, git, ok/warn/crit, accent, sep, …) to colors. On truecolor terminals you get the real hex palette; 256-color and 16-color terminals get automatic nearest-match fallbacks. `classic` (the default — `original` is an accepted alias) reproduces the pre-1.0 ANSI look exactly, so existing installs keep their colors unless they opt into a theme. The in-TUI preview approximates colors; press `v` in the configurator to render against your real terminal.
 
 <details>
-<summary><strong>Theme gallery</strong> — the same session in all six themes</summary>
+<summary><strong>Theme gallery</strong> — the same session in all seven themes</summary>
 <br>
 
 **classic**
@@ -200,6 +201,10 @@ Themes map fifteen semantic roles (model, dir, git, ok/warn/crit, accent, sep, �
 **tokyo-night**
 
 ![tokyo-night theme](assets/claude-tokyo-night.png)
+
+**newsprint**
+
+![newsprint theme](assets/claude-newsprint.png)
 
 </details>
 

@@ -164,6 +164,27 @@ var builtinThemes = []theme{
 			"sep":      {Hex: "#3b4261"},
 		},
 	},
+	{
+		ID:   "newsprint",
+		Desc: "Aged newsprint: warm greys and sepia on dark stock",
+		Roles: map[string]themeColor{
+			"model":    {Hex: "#f0e6d8"}, // bright headline
+			"dir":      {Hex: "#c4b8a8"}, // body text
+			"git":      {Hex: "#d6c4b0"}, // warm grey
+			"changes":  {Hex: "#c4a884"}, // sepia accent
+			"duration": {Hex: "#a8a090"}, // cool grey
+			"cost":     {Hex: "#d8c8b8"}, // light warm grey
+			"dim":      {Hex: "#706860"}, // dark ink
+			"ok":       {Hex: "#a8a090"},
+			"warn":     {Hex: "#c4a884"},
+			"crit":     {Hex: "#f0e6d8"},
+			"agent":    {Hex: "#c4b8a8"},
+			"vim":      {Hex: "#f5efe6"}, // bright paper
+			"accent":   {Hex: "#c4a884"},
+			"session":  {Hex: "#b8aca0"},
+			"sep":      {Hex: "#585048"},
+		},
+	},
 }
 
 func themeIDs() []string {
