@@ -438,10 +438,10 @@ func runConfigure() {
 		}
 		line := effectiveLine(id, cfg)
 		var b strings.Builder
-		b.WriteString(fmt.Sprintf("[yellow::b]%s[-::-]  [gray](line %d)[-]\n\n", id, line))
+		fmt.Fprintf(&b, "[yellow::b]%s[-::-]  [gray](line %d)[-]\n\n", id, line)
 		b.WriteString(seg.desc)
 		if n := len(seg.settings); n > 0 {
-			b.WriteString(fmt.Sprintf("\n\n[gray]%d options — press o to configure[-]", n))
+			fmt.Fprintf(&b, "\n\n[gray]%d options — press o to configure[-]", n)
 		}
 		if grabbing != "" {
 			b.WriteString("\n\n[yellow::b]MOVING[-::-] — arrows relocate, enter drops, esc cancels")

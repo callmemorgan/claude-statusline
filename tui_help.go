@@ -21,7 +21,7 @@ func buildHelpText() string {
 	b.WriteString("at the cursor. color (c/C), options (o), theme (t) and presets (p) act\n")
 	b.WriteString("on the cursor's segment. Everything you see is the REAL render — the\n")
 	b.WriteString("cursor is painted on top. Nothing touches disk until you press s —\n")
-	b.WriteString(fmt.Sprintf("changes save to [green]%s[-].\n", configPath()))
+	fmt.Fprintf(&b, "changes save to [green]%s[-].\n", configPath())
 
 	section := func(title, context string) {
 		b.WriteString(fmt.Sprintf("\n[cyan::b]%s[-::-]\n", title))
