@@ -1,6 +1,7 @@
 # claude-statusline example config.
 # Copy to ~/.config/claude-statusline/config.toml and edit, or run
-# `claude-statusline configure` to edit interactively.
+# `claude-statusline configure` to edit interactively. Use
+# `claude-statusline configure --drawer` for the experimental drawer/canvas UI.
 
 schema_version = 1
 

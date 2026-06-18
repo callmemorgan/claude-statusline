@@ -226,7 +226,7 @@ func TestFilterSegments(t *testing.T) {
 }
 
 func TestFooterRows(t *testing.T) {
-	long := footerText("main")
+	long := footerText("list")
 	if got := footerRows(long, 0); got != 1 {
 		t.Errorf("zero width = %d rows, want 1", got)
 	}

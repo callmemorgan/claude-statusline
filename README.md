@@ -265,6 +265,24 @@ An interactive TUI: segment list (left), description panel (right), a **live pre
 
 In the flyout (`o`): `space`/`enter` toggles or cycles, `←`/`→` adjusts numbers (`Shift` for coarse steps), and `enter` on a color row opens the swatch picker.
 
+#### Drawer + canvas layout (experimental)
+
+```bash
+claude-statusline configure --drawer
+```
+
+An alternative UI that splits the screen into a **drawer** of available segments and a **canvas** showing the enabled layout grouped by render line. It supports the same preview, flyout, theme, preset, demo, and save features as the default list view, but adds drag-style rearrangement:
+
+| Key | Action |
+|-----|--------|
+| `Tab` / `←` / `→` | Switch focus between drawer and canvas |
+| `Space` / `Enter` | Move the focused segment on/off the canvas |
+| `g` | Grab/drop a canvas segment for repositioning |
+| `←` / `→` (grabbed) | Reorder within the current line |
+| `Shift+↑` / `Shift+↓` (grabbed) | Move the segment to the adjacent line |
+| `1`–`9` | Send the focused segment to that line |
+| `/` | Filter the drawer |
+
 ### Presets
 
 Eight named layouts, applied from the TUI (`p`) or used as your config baseline:
