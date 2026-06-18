@@ -824,6 +824,10 @@ func runConfigure() {
 					doSave()
 					scrubber.refresh()
 					return nil
+				case '?':
+					pages.SwitchToPage("help")
+					app.SetFocus(helpView)
+					return nil
 				}
 			}
 			return event
