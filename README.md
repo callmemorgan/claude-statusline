@@ -242,6 +242,14 @@ claude-statusline configure
 
 An interactive TUI: segment list (left), description panel (right), a **live preview at your real terminal width**, and a status strip showing the active theme/preset and unsaved-changes marker. The preview is fed synthetic session history and git status, so every feature — burn rates, projections, trends, rich git — is visible while you configure it. Nothing touches disk until you save.
 
+**New here?** Run the guided wizard instead:
+
+```bash
+claude-statusline wizard          # or: configure --wizard, or press g in configure
+```
+
+It assembles a good statusline from a few high-level choices — pick the **categories** you care about (project/dir, git, model, cost, context/limits, time, editor/agents), a **density** (one line / three lines / roomy dashboard), and a **theme** — with a live preview the whole way, then saves through the same config. Under a minute to a sensible layout you can refine later in the full TUI.
+
 | Key | Action |
 |-----|--------|
 | `↑` / `↓` | Navigate segments |
@@ -254,6 +262,7 @@ An interactive TUI: segment list (left), description panel (right), a **live pre
 | `o` | Open per-segment settings (bar width, iconsets, thresholds, projections, git status…) |
 | `t` | Theme picker with live preview |
 | `p` | Preset picker with live preview |
+| `g` | Guided wizard — assemble a config from a few high-level choices |
 | `/` | Filter the segment list |
 | `w` | Cycle preview width (auto → 80 → 60 → 40) to check the layout |
 | `d` | Demo mode — animate the whole preview: bars sweep, countdowns tick, cost grows |

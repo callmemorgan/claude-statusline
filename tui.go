@@ -83,6 +83,21 @@ func previewState(now time.Time) *sessionState {
 	return st
 }
 
+// installPreviewGlobals sets the synthetic git/stash results so the TUI preview
+// exercises the rich-status path (the sample payload's workspace isn't a real
+// repo). It returns a cleanup that resets both globals to nil — the render path
+// must never see them set (locked by tui_preview_test.go). Both the editor and
+// the wizard call it as `defer installPreviewGlobals()()`.
+func installPreviewGlobals() func() {
+	gitStatusPreview = &gitStatusInfo{Dirty: true, Ahead: 1, Behind: 2}
+	stash := 3
+	gitStashPreview = &stash
+	return func() {
+		gitStatusPreview = nil
+		gitStashPreview = nil
+	}
+}
+
 func runConfigure() {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		fmt.Fprintln(os.Stderr, "claude-statusline configure requires an interactive terminal.")
@@ -97,11 +112,7 @@ func runConfigure() {
 	// for the state-derived segments, and a fake rich-git result (the sample
 	// payload's workspace isn't a real repo). Both are preview-only.
 	pvState := previewState(time.Now())
-	gitStatusPreview = &gitStatusInfo{Dirty: true, Ahead: 1, Behind: 2}
-	defer func() { gitStatusPreview = nil }()
-	stashPreview := 3
-	gitStashPreview = &stashPreview
-	defer func() { gitStashPreview = nil }()
+	defer installPreviewGlobals()()
 
 	// demoActive animates the whole preview through all states (d). Session-
 	// only, like the per-segment stress test.
@@ -702,6 +713,9 @@ func runConfigure() {
 		if isPickerPage(pageName) {
 			return event // pickers handle their own keys
 		}
+		if pageName == wizardPageName {
+			return event // the wizard's focused widget handles its own keys
+		}
 		if pageName == "help" {
 			switch event.Key() {
 			case tcell.KeyEscape:
@@ -969,6 +983,24 @@ func runConfigure() {
 						updateUI()
 						app.SetFocus(list)
 					})
+				return nil
+			case 'g', 'G':
+				// Guided wizard: assemble a fresh config from high-level
+				// choices. It runs as an overlay page on this same app; on
+				// finish it replaces cfg (through mutate, so dirty + preview
+				// update) and returns to the segment list. The wizard works on
+				// its own choices and never mutates this cfg, so cancel needs
+				// no snapshot/restore — just redraw and return.
+				openWizard(app, pages, cfg, func(out config, finished bool) {
+					if finished {
+						mutate(func() { cfg = out }) // mutate redraws via updateUI
+						flash("green", "wizard applied (not yet saved)")
+					} else {
+						updateUI() // cancel: nothing changed, just repaint
+					}
+					pages.SwitchToPage("configure")
+					app.SetFocus(list)
+				})
 				return nil
 			case 'w', 'W':
 				switch previewWidth {
