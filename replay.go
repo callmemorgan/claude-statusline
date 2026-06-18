@@ -299,16 +299,16 @@ func runReplay(args []string) {
 
 	// Pick the session: by id if requested, else most recent.
 	sel := sessions[0]
-	if sessID != "" {
+	if flags.sessID != "" {
 		for _, s := range sessions {
-			if s.ID == sessID {
+			if s.ID == flags.sessID {
 				sel = s
 				break
 			}
 		}
 	}
 
-	if dump || !term.IsTerminal(int(os.Stdin.Fd())) {
+	if flags.dump || !term.IsTerminal(int(os.Stdin.Fd())) {
 		dumpReplayFrames(sel, cfg)
 		return
 	}
@@ -322,7 +322,6 @@ func runReplay(args []string) {
 // reconstruction unit tests assert against.
 func dumpReplayFrames(sel replaySession, cfg config) {
 	colors := currentPalette(cfg)
-	style := styleFor(cfg, colors)
 	width := 80
 	if w := terminalWidth(payload{}); w > 0 {
 		width = w
@@ -336,11 +335,7 @@ func dumpReplayFrames(sel replaySession, cfg config) {
 		lines := buildStatusline(buildInput{P: p, C: colors, Cfg: cfg, State: st, Width: width, Now: now})
 		off := time.Duration(sel.Samples[i].T-sel.Samples[0].T) * time.Second
 		fmt.Printf("\n── frame %d/%d  +%s ──\n", i+1, len(sel.Samples), replayDuration(off))
-		for li, l := range lines {
-			if li == 0 {
-				fmt.Printf("%s%s\n", l, style.sep)
-				continue
-			}
+		for _, l := range lines {
 			fmt.Println(l)
 		}
 	}
