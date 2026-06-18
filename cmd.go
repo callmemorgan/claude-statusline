@@ -9,6 +9,18 @@ import (
 	"time"
 )
 
+// configureArgs parses the flags passed to the `configure` subcommand and
+// reports whether the opt-in drawer/canvas UI should be used.
+func configureArgs(args []string) bool {
+	for _, a := range args {
+		switch a {
+		case "--drawer", "-d":
+			return true
+		}
+	}
+	return false
+}
+
 // dispatch routes subcommands. The bare no-args invocation is the renderer —
 // that is how Claude Code calls the binary, so it must stay untouched.
 // Legacy --flag spellings are accepted as aliases for each subcommand.
@@ -22,7 +34,11 @@ func dispatch() {
 			runVersion()
 			return
 		case "configure":
-			runConfigure()
+			if configureArgs(os.Args[2:]) {
+				runConfigureCanvas()
+			} else {
+				runConfigure()
+			}
 			return
 		case "install":
 			runInstall(os.Args[2:])
