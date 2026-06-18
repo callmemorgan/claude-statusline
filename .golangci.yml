@@ -1,0 +1,93 @@
+# golangci-lint v2 config.
+# Docs: https://golangci-lint.run/usage/configuration/
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - revive
+    - gocritic
+  settings:
+    errcheck:
+      # This codebase deliberately ignores errors from cleanup operations
+      # (deferred Close, os.RemoveAll after extract). These are intentional,
+      # not bugs — exclude them so errcheck only flags genuinely unchecked
+      # errors. Add functions here if more cleanup patterns trip it.
+      exclude-functions:
+        - (*os.File).Close
+        - (*gzip.Reader).Close
+        - (*compress/gzip.Reader).Close
+        - (*zip.ReadCloser).Close
+        - (*archive/zip.ReadCloser).Close
+        - (io.Closer).Close
+        - (io.ReadCloser).Close
+        - (io.WriteCloser).Close
+        - os.RemoveAll
+        - os.Remove
+    gocritic:
+      # defaultCaseOrder is a style preference; exitAfterDefer fires only in
+      # the fatal TUI-run error path where the process is exiting anyway.
+      disabled-checks:
+        - defaultCaseOrder
+        - exitAfterDefer
+    goimports:
+      local-prefixes:
+        - github.com/callmemorgan/claude-statusline
+    revive:
+      rules:
+        # Test stubs intentionally have unused params (overriding a func var
+        # signature). Don't flag them.
+        - name: unused-parameter
+          disabled: true
+    staticcheck:
+      # QF* are style "quickfix" suggestions (fmt.Fprintf vs Sprintf, tagged
+      # switches). They're optional nits, not bugs — disable to keep signal high.
+      checks: ["all", "-QF*", "-ST1015"]
+  exclusions:
+    # Claude Code's transient worktrees and the local .worktrees/ scratch dir
+    # contain unformatted scratch Go; never lint them.
+    paths:
+      - ".claude"
+      - ".worktrees"
+      - "testdata"
+      - "vendor"
+    rules:
+      # Test files routinely ignore errors from helpers under test (e.g.
+      # saveVersionSeen) and use bare recover(); don't flag those.
+      - path: _test\.go
+        linters: [errcheck]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/callmemorgan/claude-statusline
+  exclusions:
+    paths:
+      - ".claude"
+      - ".worktrees"
+      - "testdata"
+      - "vendor"
+
+issues:
+  max-same-issues: 0
+  fix: false
+
+output:
+  sort-results: true
+  sort-order:
+    - linter
+    - file

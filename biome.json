@@ -1,0 +1,46 @@
+{
+	"$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
+	"vcs": {
+		"enabled": true,
+		"clientKind": "git",
+		"useIgnoreFile": true
+	},
+	"files": {
+		"includes": [
+			"npm/claude-statusline/bin/**/*.js",
+			"npm/claude-statusline/extensions/**/*.ts",
+			"scripts/**/*.mjs",
+			"*.json",
+			"biome.json"
+		]
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab",
+		"lineWidth": 120
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "recommended",
+			"style": {
+				"useNodejsImportProtocol": "off"
+			}
+		}
+	},
+	"javascript": {
+		"formatter": {
+			"quoteStyle": "double",
+			"semicolons": "always",
+			"trailingCommas": "all"
+		}
+	},
+	"overrides": [
+		{
+			"includes": ["npm/claude-statusline/extensions/**/*.ts"],
+			"javascript": {
+				"globals": ["process"]
+			}
+		}
+	]
+}
