@@ -22,7 +22,7 @@ func dispatch() {
 			runVersion()
 			return
 		case "configure":
-			runConfigure()
+			runConfigure(os.Args[2:])
 			return
 		case "install":
 			runInstall(os.Args[2:])
@@ -107,4 +107,31 @@ func runRender(debug bool) {
 	// post-render side effect, and it never blocks: the worker is
 	// detached, returns immediately, and respects `mode = "off"`.
 	maybeSpawnUpdateCheck(cfg.Update, start)
+}
+
+// configureDirect and configureList are function variables so tests can
+// substitute stubs and verify dispatch without needing a terminal.
+var (
+	configureDirect = runConfigureDirect
+	configureList   = runConfigureList
+)
+
+// runConfigure dispatches to the list-based TUI by default, or to the
+// direct-manipulation (visual) TUI when --direct is passed. The list UI also
+// offers a v key shortcut to switch into direct mode mid-session.
+func runConfigure(args []string) {
+	direct := false
+	for _, a := range args {
+		if a == "--direct" {
+			direct = true
+			break
+		}
+	}
+	if direct {
+		configureDirect()
+		return
+	}
+	if configureList() {
+		configureDirect()
+	}
 }

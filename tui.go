@@ -90,7 +90,7 @@ func previewState(now time.Time) *sessionState {
 	return st
 }
 
-func runConfigure() {
+func runConfigureDirect() {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		fmt.Fprintln(os.Stderr, "claude-statusline configure requires an interactive terminal.")
 		fmt.Fprintf(os.Stderr, "Edit %s directly, or run from a terminal.\n", configPath())
@@ -211,14 +211,14 @@ func runConfigure() {
 		SetTextAlign(tview.AlignCenter).
 		SetWrap(true).
 		SetWordWrap(true).
-		SetText(footerText("main"))
+		SetText(footerText("direct"))
 
 	// Help overlay — generated from the keymap table.
 	helpView := tview.NewTextView().
 		SetDynamicColors(true).
 		SetScrollable(true).
 		SetWrap(false).
-		SetText(buildHelpText())
+		SetText(buildHelpText("direct"))
 	helpView.SetBorder(true).SetTitle(" Help (r README • q/Esc close) ")
 
 	// helpBackPage is the page to return to when the help overlay is closed.
@@ -1276,7 +1276,7 @@ func runConfigure() {
 		}
 		if sw, _ := screen.Size(); sw != lastScreenWidth {
 			lastScreenWidth = sw
-			flex.ResizeItem(help, footerRows(footerText("main"), sw), 0)
+			flex.ResizeItem(help, footerRows(footerText("direct"), sw), 0)
 			flyoutFlex.ResizeItem(flyoutHelp, footerRows(footerText("flyout"), sw), 0)
 		}
 		return false

@@ -242,6 +242,8 @@ claude-statusline configure
 
 An interactive TUI: segment list (left), description panel (right), a **live preview at your real terminal width**, and a status strip showing the active theme/preset and unsaved-changes marker. The preview is fed synthetic session history and git status, so every feature — burn rates, projections, trends, rich git — is visible while you configure it. Nothing touches disk until you save.
 
+Prefer a direct-manipulation editor? Run `claude-statusline configure --direct` (or press `v` inside the list UI) to switch to the visual editing mode, where a cursor moves directly on the live preview.
+
 | Key | Action |
 |-----|--------|
 | `↑` / `↓` | Navigate segments |
@@ -257,7 +259,8 @@ An interactive TUI: segment list (left), description panel (right), a **live pre
 | `/` | Filter the segment list |
 | `w` | Cycle preview width (auto → 80 → 60 → 40) to check the layout |
 | `d` | Demo mode — animate the whole preview: bars sweep, countdowns tick, cost grows |
-| `v` | Hide the TUI and render directly in your terminal — check the theme against your real colors and background |
+| `v` | Switch to the direct-manipulation (visual) editing mode |
+| `V` | Hide the TUI and render directly in your terminal — check the theme against your real colors and background |
 | `r` | Reset to defaults (asks first) |
 | `s` | Save and keep editing (`✓ Saved` flash) |
 | `q` / `Esc` | Quit — asks if there are unsaved changes |
