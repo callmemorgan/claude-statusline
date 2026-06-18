@@ -53,6 +53,11 @@ type config struct {
 	ReleaseNotes  releaseNotesConfig        `toml:"release_notes,omitempty"`
 	Plugins       []pluginDef               `toml:"plugins,omitempty"`
 	Update        updateConfig              `toml:"update,omitempty"`
+	// AutoLayout is OPTIONAL design-time metadata: the priority ranking + budget
+	// the auto-layout solver last used. The render path ignores it entirely; it
+	// exists only so the ranking can be re-edited later. The concrete layout
+	// lives in Segments/Lines/Reflow/Style as usual.
+	AutoLayout autoLayoutConfig `toml:"auto_layout,omitempty"`
 }
 
 // updateConfig is the [update] table in config.toml. Mode "" or unset means
@@ -214,6 +219,11 @@ func mergeWithDefaults(loaded config) config {
 	cfg.State = loaded.State
 	cfg.ReleaseNotes = loaded.ReleaseNotes
 	cfg.Update = loaded.Update
+	// Design-time metadata: carry it through so the auto-layout solver can be
+	// re-opened with the user's last ranking + budget (the render path ignores
+	// it). mergeWithDefaults field-copies explicitly, so it must be listed here
+	// or it would be silently dropped on every config load.
+	cfg.AutoLayout = loaded.AutoLayout
 	if loaded.Segments == nil {
 		inSegments := make(map[string]bool, len(cfg.Segments))
 		for _, id := range cfg.Segments {

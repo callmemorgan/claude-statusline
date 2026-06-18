@@ -22,6 +22,9 @@ Commands:
   configure    Interactive TUI: toggle/order segments, themes, presets,
                colors, per-segment settings, live width-aware preview,
                animated demo mode, render-in-terminal theme check.
+               Flag: --auto-layout opens the priority+budget solver (press
+               L inside the TUI) — rank segments, set a budget, and the
+               solver packs/demotes/drops them to fit.
   version      Show this binary's version. (The statusline's own "version"
                segment shows the calling tool's version, not this binary's.)
   debug        Read JSON from stdin and print a schema-comparison table plus

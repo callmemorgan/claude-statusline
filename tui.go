@@ -83,7 +83,17 @@ func previewState(now time.Time) *sessionState {
 	return st
 }
 
-func runConfigure() {
+func runConfigure(args ...string) {
+	// --auto-layout / auto-layout opens the priority+budget solver overlay on
+	// start instead of the segment list.
+	openAuto := false
+	for _, a := range args {
+		switch strings.TrimLeft(a, "-") {
+		case "auto-layout", "autolayout", "layout":
+			openAuto = true
+		}
+	}
+
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		fmt.Fprintln(os.Stderr, "claude-statusline configure requires an interactive terminal.")
 		fmt.Fprintf(os.Stderr, "Edit %s directly, or run from a terminal.\n", configPath())
@@ -695,6 +705,31 @@ func runConfigure() {
 		return true
 	}
 
+	// ─── Auto-layout overlay (priority + budget solver) ──────────────────
+	autoLayout := newAutoLayoutModel(app, pages)
+	pages.AddPage("autolayout", autoLayout.flex, true, false)
+	autoLayout.back = func() {
+		pages.SwitchToPage("configure")
+		app.SetFocus(list)
+		updateUI()
+	}
+	autoLayout.commit = func(res packResult, prios []string, budget autoLayoutBudget) {
+		mutate(func() {
+			applyPackResult(&cfg, res, budget.density())
+			// Persist the ranking + budget as design-time metadata so the
+			// overlay can be re-opened and re-edited. The render config stays
+			// concrete (Segments/Lines/Reflow/Style set by applyPackResult).
+			cfg.AutoLayout = autoLayoutConfig{Priorities: prios, Budget: budget}
+		})
+		pages.SwitchToPage("configure")
+		app.SetFocus(list)
+		flash("green", fmt.Sprintf("auto-layout applied — %d placed, %d dropped (not yet saved)", countPlaced(res), len(res.Dropped)))
+	}
+	openAutoLayout := func() {
+		autoLayout.seed(cfg, autoLayoutMeasureInput(pvState), currentPalette(cfg))
+		pages.SwitchToPage("autolayout")
+	}
+
 	app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		// When an overlay page is visible, only intercept close/nav keys;
 		// let everything else pass through to the inner widget.
@@ -776,6 +811,9 @@ func runConfigure() {
 				}
 			}
 			return event
+		}
+		if pageName == "autolayout" {
+			return autoLayout.handleKey(event)
 		}
 		if pageName == "confirm" || pageName == "quit" || pageName == "reset" {
 			// Modals handle their own keys; offer Esc/q as cancel.
@@ -1016,6 +1054,9 @@ func runConfigure() {
 					_, _ = bufio.NewReader(os.Stdin).ReadString('\n')
 				})
 				return nil
+			case 'L':
+				openAutoLayout()
+				return nil
 			case 'r', 'R':
 				pages.SwitchToPage("reset")
 				app.SetFocus(resetModal)
@@ -1214,6 +1255,14 @@ func runConfigure() {
 			}
 		})
 	pages.AddPage("quit", quitModal, true, false)
+
+	if openAuto {
+		// Open the overlay before Run(). openAutoLayout only seeds model state
+		// and switches the visible page (no live-screen size queries), so it is
+		// safe on the main goroutine pre-Run — and QueueUpdateDraw here would
+		// deadlock, since its channel is only drained once the loop is running.
+		openAutoLayout()
+	}
 
 	if err := app.SetRoot(pages, true).EnableMouse(true).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
