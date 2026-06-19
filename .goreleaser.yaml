@@ -57,31 +57,36 @@ signs:
       - "${signature}"
     artifacts: checksum
 
-brews:
+homebrew_casks:
   - name: claude-statusline
     repository:
       owner: callmemorgan
       name: homebrew-tap
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     homepage: "https://github.com/callmemorgan/claude-statusline"
-    description: "Statusline renderer for Claude Code and Antigravity CLI"
-    test: |
-      system "#{bin}/claude-statusline", "--help"
-    install: |
-      bin.install "claude-statusline"
+    description: "Statusline renderer for Claude Code, Antigravity CLI, and pi"
+    license: "MIT"
+    binaries:
+      - claude-statusline
     caveats: |
       To wire claude-statusline into Claude Code, run:
         claude-statusline install
       Customize anytime with:
         claude-statusline configure
-    post_install: |
-      gopath = ENV["GOPATH"] || "#{ENV["HOME"]}/go"
-      go_bin = "#{gopath}/bin/claude-statusline"
-      if File.exist?(go_bin)
-        opoo "Detected another claude-statusline installation at #{go_bin}. Consider removing it to avoid PATH conflicts."
-      end
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/claude-statusline"]
+          end
 
-      local_bin = "#{ENV["HOME"]}/.local/bin/claude-statusline"
-      if File.exist?(local_bin)
-        opoo "Detected another claude-statusline installation at #{local_bin}. Consider removing it to avoid PATH conflicts."
-      end
+          gopath = ENV["GOPATH"] || "#{ENV["HOME"]}/go"
+          go_bin = "#{gopath}/bin/claude-statusline"
+          if File.exist?(go_bin)
+            opoo "Detected another claude-statusline installation at #{go_bin}. Consider removing it to avoid PATH conflicts."
+          end
+
+          local_bin = "#{ENV["HOME"]}/.local/bin/claude-statusline"
+          if File.exist?(local_bin)
+            opoo "Detected another claude-statusline installation at #{local_bin}. Consider removing it to avoid PATH conflicts."
+          end

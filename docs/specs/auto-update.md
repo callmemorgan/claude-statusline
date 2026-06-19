@@ -30,7 +30,7 @@ render path:  read $XDG_STATE_HOME/claude-statusline/update.json (one ReadFile)
 update-check: resolve latest tag (one HTTPS request, no GitHub API quota)
               → write update.json atomically
               → mode == "auto" && newer? → manual install: download, verify, swap
-                                         → brew install:   brew upgrade claude-statusline
+                                         → brew install:   brew upgrade --cask claude-statusline
                                          → npm install:    no-op (npm owns the binary)
 ```
 
@@ -55,7 +55,7 @@ update-check: resolve latest tag (one HTTPS request, no GitHub API quota)
   state (see segment section).
 - **Homebrew installs never self-swap the binary directly** — replacing a
   Cellar-managed binary fights brew's bookkeeping. In `auto` mode the worker
-  instead runs **`brew upgrade claude-statusline`** itself (with the rails in
+  instead runs **`brew upgrade --cask claude-statusline`** itself (with the rails in
   the worker section); in `notify` mode they get the segment + hint.
 - **npm installs never self-swap and never run a package-manager upgrade** —
   npm owns the binary (it lives under `node_modules`), so `auto` is a no-op
@@ -223,10 +223,10 @@ via defer.
    `kindNpm` regardless of mode (npm-owned binaries are never self-modified;
    the cache write above is enough for the notify segment to work).
 4. Auto mode + `kindBrew` + `compareVersions(latest, current) > 0` →
-   run `brew upgrade claude-statusline`:
+   run `brew upgrade --cask claude-statusline`:
    - locate `brew` on PATH (also try `/opt/homebrew/bin/brew`,
      `/usr/local/bin/brew`); missing → fall back to notify-only silently.
-   - env `HOMEBREW_NO_AUTO_UPDATE=1` (upgrade the formula, don't trigger a
+   - env `HOMEBREW_NO_AUTO_UPDATE=1` (upgrade the cask, don't trigger a
      full `brew update` of every tap from a background process) and
      `HOMEBREW_NO_INSTALL_CLEANUP=1`.
    - own context timeout of 5 minutes (the worker's overall budget rises to
@@ -306,7 +306,7 @@ intent) but **not** the safety rails (kind, major, checksum, smoke-test):
 - `kindDev` → "source build — update with `go install …@latest`", exit 0.
 - `kindNpm` → "installed via npm — update with `npm update -g
   @morgan.rebrand/claude-statusline`", exit 0 (never touches the binary).
-- `kindBrew` → run `brew upgrade claude-statusline` in the foreground with
+- `kindBrew` → run `brew upgrade --cask claude-statusline` in the foreground with
   live output (same rails as the worker's brew branch, minus the silence);
   brew missing → print the manual command, exit 1.
 - Already current → "claude-statusline v1.2.0 is up to date", exit 0.
@@ -420,7 +420,7 @@ manual smoke below, not unit tests — do not mock HTTP for coverage theater.
       interval; next render announces via the release-notes takeover;
       checksum mismatch or failed smoke-test leaves the old binary untouched.
 - [ ] Auto mode on a Homebrew install: never touches the binary directly;
-      runs `brew upgrade claude-statusline` with `HOMEBREW_NO_AUTO_UPDATE=1`,
+      runs `brew upgrade --cask claude-statusline` with `HOMEBREW_NO_AUTO_UPDATE=1`,
       silently skipping when brew is absent.
 - [ ] `claude-statusline install` output mentions the update-check default.
 - [ ] `claude-statusline update` / `--check` behave per the table; honest

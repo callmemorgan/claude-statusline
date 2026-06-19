@@ -153,7 +153,7 @@ func updateHintFor(kind installKind) string {
 	case kindNpm:
 		return "npm update -g @morgan.rebrand/claude-statusline"
 	case kindBrew:
-		return "brew upgrade claude-statusline"
+		return "brew upgrade --cask claude-statusline"
 	default:
 		return "claude-statusline update"
 	}
@@ -164,7 +164,7 @@ func renderUpdate(ctx renderCtx) (string, bool) {
 	// Confirmation comes first, before the mode==off guard: a manual
 	// `update` should still confirm even when auto-update is disabled. Show
 	// only when the running binary IS the one the update targeted (so a
-	// no-op brew upgrade or stale record can't fire) and we're inside the
+	// no-op brew upgrade --cask or stale record can't fire) and we're inside the
 	// window. The elapsed >= 0 guard mirrors the spawn gate against a future
 	// timestamp pinning the message on screen.
 	if res, ok := loadUpdateResult(); ok && res.To == cur && cur != "" {

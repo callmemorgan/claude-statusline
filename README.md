@@ -22,11 +22,11 @@ The core renderer is a single static binary (one TOML dependency); the interacti
 
 ```bash
 brew tap callmemorgan/tap
-brew install claude-statusline
+brew install --cask claude-statusline
 claude-statusline install
 ```
 
-Upgrade later with `brew upgrade claude-statusline`.
+Upgrade later with `brew upgrade --cask claude-statusline`.
 
 **Any platform — `go install`:**
 
@@ -608,7 +608,7 @@ The notify segment has two forms:
 - **Compact** (`⬆ v1.2.0`) the rest of the day.
 - **Expanded** for ~5 minutes after each check: `⬆ v1.2.0 · run: claude-statusline update · disable: [update] in config.toml`. The disclosure window is derived from the cache's `checked_at`, so no extra state is needed.
 
-After a self-update lands, the same segment shows `✓ updated to vX.Y.Z` for ~5 minutes (read from `update-result.json`, written by the install path). It self-hides once the window passes or when the running binary's version doesn't match the recorded target, so a no-op `brew upgrade` or a stale record never confirms.
+After a self-update lands, the same segment shows `✓ updated to vX.Y.Z` for ~5 minutes (read from `update-result.json`, written by the install path). It self-hides once the window passes or when the running binary's version doesn't match the recorded target, so a no-op `brew upgrade --cask` or a stale record never confirms.
 
 Modes:
 
@@ -620,7 +620,7 @@ mode = "notify"   # default: show segment only
 check_hours = 24  # 1..168, default 24
 ```
 
-`auto` mode **crosses MAJOR versions** — it's a one-way door that downloads, verifies the cosign signature on `checksums.txt` against the embedded public key, sha256-verifies the asset against it, smoke-tests the staged binary, and atomically swaps the on-disk exe. Homebrew installs run `brew upgrade claude-statusline` instead of touching the binary directly (Cellar bookkeeping fights self-swap); npm installs are ignored entirely by `auto` because npm owns the file (update with `npm update -g @morgan.rebrand/claude-statusline` instead). pi installs are also ignored by the binary's self-swapper because pi's package manager owns the files — update them with `pi update --extension npm:@morgan.rebrand/claude-statusline` or `pi update`. The tap's git checkout is refreshed first (a targeted `git pull`, not a global `brew update`) so brew sees the newly-published formula despite `HOMEBREW_NO_AUTO_UPDATE`. Failures are silent on the next interval retries; an invalid signature, a checksum mismatch, or a failed smoke-test leaves the old binary in place (it fails closed).
+`auto` mode **crosses MAJOR versions** — it's a one-way door that downloads, verifies the cosign signature on `checksums.txt` against the embedded public key, sha256-verifies the asset against it, smoke-tests the staged binary, and atomically swaps the on-disk exe. Homebrew installs run `brew upgrade --cask claude-statusline` instead of touching the binary directly (package-manager bookkeeping fights self-swap); npm installs are ignored entirely by `auto` because npm owns the file (update with `npm update -g @morgan.rebrand/claude-statusline` instead). pi installs are also ignored by the binary's self-swapper because pi's package manager owns the files — update them with `pi update --extension npm:@morgan.rebrand/claude-statusline` or `pi update`. The tap's git checkout is refreshed first (a targeted `git pull`, not a global `brew update`) so brew sees the newly-published cask despite `HOMEBREW_NO_AUTO_UPDATE`. Failures are silent on the next interval retries; an invalid signature, a checksum mismatch, or a failed smoke-test leaves the old binary in place (it fails closed).
 
 `mode = "off"` is the right choice for air-gapped or centrally-managed deployments — it produces zero spawns and zero reads beyond the config.
 

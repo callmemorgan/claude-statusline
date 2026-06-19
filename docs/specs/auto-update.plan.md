@@ -12,8 +12,8 @@ already locked in the spec are not re-litigated here; this document is about
   work before the print loop. The spawn happens after printing.
 - **`version == "dev"` short-circuits the whole feature.** Same carve-out
   `release-notes` uses. This is what keeps goldens inert without `-update`.
-- **Homebrew installs never have their binary swapped by us** — Cellar
-  bookkeeping fights that. `auto` mode on brew runs `brew upgrade` instead.
+- **Homebrew installs never have their binary swapped by us** — package-manager
+  bookkeeping fights that. `auto` mode on brew runs `brew upgrade --cask` instead.
 - **Auto means auto** — it crosses MAJOR versions, never downgrades.
 - **No new dependencies.** `crypto/sha256`, `archive/tar`, `archive/zip`,
   `compress/gzip`, `net/http` are all stdlib.
@@ -107,7 +107,7 @@ existing fields).
 
 - `installKind` enum + `detectInstallKind(exePath, version string) installKind`.
   Pure on its inputs (path + version string). `version == "dev"` → `kindDev`;
-  path containing `/Cellar/` or `/homebrew/` (case-insensitive on darwin's
+  path containing `/Cellar/`, `/Caskroom/`, or `/homebrew/` (case-insensitive on darwin's
   HFS+ defaults but I'll do `strings.Contains` to keep it simple and let
   the test assert on the exact strings) → `kindBrew`; otherwise `kindManual`.
 - `compareVersions(a, b string) int` — leading `v` tolerated, malformed
@@ -282,7 +282,7 @@ non-representative).
   smoke-test).
 - `kindDev` → print "source build — update with `go install …@latest`",
   exit 0.
-- `kindBrew` → run `brew upgrade claude-statusline` in the foreground
+- `kindBrew` → run `brew upgrade --cask claude-statusline` in the foreground
   (same env as the worker, but with live stdout/stderr). Missing brew →
   print the manual command, exit 1.
 - Already current → "claude-statusline vX.Y.Z is up to date", exit 0.
@@ -370,13 +370,14 @@ right step instead of "everything broke at the end."
 
 ## Risks I'm flagging up front
 
-1. **`detectInstallKind` path matching.** `/Cellar/` and `/homebrew/`
+1. **`detectInstallKind` path matching.** `/Cellar/`, `/Caskroom/`, and `/homebrew/`
    cover macOS Homebrew on both Apple Silicon (`/opt/homebrew/`) and
    Intel (`/usr/local/`). Linuxbrew uses `~/.linuxbrew/Cellar/...`,
-   which contains `/Cellar/` so the substring check catches it. I'm not
-   going to be more clever than that — the spec's call site is
-   `filepath.EvalSymlinks` on the running binary, and the brew bin
-   symlink always points into a Cellar.
+   which contains `/Cellar/` so the substring check catches it. Cask
+   installs resolve into `/opt/homebrew/Caskroom/...`, so `/Caskroom/`
+   catches those. I'm not going to be more clever than that — the spec's
+   call site is `filepath.EvalSymlinks` on the running binary, and the
+   brew bin symlink always points into a Cellar or Caskroom.
 2. **Windows .zip extraction.** `archive/zip` is in stdlib, but the
    inner entry name might not be exactly `claude-statusline` — GoReleaser
    can prefix with a directory. Test 7 will exercise this; if extraction
@@ -419,7 +420,7 @@ Every box in the spec's "Acceptance criteria" maps to a specific check:
   announces via release-notes takeover; checksum/smoke failure leaves
   the old binary. Tests 6 + 7 + manual smoke.
 - [x] Auto on brew: never touches the binary directly; runs
-  `brew upgrade claude-statusline` with `HOMEBREW_NO_AUTO_UPDATE=1`;
+  `brew upgrade --cask claude-statusline` with `HOMEBREW_NO_AUTO_UPDATE=1`;
   silent when brew absent. Test 9.
 - [x] `install` output mentions the default. One-line `install.go`
   change in step 6.

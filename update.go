@@ -49,9 +49,9 @@ const (
 	updateRepoName  = "claude-statusline"
 )
 
-// updateBrewTap is the Homebrew tap hosting the formula (the "homebrew-"
+// updateBrewTap is the Homebrew tap hosting the cask (the "homebrew-"
 // prefix is implicit in tap names). The brew upgrade path refreshes this tap
-// before upgrading so brew sees newly-published formula versions even with
+// before upgrading so brew sees newly-published cask versions even with
 // HOMEBREW_NO_AUTO_UPDATE set.
 const updateBrewTap = updateRepoOwner + "/tap"
 
@@ -181,7 +181,8 @@ func recordUpdateResult(from, to, method string, verified bool) {
 // (exePath is the resolved path; "" + version "dev" → kindDev without any
 // filesystem call) so the table test needs no real symlinks. The caller
 // resolves the path via os.Executable() + filepath.EvalSymlinks — brew's
-// bin symlink points into the Cellar, which is the reliable signal.
+// bin symlink points into the Cellar (formula) or Caskroom (cask), which is
+// the reliable signal.
 func detectInstallKind(exePath, version string) installKind {
 	if version == "dev" {
 		return kindDev
@@ -210,7 +211,7 @@ func detectInstallKind(exePath, version string) installKind {
 		}
 	}
 	for _, seg := range segs {
-		if seg == "cellar" || seg == "homebrew" {
+		if seg == "cellar" || seg == "caskroom" || seg == "homebrew" {
 			return kindBrew
 		}
 	}
@@ -460,7 +461,7 @@ func runUpdateFor(args []string, checkOnly bool, current string, kind installKin
 			osExit(1)
 			return
 		}
-		// Refresh our tap first so brew sees a freshly-published formula
+		// Refresh our tap first so brew sees a freshly-published cask
 		// despite HOMEBREW_NO_AUTO_UPDATE.
 		refreshBrewTapFn(brewPath)
 		// The subcommand path uses the same runner the worker uses (with
@@ -1038,10 +1039,10 @@ var findBrewExe = resolveBrew
 // updateBrewTapTimeout bounds the pre-upgrade tap refresh.
 const updateBrewTapTimeout = 30 * time.Second
 
-// refreshBrewTap pulls the latest formula for our tap before `brew upgrade`.
+// refreshBrewTap pulls the latest cask for our tap before `brew upgrade --cask`.
 // Because the upgrade runs with HOMEBREW_NO_AUTO_UPDATE=1 (so brew doesn't
 // refresh every tap on the system), a stale local tap would make `brew upgrade`
-// report "already installed" against an outdated formula — exactly what hides a
+// report "already installed" against an outdated cask — exactly what hides a
 // freshly-published release. Refreshing just our tap's git checkout keeps the
 // upgrade fast while letting brew see the new version. Best-effort: any failure
 // (tap not a git checkout, offline, git missing) is non-fatal and the upgrade
@@ -1069,7 +1070,7 @@ func refreshBrewTap(brewPath string) {
 // shelling out to brew/git.
 var refreshBrewTapFn = refreshBrewTap
 
-// brewRunner runs `brew upgrade claude-statusline` with rails that keep
+// brewRunner runs `brew upgrade --cask claude-statusline` with rails that keep
 // the worker polite to the user's system. live=true streams output to the
 // caller's terminal; live=false discards it. timeout=0 means no timeout
 // (used by the foreground subcommand); otherwise a context with that timeout
@@ -1087,7 +1088,7 @@ var brewRunner = func(brewPath string, live bool, timeout time.Duration) ([]stri
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	c := exec.CommandContext(ctx, brewPath, "upgrade", "claude-statusline")
+	c := exec.CommandContext(ctx, brewPath, "upgrade", "--cask", "claude-statusline")
 	c.Env = append(os.Environ(),
 		"HOMEBREW_NO_AUTO_UPDATE=1",
 		"HOMEBREW_NO_INSTALL_CLEANUP=1",
@@ -1323,7 +1324,7 @@ func runUpdateCheck() {
 		if brewPath == "" {
 			return
 		}
-		// Refresh our tap first so brew sees a freshly-published formula
+		// Refresh our tap first so brew sees a freshly-published cask
 		// despite HOMEBREW_NO_AUTO_UPDATE.
 		refreshBrewTapFn(brewPath)
 		// Brew upgrade is slow; the runner discards output. Failure is
