@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -21,7 +22,7 @@ func writeScript(t *testing.T, body string) string {
 }
 
 func TestPluginSingleField(t *testing.T) {
-	def := pluginDef{ID: "hello", Command: writeScript(t, `echo "hello world"`)}
+	def := config.PluginDef{ID: "hello", Command: writeScript(t, `echo "hello world"`)}
 	if got := runPluginRaw(def, payload.Payload{}); got != "hello world" {
 		t.Errorf("runPluginRaw = %q, want %q", got, "hello world")
 	}
@@ -29,9 +30,9 @@ func TestPluginSingleField(t *testing.T) {
 
 func TestPluginMultiField(t *testing.T) {
 	clearPluginCache()
-	def := pluginDef{
+	def := config.PluginDef{
 		Command: writeScript(t, "echo cpu:42%\necho mem: 73%"),
-		Fields:  []pluginField{{ID: "cpu"}, {ID: "mem"}},
+		Fields:  []config.PluginField{{ID: "cpu"}, {ID: "mem"}},
 	}
 	if got := runPluginField(def, payload.Payload{}, "cpu"); got != "42%" {
 		t.Errorf("cpu = %q, want %q", got, "42%")
@@ -42,21 +43,21 @@ func TestPluginMultiField(t *testing.T) {
 }
 
 func TestPluginTimeout(t *testing.T) {
-	def := pluginDef{ID: "slow", Command: writeScript(t, "sleep 5; echo done"), TimeoutMS: 50}
+	def := config.PluginDef{ID: "slow", Command: writeScript(t, "sleep 5; echo done"), TimeoutMS: 50}
 	if got := runPluginRaw(def, payload.Payload{}); got != "" {
 		t.Errorf("timed-out plugin should return empty, got %q", got)
 	}
 }
 
 func TestPluginNonZeroExit(t *testing.T) {
-	def := pluginDef{ID: "fail", Command: writeScript(t, "echo oops; exit 3")}
+	def := config.PluginDef{ID: "fail", Command: writeScript(t, "echo oops; exit 3")}
 	if got := runPluginRaw(def, payload.Payload{}); got != "" {
 		t.Errorf("failing plugin should return empty, got %q", got)
 	}
 }
 
 func TestPluginMissingExecutable(t *testing.T) {
-	def := pluginDef{ID: "ghost", Command: "/nonexistent/plugin.sh"}
+	def := config.PluginDef{ID: "ghost", Command: "/nonexistent/plugin.sh"}
 	if got := runPluginRaw(def, payload.Payload{}); got != "" {
 		t.Errorf("missing plugin should return empty, got %q", got)
 	}
@@ -84,7 +85,7 @@ func TestParseKeyValueOutput(t *testing.T) {
 // ─── Async plugin tests ──────────────────────────────────────────────
 
 type spawnCall struct {
-	def       pluginDef
+	def       config.PluginDef
 	cachePath string
 	lockPath  string
 }
@@ -95,14 +96,14 @@ func stubSpawnRefresher(t *testing.T) *[]spawnCall {
 	t.Helper()
 	var calls []spawnCall
 	old := spawnRefresher
-	spawnRefresher = func(def pluginDef, p payload.Payload, cachePath, lockPath string) {
+	spawnRefresher = func(def config.PluginDef, p payload.Payload, cachePath, lockPath string) {
 		calls = append(calls, spawnCall{def: def, cachePath: cachePath, lockPath: lockPath})
 	}
 	t.Cleanup(func() { spawnRefresher = old })
 	return &calls
 }
 
-func setRefreshEnv(t *testing.T, def pluginDef, cachePath, lockPath string) {
+func setRefreshEnv(t *testing.T, def config.PluginDef, cachePath, lockPath string) {
 	t.Helper()
 	t.Setenv("STATUSLINE_REFRESH_COMMAND", def.Command)
 	t.Setenv("STATUSLINE_REFRESH_TIMEOUT_MS", strconv.Itoa(def.TimeoutMS))
@@ -138,7 +139,7 @@ func TestAsyncPluginReadsCache(t *testing.T) {
 	clearPluginCache()
 	calls := stubSpawnRefresher(t)
 
-	def := pluginDef{Async: true, Command: "/nonexistent", RefreshMS: 5000, TimeoutMS: 500}
+	def := config.PluginDef{Async: true, Command: "/nonexistent", RefreshMS: 5000, TimeoutMS: 500}
 	cachePath, lockPath, _ := pluginCachePaths(def.Command)
 
 	// Missing cache: empty result, refresh triggered.
@@ -180,7 +181,7 @@ func TestAsyncPluginStampedeLock(t *testing.T) {
 	clearPluginCache()
 	calls := stubSpawnRefresher(t)
 
-	def := pluginDef{Async: true, Command: "/nonexistent", RefreshMS: 5000, TimeoutMS: 500}
+	def := config.PluginDef{Async: true, Command: "/nonexistent", RefreshMS: 5000, TimeoutMS: 500}
 	cachePath, lockPath, _ := pluginCachePaths(def.Command)
 	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
 		t.Fatal(err)
@@ -216,7 +217,7 @@ func TestPluginRefreshSubcommand(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", dir)
 
 	script := writeScript(t, `echo "refreshed value"`)
-	def := pluginDef{Command: script, TimeoutMS: 1000}
+	def := config.PluginDef{Command: script, TimeoutMS: 1000}
 	cachePath, lockPath, tmpPath := pluginCachePaths(def.Command)
 	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
 		t.Fatal(err)
@@ -251,7 +252,7 @@ func TestPluginRefreshFailureKeepsCache(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", dir)
 
 	script := writeScript(t, `echo preserved; exit 1`)
-	def := pluginDef{Command: script, TimeoutMS: 1000}
+	def := config.PluginDef{Command: script, TimeoutMS: 1000}
 	cachePath, lockPath, _ := pluginCachePaths(def.Command)
 	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
 		t.Fatal(err)
@@ -289,7 +290,7 @@ func TestPluginRefreshFailureCreatesEmptyCache(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", dir)
 
 	script := writeScript(t, `exit 1`)
-	def := pluginDef{Command: script, TimeoutMS: 1000}
+	def := config.PluginDef{Command: script, TimeoutMS: 1000}
 	cachePath, lockPath, _ := pluginCachePaths(def.Command)
 	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
 		t.Fatal(err)
@@ -326,7 +327,7 @@ func TestPluginRefreshZeroTimeoutFloor(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", dir)
 
 	script := writeScript(t, "sleep 0.05; echo slow")
-	def := pluginDef{Command: script, TimeoutMS: 0}
+	def := config.PluginDef{Command: script, TimeoutMS: 0}
 	cachePath, lockPath, _ := pluginCachePaths(def.Command)
 	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
 		t.Fatal(err)
@@ -350,7 +351,7 @@ func TestPluginRefreshFiltersInternalEnv(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", dir)
 
 	script := writeScript(t, `echo "refresh_cmd=${STATUSLINE_REFRESH_COMMAND:-}"`)
-	def := pluginDef{Command: script, TimeoutMS: 1000}
+	def := config.PluginDef{Command: script, TimeoutMS: 1000}
 	cachePath, lockPath, _ := pluginCachePaths(def.Command)
 	if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err != nil {
 		t.Fatal(err)

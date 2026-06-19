@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,29 +65,29 @@ func TestBuildStatuslineGolden(t *testing.T) {
 	cases := []struct {
 		name    string
 		Payload string
-		cfg     config
+		cfg     config.Config
 		columns int
 	}{
-		{"claude-full__default", "claude-full.json", defaultConfig(), 0},
-		{"agy-full__default", "agy-full.json", defaultConfig(), 0},
-		{"pi-full__default", "pi-full.json", defaultConfig(), 0},
-		{"minimal__default", "minimal.json", defaultConfig(), 0},
-		{"claude-full__default-60", "claude-full.json", defaultConfig(), 60},
-		{"claude-full__cascade-60", "claude-full.json", func() config {
-			c := defaultConfig()
+		{"claude-full__default", "claude-full.json", config.DefaultConfig(), 0},
+		{"agy-full__default", "agy-full.json", config.DefaultConfig(), 0},
+		{"pi-full__default", "pi-full.json", config.DefaultConfig(), 0},
+		{"minimal__default", "minimal.json", config.DefaultConfig(), 0},
+		{"claude-full__default-60", "claude-full.json", config.DefaultConfig(), 60},
+		{"claude-full__cascade-60", "claude-full.json", func() config.Config {
+			c := config.DefaultConfig()
 			c.Reflow = "cascade"
 			return c
 		}(), 60},
-		{"claude-full__group-60", "claude-full.json", func() config {
-			c := defaultConfig()
+		{"claude-full__group-60", "claude-full.json", func() config.Config {
+			c := config.DefaultConfig()
 			c.Reflow = "group"
 			return c
 		}(), 60},
-		{"claude-full__custom-lines", "claude-full.json", config{
+		{"claude-full__custom-lines", "claude-full.json", config.Config{
 			Segments: []string{"directory", "git-branch", "cost", "model", "context-window"},
 			Lines:    map[string]int{"cost": 2, "context-window": 1},
 		}, 0},
-		{"claude-full__bar-settings", "claude-full.json", config{
+		{"claude-full__bar-settings", "claude-full.json", config.Config{
 			Segments: []string{"context-window", "rate-limit-5h"},
 			Settings: map[string]map[string]any{
 				"context-window": {"bar_width": 30, "iconset": "blocks", "show_warning": false},
@@ -108,7 +109,7 @@ func TestBuildStatuslineGolden(t *testing.T) {
 // renders nothing.
 func TestBuildStatuslineEmptySegments(t *testing.T) {
 	p := loadPayload(t, "claude-full.json")
-	cfg := config{Segments: []string{}}
+	cfg := config.Config{Segments: []string{}}
 	initSegments(nil)
 	if lines := buildStatusline(buildInput{P: p, Cfg: cfg, Now: testNow}); len(lines) != 0 {
 		t.Errorf("expected no lines, got %q", lines)
@@ -120,7 +121,7 @@ func TestBuildStatuslineEmptySegments(t *testing.T) {
 func TestBuildStatuslineColorCodes(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	p := loadPayload(t, "claude-full.json")
-	cfg := config{Segments: []string{"directory"}}
+	cfg := config.Config{Segments: []string{"directory"}}
 	initSegments(nil)
 
 	colored := buildStatusline(buildInput{P: p, C: palette.Palette{Dir: "\x1b[36m", Rst: "\x1b[0m"}, Cfg: cfg, Now: testNow})

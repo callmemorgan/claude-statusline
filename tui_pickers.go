@@ -12,6 +12,7 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/palette"
 )
 
@@ -107,8 +108,8 @@ func openThemePicker(app *tview.Application, pages *tview.Pages, current string,
 }
 
 func openPresetPicker(app *tview.Application, pages *tview.Pages, onHover func(id string), onDone func(id string, picked bool)) {
-	items := make([][2]string, 0, len(layoutPresets))
-	for _, p := range layoutPresets {
+	items := make([][2]string, 0, len(config.LayoutPresets))
+	for _, p := range config.LayoutPresets {
 		desc := p.Desc
 		if p.Theme != "" {
 			desc += " · suggests " + p.Theme

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/payload"
 )
 
@@ -87,12 +88,12 @@ func printDebugSchema(raw []byte, p payload.Payload) {
 }
 
 // printConfigWarnings lists config validation warnings in --debug output.
-func printConfigWarnings(warns []configWarning) {
+func printConfigWarnings(warns []config.ConfigWarning) {
 	if len(warns) == 0 {
 		return
 	}
 	fmt.Println()
-	fmt.Printf("config warnings (%s):\n", configPath())
+	fmt.Printf("config warnings (%s):\n", config.ConfigPath())
 	for _, w := range warns {
 		fmt.Printf("  ! %s\n", w)
 	}

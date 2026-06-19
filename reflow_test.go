@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"strings"
 	"testing"
 
@@ -8,7 +9,7 @@ import (
 )
 
 func classicStyle() lineStyle {
-	return styleFor(config{}, palette.Palette{})
+	return styleFor(config.Config{}, palette.Palette{})
 }
 
 func seg(s string, width int) string {
@@ -75,7 +76,7 @@ func TestReflowOptIn(t *testing.T) {
 	initSegments(nil)
 
 	for _, mode := range []string{"", "off"} {
-		cfg := defaultConfig()
+		cfg := config.DefaultConfig()
 		cfg.Reflow = mode
 		wide := buildStatusline(buildInput{P: p, Cfg: cfg, Width: 0, Now: testNow})
 		narrow := buildStatusline(buildInput{P: p, Cfg: cfg, Width: 40, Now: testNow})
@@ -86,8 +87,8 @@ func TestReflowOptIn(t *testing.T) {
 
 	// Explicit cascade at a narrow width produces more physical lines than the
 	// no-wrap default — i.e. it actually wraps.
-	def := buildStatusline(buildInput{P: p, Cfg: defaultConfig(), Width: 40, Now: testNow})
-	casc := defaultConfig()
+	def := buildStatusline(buildInput{P: p, Cfg: config.DefaultConfig(), Width: 40, Now: testNow})
+	casc := config.DefaultConfig()
 	casc.Reflow = "cascade"
 	wrapped := buildStatusline(buildInput{P: p, Cfg: casc, Width: 40, Now: testNow})
 	if len(wrapped) <= len(def) {

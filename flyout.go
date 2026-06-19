@@ -5,18 +5,19 @@ import (
 
 	"github.com/rivo/tview"
 
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/payload"
 )
 
 // ─── Flyout Helpers ──────────────────────────────────────────────────
 //
-// The flyout panel is fully schema-driven: it renders whatever settingSpec
+// The flyout panel is fully schema-driven: it renders whatever config.SettingSpec
 // list the selected segment declares (segmentInfo.settings). Only the two
 // ephemeral actions — stress_test and sync_to_all — have bespoke handling.
 
 // segmentSpecs returns the settings schema for a segment ID, or nil when the
 // segment has no configurable settings (no flyout).
-func segmentSpecs(segID string) []settingSpec {
+func segmentSpecs(segID string) []config.SettingSpec {
 	if s, ok := segmentByID(segID); ok {
 		return s.settings
 	}
@@ -68,7 +69,7 @@ func stopStressTest(segID string) {
 }
 
 // flyoutValueStr renders the current value of a flyout row.
-func flyoutValueStr(segID string, sp settingSpec, cfg config) string {
+func flyoutValueStr(segID string, sp config.SettingSpec, cfg config.Config) string {
 	switch sp.Key {
 	case "stress_test":
 		if stressTestActive[segID] {
@@ -82,7 +83,7 @@ func flyoutValueStr(segID string, sp settingSpec, cfg config) string {
 	if !ok {
 		return ""
 	}
-	return settingsFor(cfg, seg).ValueString(sp)
+	return config.SettingsFor(cfg, seg.id, seg.settings).ValueString(sp)
 }
 
 func cycleOption(options []string, current string, delta int) string {
@@ -100,7 +101,7 @@ func cycleOption(options []string, current string, delta int) string {
 // applyFlyoutChange mutates one setting by kind: bools toggle, enums cycle by
 // delta, ints step by delta (clamped to the spec bounds). The pruned result is
 // written back to cfg.Settings. Ephemeral specs never touch the config.
-func applyFlyoutChange(segID string, sp settingSpec, cfg *config, delta int) {
+func applyFlyoutChange(segID string, sp config.SettingSpec, cfg *config.Config, delta int) {
 	if sp.Key == "stress_test" {
 		stressTestActive[segID] = !stressTestActive[segID]
 		return
@@ -109,13 +110,13 @@ func applyFlyoutChange(segID string, sp settingSpec, cfg *config, delta int) {
 	if !ok {
 		return
 	}
-	s := settingsFor(*cfg, seg)
+	s := config.SettingsFor(*cfg, seg.id, seg.settings)
 	switch sp.Kind {
-	case kindBool:
+	case config.KindBool:
 		s[sp.Key] = !s.Bool(sp.Key)
-	case kindEnum, kindColor:
+	case config.KindEnum, config.KindColor:
 		s[sp.Key] = cycleOption(sp.Options, s.Str(sp.Key), delta)
-	case kindInt:
+	case config.KindInt:
 		v := s.Int(sp.Key) + delta
 		if v < sp.Min {
 			v = sp.Min
@@ -125,29 +126,29 @@ func applyFlyoutChange(segID string, sp settingSpec, cfg *config, delta int) {
 		}
 		s[sp.Key] = v
 	}
-	setSegmentSettings(cfg, segID, pruneSettings(seg, s))
+	config.SetSegmentSettings(cfg, segID, config.PruneSettings(seg.settings, s))
 }
 
 // setFlyoutValue writes one setting directly (used by the color picker).
-func setFlyoutValue(segID string, sp settingSpec, cfg *config, value string) {
+func setFlyoutValue(segID string, sp config.SettingSpec, cfg *config.Config, value string) {
 	seg, ok := segmentByID(segID)
 	if !ok {
 		return
 	}
-	s := settingsFor(*cfg, seg)
-	s[sp.Key] = sp.coerce(value)
-	setSegmentSettings(cfg, segID, pruneSettings(seg, s))
+	s := config.SettingsFor(*cfg, seg.id, seg.settings)
+	s[sp.Key] = sp.Coerce(value)
+	config.SetSegmentSettings(cfg, segID, config.PruneSettings(seg.settings, s))
 }
 
 // syncSettingsToAllBars copies the source segment's settings to every other
 // bar segment, pruned against each target's own schema (keys a target doesn't
 // declare are dropped).
-func syncSettingsToAllBars(cfg *config, sourceID string) {
+func syncSettingsToAllBars(cfg *config.Config, sourceID string) {
 	source, ok := segmentByID(sourceID)
 	if !ok {
 		return
 	}
-	s := settingsFor(*cfg, source)
+	s := config.SettingsFor(*cfg, source.id, source.settings)
 	for _, target := range progressBarSegmentIDs() {
 		if target == sourceID {
 			continue
@@ -156,7 +157,7 @@ func syncSettingsToAllBars(cfg *config, sourceID string) {
 		if !ok {
 			continue
 		}
-		setSegmentSettings(cfg, target, pruneSettings(tseg, s))
+		config.SetSegmentSettings(cfg, target, config.PruneSettings(tseg.settings, s))
 	}
 }
 

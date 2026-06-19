@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/palette"
 	"github.com/callmemorgan/claude-statusline/internal/payload"
 	"github.com/callmemorgan/claude-statusline/internal/state"
@@ -70,14 +71,14 @@ func runRender(debug bool) {
 
 	if debug {
 		printDebugSchema(input, p)
-		cfg, warns := loadConfigWarn()
+		cfg, warns := config.LoadConfigWarn()
 		initSegments(cfg.Plugins)
 		warns = append(warns, validateSegmentRefs(cfg)...)
 		printConfigWarnings(warns)
 		return
 	}
 
-	cfg, warns := loadConfigWarn()
+	cfg, warns := config.LoadConfigWarn()
 	colors := palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors)
 	if os.Getenv("STATUSLINE_VERBOSE") != "" {
 		for _, w := range warns {
@@ -112,4 +113,50 @@ func runRender(debug bool) {
 	// post-render side effect, and it never blocks: the worker is
 	// detached, returns immediately, and respects `mode = "off"`.
 	maybeSpawnUpdateCheck(cfg.Update, start)
+}
+
+// validateSegmentRefs reports config references to segments or setting keys
+// that don't exist. Requires initSegments to have run (so plugin segments are
+// registered). Read-only: unknown IDs are kept (the renderer skips them).
+func validateSegmentRefs(cfg config.Config) []config.ConfigWarning {
+	var warns []config.ConfigWarning
+	known := func(id string) bool {
+		_, ok := segmentByID(id)
+		return ok
+	}
+	for _, id := range cfg.Segments {
+		if !known(id) {
+			warns = append(warns, config.ConfigWarning{Path: "segments", Msg: fmt.Sprintf("unknown segment %q", id)})
+		}
+	}
+	for id := range cfg.Lines {
+		if !known(id) {
+			warns = append(warns, config.ConfigWarning{Path: "lines." + id, Msg: "unknown segment"})
+		}
+	}
+	for id := range cfg.Colors {
+		if !known(id) {
+			warns = append(warns, config.ConfigWarning{Path: "colors." + id, Msg: "unknown segment"})
+		}
+	}
+	for id, vals := range cfg.Settings {
+		seg, ok := segmentByID(id)
+		if !ok {
+			warns = append(warns, config.ConfigWarning{Path: "settings." + id, Msg: "unknown segment"})
+			continue
+		}
+		for key := range vals {
+			found := false
+			for _, sp := range seg.settings {
+				if sp.Key == key && !sp.Ephemeral {
+					found = true
+					break
+				}
+			}
+			if !found {
+				warns = append(warns, config.ConfigWarning{Path: "settings." + id + "." + key, Msg: "unknown setting key (ignored)"})
+			}
+		}
+	}
+	return warns
 }

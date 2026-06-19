@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/callmemorgan/claude-statusline/internal/ansi"
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/payload"
 	"github.com/callmemorgan/claude-statusline/internal/version"
 )
@@ -178,7 +179,7 @@ func renderUpdate(ctx renderCtx) (string, bool) {
 		}
 	}
 
-	if ctx.Cfg.Update.mode() == "off" {
+	if ctx.Cfg.Update.ModeOrDefault() == "off" {
 		return "", false
 	}
 	// isReleaseVersion's ^N.N.N$ regex already rejects "dev", "+dirty", and
@@ -413,8 +414,8 @@ type segmentInfo struct {
 	line         int
 	desc         string
 	primaryColor string
-	settings     []settingSpec // nil → no flyout, no settings entry
-	needsState   bool          // renderer reads the session state store
+	settings     []config.SettingSpec // nil → no flyout, no settings entry
+	needsState   bool                 // renderer reads the session state store
 	render       func(ctx renderCtx) (string, bool)
 }
 
@@ -427,8 +428,8 @@ func allSegmentInfos() []segmentInfo {
 		{id: "agent-name", line: 1, desc: "Agent name", primaryColor: "Agent", render: renderAgentName},
 		{id: "directory", line: 1, desc: "Current / project directory", primaryColor: "Dir", render: renderDirectory},
 		{id: "added-dirs", line: 1, desc: "Number of extra directories added with /add-dir", primaryColor: "Dim", render: renderAddedDirs},
-		{id: "git-branch", line: 1, desc: "Git branch and worktree name, with optional dirty marker and ahead/behind counts", primaryColor: "Git", settings: gitBranchSettingSpecs(), render: renderGitBranch},
-		{id: "git-stash", line: 1, desc: "Git stash count (⚑N), hidden when there are no stashes", primaryColor: "Git", settings: gitStashSettingSpecs(), render: renderGitStash},
+		{id: "git-branch", line: 1, desc: "Git branch and worktree name, with optional dirty marker and ahead/behind counts", primaryColor: "Git", settings: config.GitBranchSettingSpecs(), render: renderGitBranch},
+		{id: "git-stash", line: 1, desc: "Git stash count (⚑N), hidden when there are no stashes", primaryColor: "Git", settings: config.GitStashSettingSpecs(), render: renderGitStash},
 		{id: "artifact-count", line: 1, desc: "Artifact count", primaryColor: "Chg", render: renderArtifactCount},
 		{id: "lines-changed", line: 1, desc: "All lines added / removed by the agent in the session", primaryColor: "Chg", render: renderLinesChanged},
 		{id: "cache-percent", line: 1, desc: "Cache read percentage", primaryColor: "Dim", render: renderCachePercent},
@@ -440,12 +441,12 @@ func allSegmentInfos() []segmentInfo {
 		{id: "version", line: 2, desc: "Claude Code version", primaryColor: "Dim", render: renderVersion},
 		{id: "update", line: 1, desc: "Update available notice (self-hides when current, dev, or [update].mode = off)", primaryColor: "Dim", render: renderUpdate},
 		{id: "duration", line: 2, desc: "Elapsed session duration", primaryColor: "Dur", render: renderDuration},
-		{id: "cost-rate", line: 2, desc: "Cost burn rate $/h over recent session history", primaryColor: "Cost", settings: costRateSpecs(), needsState: true, render: renderCostRate},
+		{id: "cost-rate", line: 2, desc: "Cost burn rate $/h over recent session history", primaryColor: "Cost", settings: config.CostRateSpecs(), needsState: true, render: renderCostRate},
 		{id: "api-efficiency", line: 2, desc: "API efficiency percentage", primaryColor: "Dim", render: renderAPIEfficiency},
 		{id: "tokens", line: 2, desc: "Input / output token counts", primaryColor: "Dim", render: renderTokens},
-		{id: "context-window", line: 3, desc: "Context window usage bar with growth trend and time-to-compact estimate", primaryColor: "Dim", settings: barSettingSpecs(false, true, true, trendSpecs()...), needsState: true, render: renderContextWindow},
-		{id: "rate-limit-5h", line: 3, desc: "5-hour quota bar with reset countdown and burn-rate projection", primaryColor: "Dim", settings: barSettingSpecs(true, false, true, projectionSpecs(30)...), needsState: true, render: renderRateLimit5h},
-		{id: "rate-limit-7d", line: 3, desc: "7-day quota bar with reset countdown and burn-rate projection", primaryColor: "Dim", settings: barSettingSpecs(true, false, true, projectionSpecs(180)...), needsState: true, render: renderRateLimit7d},
+		{id: "context-window", line: 3, desc: "Context window usage bar with growth trend and time-to-compact estimate", primaryColor: "Dim", settings: config.BarSettingSpecs(false, true, true, barWidth, iconsetNames(), config.TrendSpecs()...), needsState: true, render: renderContextWindow},
+		{id: "rate-limit-5h", line: 3, desc: "5-hour quota bar with reset countdown and burn-rate projection", primaryColor: "Dim", settings: config.BarSettingSpecs(true, false, true, barWidth, iconsetNames(), config.ProjectionSpecs(30)...), needsState: true, render: renderRateLimit5h},
+		{id: "rate-limit-7d", line: 3, desc: "7-day quota bar with reset countdown and burn-rate projection", primaryColor: "Dim", settings: config.BarSettingSpecs(true, false, true, barWidth, iconsetNames(), config.ProjectionSpecs(180)...), needsState: true, render: renderRateLimit7d},
 	}
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"strings"
 	"testing"
 
@@ -20,7 +21,7 @@ func ctxWindowSegment(t *testing.T) segmentInfo {
 
 func TestSettingsForDefaults(t *testing.T) {
 	seg := ctxWindowSegment(t)
-	s := settingsFor(config{}, seg)
+	s := config.SettingsFor(config.Config{}, seg.id, seg.settings)
 	if !s.Bool("show_bar") || !s.Bool("show_warning") {
 		t.Error("expected toggles to default to true")
 	}
@@ -38,13 +39,13 @@ func TestSettingsForDefaults(t *testing.T) {
 
 func TestSettingsForOverridesAndCoercion(t *testing.T) {
 	seg := ctxWindowSegment(t)
-	cfg := config{Settings: map[string]map[string]any{"context-window": {
+	cfg := config.Config{Settings: map[string]map[string]any{"context-window": {
 		"bar_width": float64(35), // JSON numbers decode as float64
 		"iconset":   "nonsense",  // invalid enum value → default
 		"warn_at":   999,         // out of range → clamped
 		"show_bar":  "yes",       // wrong type → default
 	}}}
-	s := settingsFor(cfg, seg)
+	s := config.SettingsFor(cfg, seg.id, seg.settings)
 	if s.Int("bar_width") != 35 {
 		t.Errorf("float64 not coerced: %d", s.Int("bar_width"))
 	}
@@ -61,12 +62,12 @@ func TestSettingsForOverridesAndCoercion(t *testing.T) {
 
 func TestPruneSettings(t *testing.T) {
 	seg := ctxWindowSegment(t)
-	s := settingsFor(config{}, seg)
-	if got := pruneSettings(seg, s); got != nil {
+	s := config.SettingsFor(config.Config{}, seg.id, seg.settings)
+	if got := config.PruneSettings(seg.settings, s); got != nil {
 		t.Errorf("all-default settings should prune to nil, got %v", got)
 	}
 	s["bar_width"] = 35
-	got := pruneSettings(seg, s)
+	got := config.PruneSettings(seg.settings, s)
 	if len(got) != 1 || got["bar_width"] != 35 {
 		t.Errorf("expected only the changed key, got %v", got)
 	}

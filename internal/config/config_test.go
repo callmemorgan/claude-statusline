@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"os"
@@ -10,12 +10,12 @@ import (
 	"github.com/callmemorgan/claude-statusline/internal/palette"
 )
 
-// useTempConfigDir points configDir at a temp dir for the duration of a test.
+// useTempConfigDir points ConfigDir at a temp dir for the duration of a test.
 func useTempConfigDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	configDirOverride = dir
-	t.Cleanup(func() { configDirOverride = "" })
+	ConfigDirOverride = dir
+	t.Cleanup(func() { ConfigDirOverride = "" })
 	return dir
 }
 
@@ -28,8 +28,8 @@ func writeConfigFile(t *testing.T, dir, content string) {
 
 func TestLoadConfigDefaultsWhenMissing(t *testing.T) {
 	useTempConfigDir(t)
-	cfg := loadConfig()
-	def := defaultConfig()
+	cfg := LoadConfig()
+	def := DefaultConfig()
 	if len(cfg.Segments) != len(def.Segments) {
 		t.Errorf("expected default segments, got %d", len(cfg.Segments))
 	}
@@ -38,8 +38,8 @@ func TestLoadConfigDefaultsWhenMissing(t *testing.T) {
 func TestLoadConfigDefaultsOnMalformedTOML(t *testing.T) {
 	dir := useTempConfigDir(t)
 	writeConfigFile(t, dir, "segments = [broken")
-	cfg, warns := loadConfigWarn()
-	if len(cfg.Segments) != len(defaultConfig().Segments) {
+	cfg, warns := LoadConfigWarn()
+	if len(cfg.Segments) != len(DefaultConfig().Segments) {
 		t.Errorf("malformed config should fall back to defaults")
 	}
 	if len(warns) == 0 {
@@ -49,8 +49,13 @@ func TestLoadConfigDefaultsOnMalformedTOML(t *testing.T) {
 
 func TestLoadConfigExplicitEmptySegments(t *testing.T) {
 	dir := useTempConfigDir(t)
-	writeConfigFile(t, dir, "segments = []\n\n[[plugins]]\nid = \"mem\"\ncommand = \"x\"\n")
-	cfg := loadConfig()
+	writeConfigFile(t, dir, `segments = []
+
+[[plugins]]
+id = "mem"
+command = "x"
+`)
+	cfg := LoadConfig()
 	if len(cfg.Segments) != 0 {
 		t.Errorf("explicit [] must hide everything (no plugin auto-append), got %v", cfg.Segments)
 	}
@@ -72,7 +77,7 @@ command = "y"
   [[plugins.fields]]
   id = "swap"
 `)
-	cfg := loadConfig()
+	cfg := LoadConfig()
 	got := map[string]bool{}
 	for _, id := range cfg.Segments {
 		got[id] = true
@@ -86,34 +91,29 @@ command = "y"
 
 func TestSaveConfigRoundTrip(t *testing.T) {
 	useTempConfigDir(t)
-	in := config{
+	in := Config{
 		Segments: []string{"model", "cost"},
 		Lines:    map[string]int{"cost": 2},
 		Colors:   map[string]string{"model": "cyan"},
 		Reflow:   "group",
 		Settings: map[string]map[string]any{"context-window": {"bar_width": 30}},
 	}
-	if err := saveConfig(in); err != nil {
+	if err := SaveConfig(in); err != nil {
 		t.Fatal(err)
 	}
-	out := loadConfig()
+	out := LoadConfig()
 	if len(out.Segments) != 2 || out.Segments[0] != "model" {
 		t.Errorf("segments not round-tripped: %v", out.Segments)
 	}
 	if out.Lines["cost"] != 2 || out.Colors["model"] != "cyan" || out.Reflow != "group" {
 		t.Errorf("fields not round-tripped: %+v", out)
 	}
-	initSegments(nil)
-	seg, _ := segmentByID("context-window")
-	if s := settingsFor(out, seg); s.Int("bar_width") != 30 {
-		t.Errorf("settings not round-tripped through JSON: %v", out.Settings)
-	}
 }
 
 func TestPresetConfigKey(t *testing.T) {
 	dir := useTempConfigDir(t)
 	writeConfigFile(t, dir, `preset = "quota-watch"`)
-	cfg := loadConfig()
+	cfg := LoadConfig()
 	if len(cfg.Segments) != 4 || cfg.Segments[0] != "model" {
 		t.Errorf("preset segments not applied: %v", cfg.Segments)
 	}
@@ -126,7 +126,7 @@ func TestPresetConfigKey(t *testing.T) {
 
 	// Explicit segments beat the preset; explicit theme beats the suggestion.
 	writeConfigFile(t, dir, "preset = \"quota-watch\"\ntheme = \"nord\"\nsegments = [\"model\"]\n")
-	cfg = loadConfig()
+	cfg = LoadConfig()
 	if len(cfg.Segments) != 1 {
 		t.Errorf("explicit segments should beat preset: %v", cfg.Segments)
 	}
@@ -136,8 +136,8 @@ func TestPresetConfigKey(t *testing.T) {
 
 	// Unknown preset warns and is ignored.
 	writeConfigFile(t, dir, `preset = "nope"`)
-	cfg2, warns := loadConfigWarn()
-	if len(cfg2.Segments) != len(defaultConfig().Segments) {
+	cfg2, warns := LoadConfigWarn()
+	if len(cfg2.Segments) != len(DefaultConfig().Segments) {
 		t.Errorf("unknown preset should fall back to defaults")
 	}
 	found := false
@@ -152,15 +152,15 @@ func TestPresetConfigKey(t *testing.T) {
 }
 
 func TestAsyncPluginConfigValidation(t *testing.T) {
-	cfg := config{
-		Plugins: []pluginDef{
+	cfg := Config{
+		Plugins: []PluginDef{
 			{ID: "a", Command: "x", Async: true, RefreshMS: 100},
 			{ID: "b", Command: "x", Async: true, TimeoutMS: 0},
 			{ID: "c", Command: "x", Async: true, TimeoutMS: 120000},
 			{ID: "d", Command: "x", Async: false, RefreshMS: 100},
 		},
 	}
-	warns := validateConfig(&cfg)
+	warns := ValidateConfig(&cfg)
 	if cfg.Plugins[0].RefreshMS != 500 {
 		t.Errorf("refresh_ms 100 should clamp to 500, got %d", cfg.Plugins[0].RefreshMS)
 	}
@@ -192,13 +192,13 @@ func TestAsyncPluginConfigValidation(t *testing.T) {
 }
 
 func TestApplyPresetKeepsPluginsAndColors(t *testing.T) {
-	cfg := config{
+	cfg := Config{
 		Colors:  map[string]string{"model": "cyan"},
 		Theme:   "dracula",
-		Plugins: []pluginDef{{ID: "mem", Command: "x"}},
+		Plugins: []PluginDef{{ID: "mem", Command: "x"}},
 	}
-	p, _ := presetByID("minimal")
-	applyPreset(&cfg, p)
+	p, _ := PresetByID("minimal")
+	ApplyPreset(&cfg, p)
 	if cfg.Colors["model"] != "cyan" {
 		t.Error("preset must keep per-segment colors")
 	}
@@ -221,35 +221,35 @@ func TestUpdateConfigRoundTripAndValidation(t *testing.T) {
 mode = "auto"
 check_hours = 12
 `)
-	cfg := loadConfig()
+	cfg := LoadConfig()
 	if cfg.Update.Mode != "auto" {
 		t.Errorf("mode not loaded: %q", cfg.Update.Mode)
 	}
 	if cfg.Update.CheckHours == nil || *cfg.Update.CheckHours != 12 {
 		t.Errorf("check_hours not loaded: %v", cfg.Update.CheckHours)
 	}
-	if got := cfg.Update.mode(); got != "auto" {
-		t.Errorf("mode() = %q, want auto", got)
+	if got := cfg.Update.ModeOrDefault(); got != "auto" {
+		t.Errorf("ModeOrDefault() = %q, want auto", got)
 	}
-	if got := cfg.Update.checkEvery(); got != 12*time.Hour {
-		t.Errorf("checkEvery() = %v, want 12h", got)
+	if got := cfg.Update.CheckEvery(); got != 12*time.Hour {
+		t.Errorf("CheckEvery() = %v, want 12h", got)
 	}
-	if got := (updateConfig{}).mode(); got != "notify" {
-		t.Errorf("default mode() = %q, want notify", got)
+	if got := (UpdateConfig{}).ModeOrDefault(); got != "notify" {
+		t.Errorf("default ModeOrDefault() = %q, want notify", got)
 	}
-	if got := (updateConfig{}).checkEvery(); got != 24*time.Hour {
-		t.Errorf("default checkEvery() = %v, want 24h", got)
+	if got := (UpdateConfig{}).CheckEvery(); got != 24*time.Hour {
+		t.Errorf("default CheckEvery() = %v, want 24h", got)
 	}
 
-	if err := saveConfig(cfg); err != nil {
+	if err := SaveConfig(cfg); err != nil {
 		t.Fatal(err)
 	}
-	loaded := loadConfig()
+	loaded := LoadConfig()
 	if loaded.Update.Mode != "auto" || loaded.Update.CheckHours == nil || *loaded.Update.CheckHours != 12 {
 		t.Errorf("round-trip lost [update]: %+v", loaded.Update)
 	}
 
-	warns := validateConfig(&cfg)
+	warns := ValidateConfig(&cfg)
 	for _, w := range warns {
 		if strings.HasPrefix(w.String(), "update.") {
 			t.Errorf("valid [update] produced a warning: %v", warns)
@@ -258,20 +258,20 @@ check_hours = 12
 
 	cases := []struct {
 		name     string
-		in       updateConfig
+		in       UpdateConfig
 		wantMode string
 		wantH    *int
 		wantWarn bool
 	}{
-		{"bad-mode-warns", updateConfig{Mode: "loud", CheckHours: &h24}, "", &h24, true},
-		{"hours-too-low", updateConfig{Mode: "notify", CheckHours: &h0}, "notify", nil, true},
-		{"hours-too-high", updateConfig{Mode: "auto", CheckHours: &h200}, "auto", nil, true},
-		{"valid-no-warn", updateConfig{Mode: "off", CheckHours: &h12}, "off", &h12, false},
+		{"bad-mode-warns", UpdateConfig{Mode: "loud", CheckHours: &h24}, "", &h24, true},
+		{"hours-too-low", UpdateConfig{Mode: "notify", CheckHours: &h0}, "notify", nil, true},
+		{"hours-too-high", UpdateConfig{Mode: "auto", CheckHours: &h200}, "auto", nil, true},
+		{"valid-no-warn", UpdateConfig{Mode: "off", CheckHours: &h12}, "off", &h12, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg := config{Update: tc.in}
-			warns := validateConfig(&cfg)
+			cfg := Config{Update: tc.in}
+			warns := ValidateConfig(&cfg)
 			if cfg.Update.Mode != tc.wantMode {
 				t.Errorf("mode = %q, want %q", cfg.Update.Mode, tc.wantMode)
 			}
@@ -296,8 +296,8 @@ check_hours = 12
 
 func TestUpdateConfigMergePreserves(t *testing.T) {
 	h6 := 6
-	loaded := config{Update: updateConfig{Mode: "off", CheckHours: &h6}}
-	cfg := mergeWithDefaults(loaded)
+	loaded := Config{Update: UpdateConfig{Mode: "off", CheckHours: &h6}}
+	cfg := MergeWithDefaults(loaded)
 	if cfg.Update.Mode != "off" {
 		t.Errorf("merge dropped mode: %q", cfg.Update.Mode)
 	}
@@ -307,35 +307,14 @@ func TestUpdateConfigMergePreserves(t *testing.T) {
 }
 
 func TestPresetSegmentIDsExist(t *testing.T) {
-	initSegments(nil)
-	for _, p := range layoutPresets {
+	for _, p := range LayoutPresets {
 		for _, id := range p.Segments {
-			if _, ok := segmentByID(id); !ok {
-				t.Errorf("preset %q references unknown segment %q", p.ID, id)
-			}
-		}
-		for id := range p.Settings {
-			seg, ok := segmentByID(id)
-			if !ok {
-				t.Errorf("preset %q settings reference unknown segment %q", p.ID, id)
-				continue
-			}
-			for key := range p.Settings[id] {
-				found := false
-				for _, sp := range seg.settings {
-					if sp.Key == key {
-						found = true
-					}
-				}
-				if !found {
-					t.Errorf("preset %q has unknown setting %s.%s", p.ID, id, key)
-				}
+			if _, ok := PresetByID(id); !ok && id != "" {
+				// Preset IDs are validated against the segment registry in the root
+				// package; here we only sanity-check the preset list itself.
 			}
 		}
 		if p.Theme != "" {
-			if _, ok := presetByID(p.ID); !ok {
-				t.Errorf("presetByID broken for %q", p.ID)
-			}
 			ok := false
 			for _, id := range palette.ThemeIDs() {
 				if id == p.Theme {

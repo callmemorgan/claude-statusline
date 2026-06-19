@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/callmemorgan/claude-statusline/internal/ansi"
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/palette"
 	"github.com/callmemorgan/claude-statusline/internal/state"
 	"github.com/callmemorgan/claude-statusline/internal/sys"
@@ -123,59 +124,6 @@ func parseChangelog(raw string) []releaseNote {
 	return out
 }
 
-// releaseNotesConfig is the [release_notes] table in config.toml.
-type releaseNotesConfig struct {
-	Announce        *bool `toml:"announce,omitempty"`         // default true
-	DurationSeconds *int  `toml:"duration_seconds,omitempty"` // default 25, 0 disables
-	// MaxLines controls how many lines the post-upgrade takeover may occupy.
-	// It can be an integer (0 = same as the statusline) or one of the symbolic
-	// strings "status-line", "same-as-status-line", "statusline", or
-	// "same-as-statusline". nil defaults to defaultMaxLines.
-	MaxLines any `toml:"max_lines,omitempty"`
-}
-
-func (r releaseNotesConfig) announce() bool {
-	return r.Announce == nil || *r.Announce
-}
-
-// defaultAnnounceSeconds is the takeover window when duration_seconds is
-// unset (validateConfig also resets out-of-range values to this default).
-const defaultAnnounceSeconds = 25
-
-// defaultMaxLines is the takeover line budget when max_lines is unset.
-const defaultMaxLines = 10
-
-// sameAsStatusLineSentinel is returned by resolvedMaxLines to mean "use the
-// statusline's own line count".
-const sameAsStatusLineSentinel = -1
-
-func (r releaseNotesConfig) duration() time.Duration {
-	if r.DurationSeconds == nil {
-		return defaultAnnounceSeconds * time.Second
-	}
-	return time.Duration(*r.DurationSeconds) * time.Second
-}
-
-// resolvedMaxLines returns the configured max_lines value normalized into a
-// line count. A negative result means "same as the statusline".
-func (r releaseNotesConfig) resolvedMaxLines() int {
-	if r.MaxLines == nil {
-		return defaultMaxLines
-	}
-	switch v := r.MaxLines.(type) {
-	case int64:
-		return int(v)
-	case int:
-		return v
-	case string:
-		switch strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(v, "_", "-"), " ", "-")) {
-		case "status-line", "same-as-status-line", "statusline", "same-as-statusline":
-			return sameAsStatusLineSentinel
-		}
-	}
-	return defaultMaxLines
-}
-
 // versionSeen is the on-disk record of "what version did this machine last
 // render under". FirstSeen anchors the announcement window and is set only
 // when a window opens (an upgrade); 0 means no window — fresh installs and
@@ -230,7 +178,7 @@ func isReleaseVersion(v string) bool {
 // release-notes announcement. Returns show (replace output) and next (state
 // to persist; a zero versionSeen means "don't write").
 func announceDecision(prev versionSeen, prevOK bool, current string,
-	cfg releaseNotesConfig, now time.Time) (show bool, next versionSeen) {
+	cfg config.ReleaseNotesConfig, now time.Time) (show bool, next versionSeen) {
 	// Source builds / non-release versions (dev, "+dirty", Go pseudo-versions
 	// from `go install @commit`) never trigger and never write.
 	// isReleaseVersion is the single gate; anything not matching
@@ -242,7 +190,7 @@ func announceDecision(prev versionSeen, prevOK bool, current string,
 	// doesn't think the binary is "new"), but preserve the old FirstSeen so
 	// the window check on re-enable will already be expired for an upgrade
 	// that happened during the disabled period.
-	if !cfg.announce() || cfg.duration() == 0 {
+	if !cfg.AnnounceOrDefault() || cfg.Duration() == 0 {
 		if !prevOK || prev.Version != current {
 			return false, versionSeen{Version: current, FirstSeen: prev.FirstSeen}
 		}
@@ -260,7 +208,7 @@ func announceDecision(prev versionSeen, prevOK bool, current string,
 		return true, versionSeen{Version: current, FirstSeen: now.Unix()}
 	}
 	// Same version, still inside the window: keep showing, don't re-persist.
-	if now.Unix()-prev.FirstSeen < int64(cfg.duration()/time.Second) {
+	if now.Unix()-prev.FirstSeen < int64(cfg.Duration()/time.Second) {
 		return true, versionSeen{}
 	}
 	// Same version, window expired.
@@ -309,7 +257,7 @@ func runReleaseNotes(args []string) {
 	notes := parseChangelog(changelogRaw)
 	current, _, _ := version.VersionString()
 
-	cfg, _ := loadConfigWarn()
+	cfg, _ := config.LoadConfigWarn()
 	colors := palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors)
 
 	mode, target, fallback, missing := selectReleaseNote(notes, current, args)
@@ -457,7 +405,7 @@ func printReleaseNote(n releaseNote, c palette.Palette) {
 // truncation budget mirrors the renderer's width reserves: line 0 reserves
 // columns for the trailing " │ X.Xms" timing suffix, every line keeps the
 // safety margin.
-func maybeReleaseTakeover(cfg releaseNotesConfig, lines []string, c palette.Palette, width int, padding int, now time.Time) []string {
+func maybeReleaseTakeover(cfg config.ReleaseNotesConfig, lines []string, c palette.Palette, width int, padding int, now time.Time) []string {
 	prev, prevOK := loadVersionSeen()
 	current, _, _ := version.VersionString()
 	show, next := announceDecision(prev, prevOK, current, cfg, now)
@@ -475,8 +423,8 @@ func maybeReleaseTakeover(cfg releaseNotesConfig, lines []string, c palette.Pale
 	}
 	notes := parseChangelog(changelogRaw)
 	statusLines := max(len(lines), 1)
-	maxLines := cfg.resolvedMaxLines()
-	if maxLines == sameAsStatusLineSentinel || maxLines <= 0 {
+	maxLines := cfg.ResolvedMaxLines()
+	if maxLines == config.SameAsStatusLineSentinel || maxLines <= 0 {
 		maxLines = statusLines
 	}
 	n := max(statusLines, maxLines)

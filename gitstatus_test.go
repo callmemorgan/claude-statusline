@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -130,12 +131,12 @@ func TestGitBranchKeepsRichStatusWithWorktree(t *testing.T) {
 	var p payload.Payload
 	p.Workspace.CurrentDir = "/nonexistent/proj"
 	p.Worktree = payload.Worktree{Name: "my-project", Branch: "feature/x"}
-	cfg := config{Settings: map[string]map[string]any{"git-branch": {"git_status": true}}}
+	cfg := config.Config{Settings: map[string]map[string]any{"git-branch": {"git_status": true}}}
 	seg, ok := segmentByID("git-branch")
 	if !ok {
 		t.Fatal("no git-branch segment")
 	}
-	out, show := seg.render(renderCtx{P: p, S: settingsFor(cfg, seg), Now: time.Now()})
+	out, show := seg.render(renderCtx{P: p, S: config.SettingsFor(cfg, seg.id, seg.settings), Now: time.Now()})
 	if !show {
 		t.Fatal("git-branch hidden")
 	}
@@ -288,7 +289,7 @@ func TestRenderGitStash(t *testing.T) {
 	render := func() (string, bool) {
 		return seg.render(renderCtx{
 			P:   payload.Payload{Workspace: payload.Workspace{CurrentDir: "/whatever"}},
-			S:   settingsFor(config{}, seg),
+			S:   config.SettingsFor(config.Config{}, seg.id, seg.settings),
 			C:   palette.Palette{Git: "", Rst: ""},
 			Now: time.Unix(1750000000, 0),
 		})

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/callmemorgan/claude-statusline/internal/ansi"
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/palette"
 	"github.com/callmemorgan/claude-statusline/internal/payload"
 	"github.com/callmemorgan/claude-statusline/internal/state"
@@ -43,9 +44,9 @@ func lineBudget(columns int, first bool) int {
 type renderCtx struct {
 	P     payload.Payload
 	C     palette.Palette
-	S     settings
+	S     config.Settings
 	State *state.SessionState // nil unless the segment declares needsState
-	Cfg   config              // resolved config, rarely needed (e.g. update segment)
+	Cfg   config.Config       // resolved config, rarely needed (e.g. update segment)
 	Width int
 	Now   time.Time
 }
@@ -54,7 +55,7 @@ type renderCtx struct {
 type buildInput struct {
 	P     payload.Payload
 	C     palette.Palette
-	Cfg   config
+	Cfg   config.Config
 	State *state.SessionState
 	Width int
 	Now   time.Time
@@ -78,7 +79,7 @@ type lineStyle struct {
 	padding  int
 }
 
-func styleFor(cfg config, c palette.Palette) lineStyle {
+func styleFor(cfg config.Config, c palette.Palette) lineStyle {
 	glyph, ok := separators[cfg.Style.Separator]
 	if !ok {
 		if cfg.Style.Separator == "custom" && cfg.Style.SeparatorCustom != "" {
@@ -111,7 +112,7 @@ func buildStatusline(in buildInput) []string {
 			ctx := renderCtx{
 				P:     in.P,
 				C:     segPalette,
-				S:     settingsFor(in.Cfg, s),
+				S:     config.SettingsFor(in.Cfg, s.id, s.settings),
 				Cfg:   in.Cfg,
 				Width: in.Width,
 				Now:   in.Now,
@@ -386,7 +387,7 @@ func progressBarWithTimeAndIconset(pct, timePct int, fillColor, emptyColor strin
 	return b.String()
 }
 
-func pctColorWithSettings(pct int, c palette.Palette, s settings) string {
+func pctColorWithSettings(pct int, c palette.Palette, s config.Settings) string {
 	warnAt, critAt := s.Int("warn_at"), s.Int("crit_at")
 	var colorName, natural string
 	switch {

@@ -12,6 +12,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/callmemorgan/claude-statusline/internal/ansi"
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/palette"
 	"github.com/callmemorgan/claude-statusline/internal/payload"
 	"github.com/callmemorgan/claude-statusline/internal/state"
@@ -19,7 +20,7 @@ import (
 
 // ─── Configure Mode ──────────────────────────────────────────────────
 
-func effectiveLine(id string, cfg config) int {
+func effectiveLine(id string, cfg config.Config) int {
 	if override, ok := cfg.Lines[id]; ok && override >= 1 {
 		return override
 	}
@@ -91,11 +92,11 @@ func previewState(now time.Time) *state.SessionState {
 func runConfigure() {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		fmt.Fprintln(os.Stderr, "claude-statusline configure requires an interactive terminal.")
-		fmt.Fprintf(os.Stderr, "Edit %s directly, or run from a terminal.\n", configPath())
+		fmt.Fprintf(os.Stderr, "Edit %s directly, or run from a terminal.\n", config.ConfigPath())
 		os.Exit(1)
 	}
 
-	cfg, cfgWarns := loadConfigWarn()
+	cfg, cfgWarns := config.LoadConfigWarn()
 	initSegments(cfg.Plugins)
 
 	// Synthetic data so every feature previews: an hour of session history
@@ -263,7 +264,7 @@ func runConfigure() {
 			val := flyoutValueStr(currentFlyoutSegment, sp, cfg)
 			mark := "  "
 			display := sp.Name
-			if sp.Kind == kindBool {
+			if sp.Kind == config.KindBool {
 				if val == "on" {
 					mark = "✓ "
 				}
@@ -289,7 +290,7 @@ func runConfigure() {
 			ctx := renderCtx{
 				P:     p,
 				C:     segPalette,
-				S:     settingsFor(cfg, s),
+				S:     config.SettingsFor(cfg, s.id, s.settings),
 				Cfg:   cfg,
 				State: pvState,
 				Now:   time.Now(),
@@ -395,13 +396,13 @@ func runConfigure() {
 
 	// openFlyoutColorPicker opens the swatch picker for a color setting row,
 	// live-previewing hovered colors through the flyout preview.
-	openFlyoutColorPicker := func(sp settingSpec) {
+	openFlyoutColorPicker := func(sp config.SettingSpec) {
 		segID := currentFlyoutSegment
 		seg, ok := segmentByID(segID)
 		if !ok {
 			return
 		}
-		orig := settingsFor(cfg, seg).Str(sp.Key)
+		orig := config.SettingsFor(cfg, seg.id, seg.settings).Str(sp.Key)
 		openColorPicker(app, pages, palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors), sp.Name+" — "+segID,
 			func(spec string) { // hover
 				setFlyoutValue(segID, sp, &cfg, spec)
@@ -431,7 +432,7 @@ func runConfigure() {
 			return
 		}
 		sp := specs[idx]
-		if viaEnter && sp.Kind == kindColor {
+		if viaEnter && sp.Kind == config.KindColor {
 			openFlyoutColorPicker(sp)
 			return
 		}
@@ -690,13 +691,13 @@ func runConfigure() {
 	}
 
 	doSave := func() bool {
-		if err := saveConfig(cfg); err != nil {
+		if err := config.SaveConfig(cfg); err != nil {
 			flash("red", fmt.Sprintf("✗ save failed: %v", err))
 			return false
 		}
 		dirty = false
 		updateStrip()
-		flash("green", "✓ Saved to "+configPath())
+		flash("green", "✓ Saved to "+config.ConfigPath())
 		return true
 	}
 
@@ -766,7 +767,7 @@ func runConfigure() {
 			case tcell.KeyLeft, tcell.KeyRight:
 				idx := flyoutList.GetCurrentItem()
 				specs := segmentSpecs(currentFlyoutSegment)
-				if idx >= 0 && idx < len(specs) && specs[idx].Kind == kindInt {
+				if idx >= 0 && idx < len(specs) && specs[idx].Kind == config.KindInt {
 					delta := 1
 					if event.Key() == tcell.KeyLeft {
 						delta = -1
@@ -950,20 +951,20 @@ func runConfigure() {
 					})
 				return nil
 			case 'p', 'P':
-				snapshot := cloneConfig(cfg)
+				snapshot := config.CloneConfig(cfg)
 				openPresetPicker(app, pages,
 					func(id string) { // hover
-						if p, ok := presetByID(id); ok {
-							cfg = cloneConfig(snapshot)
-							applyPreset(&cfg, p)
+						if p, ok := config.PresetByID(id); ok {
+							cfg = config.CloneConfig(snapshot)
+							config.ApplyPreset(&cfg, p)
 							updateUI()
 						}
 					},
 					func(id string, picked bool) {
 						if picked {
-							if p, ok := presetByID(id); ok {
-								cfg = cloneConfig(snapshot)
-								applyPreset(&cfg, p)
+							if p, ok := config.PresetByID(id); ok {
+								cfg = config.CloneConfig(snapshot)
+								config.ApplyPreset(&cfg, p)
 								dirty = true
 								activePreset = id
 								flash("green", "preset: "+id+" (not yet saved)")
@@ -1192,7 +1193,7 @@ func runConfigure() {
 			pages.SwitchToPage("configure")
 			app.SetFocus(list)
 			if buttonLabel == "Reset" {
-				mutate(func() { cfg = defaultConfig() })
+				mutate(func() { cfg = config.DefaultConfig() })
 				flash("yellow", "reset to defaults (not yet saved)")
 			}
 		})
@@ -1206,7 +1207,7 @@ func runConfigure() {
 			case "Save & quit":
 				if doSave() {
 					app.Stop()
-					fmt.Printf("Saved to %s\n", configPath())
+					fmt.Printf("Saved to %s\n", config.ConfigPath())
 					return
 				}
 				pages.SwitchToPage("configure")

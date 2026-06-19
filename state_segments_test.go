@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"strings"
 	"testing"
 	"time"
@@ -38,11 +39,11 @@ func renderWithState(t *testing.T, id string, p payload.Payload, st *state.Sessi
 	if !ok {
 		t.Fatalf("no segment %q", id)
 	}
-	cfg := config{}
+	cfg := config.Config{}
 	if overrides != nil {
 		cfg.Settings = map[string]map[string]any{id: overrides}
 	}
-	out, _ := seg.render(renderCtx{P: p, S: settingsFor(cfg, seg), State: st, Now: now})
+	out, _ := seg.render(renderCtx{P: p, S: config.SettingsFor(cfg, seg.id, seg.settings), State: st, Now: now})
 	return out
 }
 

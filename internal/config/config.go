@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"bytes"
@@ -22,13 +22,24 @@ import (
 // config-schema changes so future migrations have an anchor.
 const currentSchemaVersion = 1
 
-type pluginField struct {
+// DefaultAnnounceSeconds is the takeover window when release_notes.duration_seconds is
+// unset (ValidateConfig also resets out-of-range values to this default).
+const DefaultAnnounceSeconds = 25
+
+// DefaultMaxLines is the takeover line budget when release_notes.max_lines is unset.
+const DefaultMaxLines = 10
+
+// SameAsStatusLineSentinel is returned by ReleaseNotesConfig.ResolvedMaxLines to mean "use the
+// statusline's own line count".
+const SameAsStatusLineSentinel = -1
+
+type PluginField struct {
 	ID   string `json:"id" toml:"id"`
 	Line int    `json:"line" toml:"line,omitempty"`
 	Desc string `json:"desc" toml:"desc,omitempty"`
 }
 
-type pluginDef struct {
+type PluginDef struct {
 	ID        string        `json:"id" toml:"id,omitempty"`
 	Command   string        `json:"command" toml:"command"`
 	Line      int           `json:"line" toml:"line,omitempty"`
@@ -36,12 +47,12 @@ type pluginDef struct {
 	TimeoutMS int           `json:"timeout_ms" toml:"timeout_ms,omitempty"`
 	Async     bool          `json:"async" toml:"async,omitempty"`
 	RefreshMS int           `json:"refresh_ms" toml:"refresh_ms,omitempty"`
-	Fields    []pluginField `json:"fields" toml:"fields,omitempty"`
+	Fields    []PluginField `json:"fields" toml:"fields,omitempty"`
 }
 
-// config is the persisted configuration. Field order here is the key order
+// Config is the persisted configuration. Field order here is the key order
 // in the saved TOML: scalars and arrays first, tables after.
-type config struct {
+type Config struct {
 	SchemaVersion int                       `toml:"schema_version,omitempty"`
 	Theme         string                    `toml:"theme,omitempty"`
 	ColorDepth    string                    `toml:"color_depth,omitempty"`
@@ -52,44 +63,86 @@ type config struct {
 	Lines         map[string]int            `toml:"lines,omitempty"`
 	Colors        map[string]string         `toml:"colors,omitempty"`
 	Settings      map[string]map[string]any `toml:"settings,omitempty"`
-	Style         styleConfig               `toml:"style,omitempty"`
+	Style         StyleConfig               `toml:"style,omitempty"`
 	State         state.StateConfig         `toml:"state,omitempty"`
-	ReleaseNotes  releaseNotesConfig        `toml:"release_notes,omitempty"`
-	Plugins       []pluginDef               `toml:"plugins,omitempty"`
-	Update        updateConfig              `toml:"update,omitempty"`
+	ReleaseNotes  ReleaseNotesConfig        `toml:"release_notes,omitempty"`
+	Plugins       []PluginDef               `toml:"plugins,omitempty"`
+	Update        UpdateConfig              `toml:"update,omitempty"`
 }
 
-// updateConfig is the [update] table in config.toml. Mode "" or unset means
+// UpdateConfig is the [update] table in config.toml. Mode "" or unset means
 // the default ("notify"); CheckHours nil means 24h. Validation lives in
-// validateConfig and mirrors the [release_notes] warn-and-normalize style.
-type updateConfig struct {
+// ValidateConfig and mirrors the [release_notes] warn-and-normalize style.
+type UpdateConfig struct {
 	Mode       string `toml:"mode,omitempty"`        // notify|auto|off
 	CheckHours *int   `toml:"check_hours,omitempty"` // 1..168, default 24
 }
 
-func (u updateConfig) mode() string {
+func (u UpdateConfig) ModeOrDefault() string {
 	if u.Mode == "" {
 		return "notify"
 	}
 	return u.Mode
 }
 
-func (u updateConfig) checkEvery() time.Duration {
+func (u UpdateConfig) CheckEvery() time.Duration {
 	if u.CheckHours == nil {
 		return 24 * time.Hour
 	}
 	return time.Duration(*u.CheckHours) * time.Hour
 }
 
-// styleConfig is the [style] table: separator glyph and line padding.
-type styleConfig struct {
+// StyleConfig is the [style] table: separator glyph and line padding.
+type StyleConfig struct {
 	Separator       string `toml:"separator,omitempty"`        // bar|dot|slash|chevron|powerline|space|custom
 	SeparatorCustom string `toml:"separator_custom,omitempty"` // used when separator = "custom"
 	Padding         *int   `toml:"padding,omitempty"`          // leading spaces per line (default 1)
 }
 
-func defaultConfig() config {
-	return config{
+// ReleaseNotesConfig is the [release_notes] table in config.toml.
+type ReleaseNotesConfig struct {
+	Announce        *bool `toml:"announce,omitempty"`         // default true
+	DurationSeconds *int  `toml:"duration_seconds,omitempty"` // default 25, 0 disables
+	// MaxLines controls how many lines the post-upgrade takeover may occupy.
+	// It can be an integer (0 = same as the statusline) or one of the symbolic
+	// strings "status-line", "same-as-status-line", "statusline", or
+	// "same-as-statusline". nil defaults to DefaultMaxLines.
+	MaxLines any `toml:"max_lines,omitempty"`
+}
+
+func (r ReleaseNotesConfig) AnnounceOrDefault() bool {
+	return r.Announce == nil || *r.Announce
+}
+
+func (r ReleaseNotesConfig) Duration() time.Duration {
+	if r.DurationSeconds == nil {
+		return DefaultAnnounceSeconds * time.Second
+	}
+	return time.Duration(*r.DurationSeconds) * time.Second
+}
+
+// ResolvedMaxLines returns the configured max_lines value normalized into a
+// line count. A negative result means "same as the statusline".
+func (r ReleaseNotesConfig) ResolvedMaxLines() int {
+	if r.MaxLines == nil {
+		return DefaultMaxLines
+	}
+	switch v := r.MaxLines.(type) {
+	case int64:
+		return int(v)
+	case int:
+		return v
+	case string:
+		switch strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(v, "_", "-"), " ", "-")) {
+		case "status-line", "same-as-status-line", "statusline", "same-as-statusline":
+			return SameAsStatusLineSentinel
+		}
+	}
+	return DefaultMaxLines
+}
+
+func DefaultConfig() Config {
+	return Config{
 		Segments: []string{
 			"vim-mode", "sandbox", "session-name", "agent-state", "directory",
 			"added-dirs", "git-branch", "artifact-count", "lines-changed", "cache-percent", "cost", "update",
@@ -100,12 +153,12 @@ func defaultConfig() config {
 	}
 }
 
-// configDirOverride redirects the config directory; set only by tests.
-var configDirOverride string
+// ConfigDirOverride redirects the config directory; set only by tests.
+var ConfigDirOverride string
 
-func configDir() string {
-	if configDirOverride != "" {
-		return configDirOverride
+func ConfigDir() string {
+	if ConfigDirOverride != "" {
+		return ConfigDirOverride
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -114,46 +167,46 @@ func configDir() string {
 	return filepath.Join(home, ".config", "claude-statusline")
 }
 
-func configPath() string {
-	return filepath.Join(configDir(), "config.toml")
+func ConfigPath() string {
+	return filepath.Join(ConfigDir(), "config.toml")
 }
 
-// configWarning is a non-fatal problem found while loading or validating the
+// ConfigWarning is a non-fatal problem found while loading or validating the
 // config. The renderer never fails on bad config — it normalizes and warns.
-type configWarning struct {
+type ConfigWarning struct {
 	Path string // config location, e.g. "lines.cost"
 	Msg  string
 }
 
-func (w configWarning) String() string {
+func (w ConfigWarning) String() string {
 	if w.Path == "" {
 		return w.Msg
 	}
 	return w.Path + ": " + w.Msg
 }
 
-func loadConfig() config {
-	cfg, _ := loadConfigWarn()
+func LoadConfig() Config {
+	cfg, _ := LoadConfigWarn()
 	return cfg
 }
 
-// loadConfigWarn loads the TOML config (migrating a legacy config.json first
+// LoadConfigWarn loads the TOML config (migrating a legacy config.json first
 // if present), merges defaults, and normalizes invalid values. Warnings are
 // surfaced by --debug and the TUI; the render path ignores them unless
 // STATUSLINE_VERBOSE=1.
-func loadConfigWarn() (config, []configWarning) {
+func LoadConfigWarn() (Config, []ConfigWarning) {
 	if migrated, ok := migrateLegacyJSON(); ok {
-		cfg := mergeWithDefaults(migrated)
-		return cfg, validateConfig(&cfg)
+		cfg := MergeWithDefaults(migrated)
+		return cfg, ValidateConfig(&cfg)
 	}
 
-	data, err := os.ReadFile(configPath())
+	data, err := os.ReadFile(ConfigPath())
 	if err != nil {
-		return defaultConfig(), nil
+		return DefaultConfig(), nil
 	}
 
-	var warns []configWarning
-	var loaded config
+	var warns []ConfigWarning
+	var loaded Config
 	dec := toml.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&loaded); err != nil {
@@ -161,35 +214,35 @@ func loadConfigWarn() (config, []configWarning) {
 		if errors.As(err, &strict) {
 			// Unknown keys only — warn, then decode leniently.
 			for _, e := range strict.Errors {
-				warns = append(warns, configWarning{Path: strings.Join(e.Key(), "."), Msg: "unknown config key (ignored)"})
+				warns = append(warns, ConfigWarning{Path: strings.Join(e.Key(), "."), Msg: "unknown config key (ignored)"})
 			}
-			loaded = config{}
+			loaded = Config{}
 			if err := toml.Unmarshal(data, &loaded); err != nil {
-				warns = append(warns, configWarning{Msg: fmt.Sprintf("config.toml unreadable, using defaults: %v", err)})
-				return defaultConfig(), warns
+				warns = append(warns, ConfigWarning{Msg: fmt.Sprintf("config.toml unreadable, using defaults: %v", err)})
+				return DefaultConfig(), warns
 			}
 		} else {
-			warns = append(warns, configWarning{Msg: fmt.Sprintf("config.toml unreadable, using defaults: %v", err)})
-			return defaultConfig(), warns
+			warns = append(warns, ConfigWarning{Msg: fmt.Sprintf("config.toml unreadable, using defaults: %v", err)})
+			return DefaultConfig(), warns
 		}
 	}
 
-	cfg := mergeWithDefaults(loaded)
-	warns = append(warns, validateConfig(&cfg)...)
+	cfg := MergeWithDefaults(loaded)
+	warns = append(warns, ValidateConfig(&cfg)...)
 	return cfg, warns
 }
 
-// mergeWithDefaults applies the nil-vs-empty segments semantics: an explicit
+// MergeWithDefaults applies the nil-vs-empty segments semantics: an explicit
 // empty array means "hide everything"; an absent key means defaults plus
 // auto-appended plugin segment IDs.
-func mergeWithDefaults(loaded config) config {
-	cfg := defaultConfig()
+func MergeWithDefaults(loaded Config) Config {
+	cfg := DefaultConfig()
 	cfg.SchemaVersion = loaded.SchemaVersion
 	// A preset supplies the layout baseline — only when segments is absent
 	// (an explicit segments list always wins over the preset). Plugin
 	// auto-append below still runs, since loaded.Segments stays nil.
 	if loaded.Preset != "" && loaded.Segments == nil {
-		if p, ok := presetByID(loaded.Preset); ok {
+		if p, ok := PresetByID(loaded.Preset); ok {
 			cfg.Segments = append([]string(nil), p.Segments...)
 			if loaded.Lines == nil {
 				loaded.Lines = p.Lines
@@ -239,25 +292,25 @@ func mergeWithDefaults(loaded config) config {
 	return cfg
 }
 
-// validateConfig normalizes invalid values in place and reports what changed.
+// ValidateConfig normalizes invalid values in place and reports what changed.
 // It never fails: bad values reset to safe ones. Checks that need the full
 // segment registry (unknown segment IDs, per-segment setting keys) live in
-// validateSegmentRefs, which runs after plugin registration.
-func validateConfig(cfg *config) []configWarning {
-	var warns []configWarning
+// the caller, which runs after plugin registration.
+func ValidateConfig(cfg *Config) []ConfigWarning {
+	var warns []ConfigWarning
 	switch cfg.Reflow {
 	case "", "off", "cascade", "group":
 	default:
-		warns = append(warns, configWarning{Path: "reflow", Msg: fmt.Sprintf("%q is not off, cascade, or group (ignored)", cfg.Reflow)})
+		warns = append(warns, ConfigWarning{Path: "reflow", Msg: fmt.Sprintf("%q is not off, cascade, or group (ignored)", cfg.Reflow)})
 		cfg.Reflow = ""
 	}
 	if cfg.Preset != "" {
-		if _, ok := presetByID(cfg.Preset); !ok {
-			names := make([]string, len(layoutPresets))
-			for i, p := range layoutPresets {
+		if _, ok := PresetByID(cfg.Preset); !ok {
+			names := make([]string, len(LayoutPresets))
+			for i, p := range LayoutPresets {
 				names[i] = p.ID
 			}
-			warns = append(warns, configWarning{Path: "preset", Msg: fmt.Sprintf("%q is not a preset (ignored); known: %s", cfg.Preset, strings.Join(names, ", "))})
+			warns = append(warns, ConfigWarning{Path: "preset", Msg: fmt.Sprintf("%q is not a preset (ignored); known: %s", cfg.Preset, strings.Join(names, ", "))})
 			cfg.Preset = ""
 		}
 	}
@@ -270,14 +323,14 @@ func validateConfig(cfg *config) []configWarning {
 			}
 		}
 		if !found {
-			warns = append(warns, configWarning{Path: "theme", Msg: fmt.Sprintf("%q is not a built-in theme (using classic); known: %s", cfg.Theme, strings.Join(palette.ThemeIDs(), ", "))})
+			warns = append(warns, ConfigWarning{Path: "theme", Msg: fmt.Sprintf("%q is not a built-in theme (using classic); known: %s", cfg.Theme, strings.Join(palette.ThemeIDs(), ", "))})
 			cfg.Theme = ""
 		}
 	}
 	switch strings.ToLower(cfg.ColorDepth) {
 	case "", "auto", "truecolor", "24bit", "256", "16", "none":
 	default:
-		warns = append(warns, configWarning{Path: "color_depth", Msg: fmt.Sprintf("%q is not auto/truecolor/256/16/none (using auto)", cfg.ColorDepth)})
+		warns = append(warns, ConfigWarning{Path: "color_depth", Msg: fmt.Sprintf("%q is not auto/truecolor/256/16/none (using auto)", cfg.ColorDepth)})
 		cfg.ColorDepth = ""
 	}
 	for role, spec := range cfg.ThemeColors {
@@ -289,24 +342,24 @@ func validateConfig(cfg *config) []configWarning {
 			}
 		}
 		if !knownRole {
-			warns = append(warns, configWarning{Path: "theme_colors." + role, Msg: "unknown theme role (ignored)"})
+			warns = append(warns, ConfigWarning{Path: "theme_colors." + role, Msg: "unknown theme role (ignored)"})
 			delete(cfg.ThemeColors, role)
 			continue
 		}
 		if !palette.ValidColorSpec(spec) {
-			warns = append(warns, configWarning{Path: "theme_colors." + role, Msg: fmt.Sprintf("%q is not a hex value, 256 index, or color name (ignored)", spec)})
+			warns = append(warns, ConfigWarning{Path: "theme_colors." + role, Msg: fmt.Sprintf("%q is not a hex value, 256 index, or color name (ignored)", spec)})
 			delete(cfg.ThemeColors, role)
 		}
 	}
 	for id, n := range cfg.Lines {
 		if n < 1 || n > 9 {
-			warns = append(warns, configWarning{Path: "lines." + id, Msg: fmt.Sprintf("line %d out of range 1-9 (ignored)", n)})
+			warns = append(warns, ConfigWarning{Path: "lines." + id, Msg: fmt.Sprintf("line %d out of range 1-9 (ignored)", n)})
 			delete(cfg.Lines, id)
 		}
 	}
 	for id, name := range cfg.Colors {
 		if !palette.ValidColorSpec(name) {
-			warns = append(warns, configWarning{Path: "colors." + id, Msg: fmt.Sprintf("%q is not a known color, theme role, hex value, or 256 index (ignored)", name)})
+			warns = append(warns, ConfigWarning{Path: "colors." + id, Msg: fmt.Sprintf("%q is not a known color, theme role, hex value, or 256 index (ignored)", name)})
 			delete(cfg.Colors, id)
 		}
 	}
@@ -314,49 +367,49 @@ func validateConfig(cfg *config) []configWarning {
 	case "", "bar", "dot", "slash", "chevron", "powerline", "space":
 	case "custom":
 		if cfg.Style.SeparatorCustom == "" {
-			warns = append(warns, configWarning{Path: "style.separator", Msg: "custom separator selected but separator_custom is empty (using bar)"})
+			warns = append(warns, ConfigWarning{Path: "style.separator", Msg: "custom separator selected but separator_custom is empty (using bar)"})
 			cfg.Style.Separator = ""
 		}
 	default:
-		warns = append(warns, configWarning{Path: "style.separator", Msg: fmt.Sprintf("%q is not bar/dot/slash/chevron/powerline/space/custom (using bar)", cfg.Style.Separator)})
+		warns = append(warns, ConfigWarning{Path: "style.separator", Msg: fmt.Sprintf("%q is not bar/dot/slash/chevron/powerline/space/custom (using bar)", cfg.Style.Separator)})
 		cfg.Style.Separator = ""
 	}
 	if p := cfg.Style.Padding; p != nil && (*p < 0 || *p > 8) {
-		warns = append(warns, configWarning{Path: "style.padding", Msg: fmt.Sprintf("%d out of range 0-8 (using 1)", *p)})
+		warns = append(warns, ConfigWarning{Path: "style.padding", Msg: fmt.Sprintf("%d out of range 0-8 (using 1)", *p)})
 		cfg.Style.Padding = nil
 	}
 	for i, p := range cfg.Plugins {
 		path := fmt.Sprintf("plugins[%d]", i)
 		if p.Command == "" {
-			warns = append(warns, configWarning{Path: path, Msg: "missing command (plugin disabled)"})
+			warns = append(warns, ConfigWarning{Path: path, Msg: "missing command (plugin disabled)"})
 		}
 		if p.ID == "" && len(p.Fields) == 0 {
-			warns = append(warns, configWarning{Path: path, Msg: "missing id and fields (plugin unreachable)"})
+			warns = append(warns, ConfigWarning{Path: path, Msg: "missing id and fields (plugin unreachable)"})
 		}
 		if p.Async {
 			if p.RefreshMS == 0 {
 				cfg.Plugins[i].RefreshMS = 5000
 			} else if p.RefreshMS < 500 {
-				warns = append(warns, configWarning{Path: path + ".refresh_ms", Msg: fmt.Sprintf("%d below minimum 500 (clamped)", p.RefreshMS)})
+				warns = append(warns, ConfigWarning{Path: path + ".refresh_ms", Msg: fmt.Sprintf("%d below minimum 500 (clamped)", p.RefreshMS)})
 				cfg.Plugins[i].RefreshMS = 500
 			}
 			if p.TimeoutMS == 0 {
 				cfg.Plugins[i].TimeoutMS = 10000
 			} else if p.TimeoutMS > 60000 {
-				warns = append(warns, configWarning{Path: path + ".timeout_ms", Msg: fmt.Sprintf("%d above maximum 60000 (clamped)", p.TimeoutMS)})
+				warns = append(warns, ConfigWarning{Path: path + ".timeout_ms", Msg: fmt.Sprintf("%d above maximum 60000 (clamped)", p.TimeoutMS)})
 				cfg.Plugins[i].TimeoutMS = 60000
 			}
 		}
 	}
 	if d := cfg.ReleaseNotes.DurationSeconds; d != nil && (*d < 0 || *d > 600) {
-		warns = append(warns, configWarning{Path: "release_notes.duration_seconds", Msg: fmt.Sprintf("%d out of range 0-600 (using %d)", *d, defaultAnnounceSeconds)})
+		warns = append(warns, ConfigWarning{Path: "release_notes.duration_seconds", Msg: fmt.Sprintf("%d out of range 0-600 (using %d)", *d, DefaultAnnounceSeconds)})
 		cfg.ReleaseNotes.DurationSeconds = nil
 	}
 	if cfg.ReleaseNotes.MaxLines != nil {
 		switch v := cfg.ReleaseNotes.MaxLines.(type) {
 		case int64:
 			if v < 0 {
-				warns = append(warns, configWarning{Path: "release_notes.max_lines", Msg: fmt.Sprintf("%d out of range (using %d)", v, defaultMaxLines)})
+				warns = append(warns, ConfigWarning{Path: "release_notes.max_lines", Msg: fmt.Sprintf("%d out of range (using %d)", v, DefaultMaxLines)})
 				cfg.ReleaseNotes.MaxLines = nil
 			}
 		case string:
@@ -364,77 +417,31 @@ func validateConfig(cfg *config) []configWarning {
 			case "status-line", "same-as-status-line", "statusline", "same-as-statusline":
 				// ok
 			default:
-				warns = append(warns, configWarning{Path: "release_notes.max_lines", Msg: fmt.Sprintf("%q is not an integer or status-line (using %d)", v, defaultMaxLines)})
+				warns = append(warns, ConfigWarning{Path: "release_notes.max_lines", Msg: fmt.Sprintf("%q is not an integer or status-line (using %d)", v, DefaultMaxLines)})
 				cfg.ReleaseNotes.MaxLines = nil
 			}
 		default:
-			warns = append(warns, configWarning{Path: "release_notes.max_lines", Msg: fmt.Sprintf("%q is not an integer or status-line (using %d)", fmt.Sprintf("%v", v), defaultMaxLines)})
+			warns = append(warns, ConfigWarning{Path: "release_notes.max_lines", Msg: fmt.Sprintf("%q is not an integer or status-line (using %d)", fmt.Sprintf("%v", v), DefaultMaxLines)})
 			cfg.ReleaseNotes.MaxLines = nil
 		}
 	}
 	switch cfg.Update.Mode {
 	case "", "notify", "auto", "off":
 	default:
-		warns = append(warns, configWarning{Path: "update.mode", Msg: fmt.Sprintf("%q is not notify/auto/off (using notify)", cfg.Update.Mode)})
+		warns = append(warns, ConfigWarning{Path: "update.mode", Msg: fmt.Sprintf("%q is not notify/auto/off (using notify)", cfg.Update.Mode)})
 		cfg.Update.Mode = ""
 	}
 	if h := cfg.Update.CheckHours; h != nil && (*h < 1 || *h > 168) {
-		warns = append(warns, configWarning{Path: "update.check_hours", Msg: fmt.Sprintf("%d out of range 1-168 (using 24)", *h)})
+		warns = append(warns, ConfigWarning{Path: "update.check_hours", Msg: fmt.Sprintf("%d out of range 1-168 (using 24)", *h)})
 		cfg.Update.CheckHours = nil
 	}
 	return warns
 }
 
-// validateSegmentRefs reports config references to segments or setting keys
-// that don't exist. Requires initSegments to have run (so plugin segments are
-// registered). Read-only: unknown IDs are kept (the renderer skips them).
-func validateSegmentRefs(cfg config) []configWarning {
-	var warns []configWarning
-	known := func(id string) bool {
-		_, ok := segmentByID(id)
-		return ok
-	}
-	for _, id := range cfg.Segments {
-		if !known(id) {
-			warns = append(warns, configWarning{Path: "segments", Msg: fmt.Sprintf("unknown segment %q", id)})
-		}
-	}
-	for id := range cfg.Lines {
-		if !known(id) {
-			warns = append(warns, configWarning{Path: "lines." + id, Msg: "unknown segment"})
-		}
-	}
-	for id := range cfg.Colors {
-		if !known(id) {
-			warns = append(warns, configWarning{Path: "colors." + id, Msg: "unknown segment"})
-		}
-	}
-	for id, vals := range cfg.Settings {
-		seg, ok := segmentByID(id)
-		if !ok {
-			warns = append(warns, configWarning{Path: "settings." + id, Msg: "unknown segment"})
-			continue
-		}
-		for key := range vals {
-			found := false
-			for _, sp := range seg.settings {
-				if sp.Key == key && !sp.Ephemeral {
-					found = true
-					break
-				}
-			}
-			if !found {
-				warns = append(warns, configWarning{Path: "settings." + id + "." + key, Msg: "unknown setting key (ignored)"})
-			}
-		}
-	}
-	return warns
-}
-
-// marshalConfigTOML serializes the config, preserving the nil-vs-empty
+// MarshalConfigTOML serializes the config, preserving the nil-vs-empty
 // segments distinction: a nil Segments slice omits the key entirely so the
 // "defaults + auto-append plugins" semantics survive a round-trip.
-func marshalConfigTOML(cfg config) ([]byte, error) {
+func MarshalConfigTOML(cfg Config) ([]byte, error) {
 	cfg.SchemaVersion = currentSchemaVersion
 	data, err := toml.Marshal(cfg)
 	if err != nil {
@@ -446,12 +453,12 @@ func marshalConfigTOML(cfg config) ([]byte, error) {
 	return data, nil
 }
 
-func saveConfig(cfg config) error {
-	path := configPath()
+func SaveConfig(cfg Config) error {
+	path := ConfigPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	data, err := marshalConfigTOML(cfg)
+	data, err := MarshalConfigTOML(cfg)
 	if err != nil {
 		return err
 	}

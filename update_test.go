@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"os"
 	"path/filepath"
 	"strings"
@@ -175,7 +176,7 @@ func TestMaybeSpawnUpdateCheck(t *testing.T) {
 	if err := saveUpdateCheck(updateCheck{CheckedAt: now.Unix() - 60, Latest: "1.0.0"}); err != nil {
 		t.Fatal(err)
 	}
-	maybeSpawnUpdateCheckFor(updateConfig{CheckHours: &h12}, now, kindManual)
+	maybeSpawnUpdateCheckFor(config.UpdateConfig{CheckHours: &h12}, now, kindManual)
 	if len(*calls) != 0 {
 		t.Errorf("fresh cache should not spawn, got %d calls", len(*calls))
 	}
@@ -191,14 +192,14 @@ func TestMaybeSpawnUpdateCheck(t *testing.T) {
 	if err := os.WriteFile(updateLockPath(), nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	maybeSpawnUpdateCheckFor(updateConfig{CheckHours: &h12}, now, kindManual)
+	maybeSpawnUpdateCheckFor(config.UpdateConfig{CheckHours: &h12}, now, kindManual)
 	if len(*calls) != 0 {
 		t.Errorf("active lock should block spawn, got %d calls", len(*calls))
 	}
 
 	// Stale cache + no lock → spawns once.
 	_ = os.Remove(updateLockPath())
-	maybeSpawnUpdateCheckFor(updateConfig{CheckHours: &h12}, now, kindManual)
+	maybeSpawnUpdateCheckFor(config.UpdateConfig{CheckHours: &h12}, now, kindManual)
 	if len(*calls) != 1 {
 		t.Errorf("stale cache should spawn, got %d calls", len(*calls))
 	}
@@ -208,7 +209,7 @@ func TestMaybeSpawnUpdateCheck(t *testing.T) {
 		t.Errorf("spawn should leave a fresh lock; got %v", err)
 	}
 	_ = os.Chtimes(updateLockPath(), time.Now(), time.Now())
-	maybeSpawnUpdateCheckFor(updateConfig{CheckHours: &h12}, now, kindManual)
+	maybeSpawnUpdateCheckFor(config.UpdateConfig{CheckHours: &h12}, now, kindManual)
 	if len(*calls) != 1 {
 		t.Errorf("fresh lock should block second spawn, got %d calls", len(*calls))
 	}
@@ -219,14 +220,14 @@ func TestMaybeSpawnUpdateCheck(t *testing.T) {
 	if err := saveUpdateCheck(stale); err != nil {
 		t.Fatal(err)
 	}
-	maybeSpawnUpdateCheckFor(updateConfig{Mode: "off", CheckHours: &h24}, now, kindManual)
+	maybeSpawnUpdateCheckFor(config.UpdateConfig{Mode: "off", CheckHours: &h24}, now, kindManual)
 	if len(*calls) != 0 {
 		t.Errorf("off mode should never spawn, got %d calls", len(*calls))
 	}
 
 	// dev kind → never spawns.
 	*calls = nil
-	maybeSpawnUpdateCheckFor(updateConfig{CheckHours: &h12}, now, kindDev)
+	maybeSpawnUpdateCheckFor(config.UpdateConfig{CheckHours: &h12}, now, kindDev)
 	if len(*calls) != 0 {
 		t.Errorf("dev kind should never spawn, got %d calls", len(*calls))
 	}
@@ -237,7 +238,7 @@ func TestMaybeSpawnUpdateCheck(t *testing.T) {
 	if err := saveUpdateCheck(updateCheck{CheckedAt: now.Unix() - 60, Latest: ""}); err != nil {
 		t.Fatal(err)
 	}
-	maybeSpawnUpdateCheckFor(updateConfig{CheckHours: &h12}, now, kindManual)
+	maybeSpawnUpdateCheckFor(config.UpdateConfig{CheckHours: &h12}, now, kindManual)
 	if len(*calls) != 0 {
 		t.Errorf("recent failed-check should not respawn, got %d calls", len(*calls))
 	}
@@ -253,7 +254,7 @@ func TestMaybeSpawnUpdateCheck(t *testing.T) {
 	if err := saveUpdateCheck(stale); err != nil {
 		t.Fatal(err)
 	}
-	maybeSpawnUpdateCheckFor(updateConfig{CheckHours: &h12}, now, kindManual)
+	maybeSpawnUpdateCheckFor(config.UpdateConfig{CheckHours: &h12}, now, kindManual)
 	if failCalls != 1 {
 		t.Errorf("expected one failed spawn attempt, got %d", failCalls)
 	}
@@ -269,7 +270,7 @@ func TestMaybeSpawnUpdateCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = os.Remove(updateLockPath())
-	maybeSpawnUpdateCheck(updateConfig{CheckHours: &h12}, now)
+	maybeSpawnUpdateCheck(config.UpdateConfig{CheckHours: &h12}, now)
 	if len(*calls) != 0 {
 		t.Errorf("dev test build should not spawn via the public path, got %d calls", len(*calls))
 	}
@@ -299,7 +300,7 @@ func TestMaybeSpawnUpdateCheckNonRelease(t *testing.T) {
 		*calls = nil
 		_ = os.Remove(updateLockPath())
 		withTestVersion(t, v)
-		maybeSpawnUpdateCheck(updateConfig{CheckHours: &h12}, now)
+		maybeSpawnUpdateCheck(config.UpdateConfig{CheckHours: &h12}, now)
 		if len(*calls) != 0 {
 			t.Errorf("non-release version %q should never spawn, got %d calls", v, len(*calls))
 		}
@@ -665,7 +666,7 @@ func TestBrewBranch(t *testing.T) {
 
 	// Auto + brew → runs upgrade, no live output, with the right env.
 	calls = nil
-	env := driveWorkerBrew(t, kindBrew, "9.9.9", "1.0.0", updateConfig{Mode: "auto"})
+	env := driveWorkerBrew(t, kindBrew, "9.9.9", "1.0.0", config.UpdateConfig{Mode: "auto"})
 	if len(calls) != 1 {
 		t.Fatalf("auto+brew should run upgrade, got %d calls", len(calls))
 	}
@@ -694,7 +695,7 @@ func TestBrewBranch(t *testing.T) {
 	// Missing brew → silent fallback, no exec.
 	findBrewExe = func() string { return "" }
 	calls = nil
-	driveWorkerBrew(t, kindBrew, "9.9.9", "1.0.0", updateConfig{Mode: "auto"})
+	driveWorkerBrew(t, kindBrew, "9.9.9", "1.0.0", config.UpdateConfig{Mode: "auto"})
 	if len(calls) != 0 {
 		t.Error("missing brew should not exec")
 	}
@@ -702,21 +703,21 @@ func TestBrewBranch(t *testing.T) {
 	// Notify + brew → never execs.
 	findBrewExe = func() string { return "/opt/homebrew/bin/brew" }
 	calls = nil
-	driveWorkerBrew(t, kindBrew, "9.9.9", "1.0.0", updateConfig{Mode: "notify"})
+	driveWorkerBrew(t, kindBrew, "9.9.9", "1.0.0", config.UpdateConfig{Mode: "notify"})
 	if len(calls) != 0 {
 		t.Error("notify mode should never run brew upgrade")
 	}
 
 	// Older latest → no install.
 	calls = nil
-	driveWorkerBrew(t, kindBrew, "1.0.0", "2.0.0", updateConfig{Mode: "auto"})
+	driveWorkerBrew(t, kindBrew, "1.0.0", "2.0.0", config.UpdateConfig{Mode: "auto"})
 	if len(calls) != 0 {
 		t.Error("older/latest-equal should not run upgrade")
 	}
 
 	// Dev → never runs.
 	calls = nil
-	driveWorkerBrew(t, kindDev, "9.9.9", "1.0.0", updateConfig{Mode: "auto"})
+	driveWorkerBrew(t, kindDev, "9.9.9", "1.0.0", config.UpdateConfig{Mode: "auto"})
 	if len(calls) != 0 {
 		t.Error("dev build should not run brew upgrade")
 	}
@@ -728,8 +729,8 @@ func TestNpmWorkerNoSwap(t *testing.T) {
 
 	// Isolate config so a user-side [update].mode = "auto" can't turn this test
 	// into a real download/swap against the test binary.
-	configDirOverride = dir
-	t.Cleanup(func() { configDirOverride = "" })
+	config.ConfigDirOverride = dir
+	t.Cleanup(func() { config.ConfigDirOverride = "" })
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(`[update]
 mode = "auto"
 `), 0o644); err != nil {
@@ -775,8 +776,8 @@ func TestRunUpdateCheckNonRelease(t *testing.T) {
 
 	// Isolate config so a user-side [update].mode = "auto" can't turn this
 	// test into a real download/swap against the test binary.
-	configDirOverride = dir
-	t.Cleanup(func() { configDirOverride = "" })
+	config.ConfigDirOverride = dir
+	t.Cleanup(func() { config.ConfigDirOverride = "" })
 
 	resolveCalls := 0
 	old := resolveLatestTagFn
@@ -921,7 +922,7 @@ func TestRenderUpdate(t *testing.T) {
 	_ = saveUpdateCheck(updateCheck{CheckedAt: now.Unix() - 60, Latest: "1.2.0"})
 	if got, show := renderUpdate(renderCtx{
 		Now: now,
-		Cfg: config{Update: updateConfig{Mode: "off"}},
+		Cfg: config.Config{Update: config.UpdateConfig{Mode: "off"}},
 		C:   palette.Palette{Dim: "", Rst: ""},
 	}); show {
 		t.Errorf("mode=off should hide, got %q", got)
@@ -1086,7 +1087,7 @@ func callRunUpdateFor(t *testing.T, checkOnly bool, current string, kind install
 // can call without touching the network. Returns the env the brew branch
 // would have used (for assertions on HOMEBREW_NO_AUTO_UPDATE), or nil when
 // the branch did not run.
-func driveWorkerBrew(t *testing.T, kind installKind, latest, current string, cfg updateConfig) []string {
+func driveWorkerBrew(t *testing.T, kind installKind, latest, current string, cfg config.UpdateConfig) []string {
 	t.Helper()
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	dir := state.StateBaseDir()
@@ -1096,7 +1097,7 @@ func driveWorkerBrew(t *testing.T, kind installKind, latest, current string, cfg
 	if kind == kindDev {
 		return nil
 	}
-	if cfg.mode() != "auto" {
+	if cfg.ModeOrDefault() != "auto" {
 		return nil
 	}
 	if compareVersions(latest, current) <= 0 {
@@ -1311,7 +1312,7 @@ func TestRenderUpdateConfirmation(t *testing.T) {
 		t.Errorf("fresh matching result should confirm, got %q show=%v", got, show)
 	}
 	// Confirmation precedes the mode==off guard (a manual update still confirms).
-	if _, show := renderUpdate(renderCtx{Now: now, C: c, Cfg: config{Update: updateConfig{Mode: "off"}}}); !show {
+	if _, show := renderUpdate(renderCtx{Now: now, C: c, Cfg: config.Config{Update: config.UpdateConfig{Mode: "off"}}}); !show {
 		t.Error("confirmation should show even with mode=off")
 	}
 

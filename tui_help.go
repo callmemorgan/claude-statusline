@@ -8,6 +8,8 @@ package main
 import (
 	"fmt"
 	"strings"
+
+	"github.com/callmemorgan/claude-statusline/internal/config"
 )
 
 func buildHelpText() string {
@@ -17,7 +19,7 @@ func buildHelpText() string {
 	b.WriteString("off, assign them to lines 1-9, recolor them, and tune per-segment\n")
 	b.WriteString("settings in the flyout (o). The preview renders live at your terminal\n")
 	b.WriteString("width. Nothing touches disk until you press s — changes save to\n")
-	b.WriteString(fmt.Sprintf("[green]%s[-].\n", configPath()))
+	b.WriteString(fmt.Sprintf("[green]%s[-].\n", config.ConfigPath()))
 
 	section := func(title, context string) {
 		b.WriteString(fmt.Sprintf("\n[cyan::b]%s[-::-]\n", title))

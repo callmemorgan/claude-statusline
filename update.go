@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/state"
 	"github.com/callmemorgan/claude-statusline/internal/sys"
 	"github.com/callmemorgan/claude-statusline/internal/version"
@@ -316,8 +317,8 @@ func spawnUpdateCheckReal() error {
 // detached `update-check` worker. Returns immediately under all conditions:
 // no network I/O, no blocking, no stdout/stderr output. Called from runRender
 // after the print loop, next to st.Save().
-func maybeSpawnUpdateCheck(cfg updateConfig, now time.Time) {
-	if cfg.mode() == "off" {
+func maybeSpawnUpdateCheck(cfg config.UpdateConfig, now time.Time) {
+	if cfg.ModeOrDefault() == "off" {
 		return
 	}
 	current, _, _ := version.VersionString()
@@ -328,7 +329,7 @@ func maybeSpawnUpdateCheck(cfg updateConfig, now time.Time) {
 	// the os.Executable()+EvalSymlinks syscalls that resolving the install kind
 	// would cost. Only a stale/missing cache pays for path resolution.
 	if cache, ok := loadUpdateCheck(); ok {
-		if elapsed := now.Unix() - cache.CheckedAt; elapsed >= 0 && elapsed < int64(cfg.checkEvery().Seconds()) {
+		if elapsed := now.Unix() - cache.CheckedAt; elapsed >= 0 && elapsed < int64(cfg.CheckEvery().Seconds()) {
 			return
 		}
 	}
@@ -339,8 +340,8 @@ func maybeSpawnUpdateCheck(cfg updateConfig, now time.Time) {
 // maybeSpawnUpdateCheckFor is the kind-aware helper; tests drive it directly
 // with a known kind to exercise each branch. Production callers go through
 // maybeSpawnUpdateCheck.
-func maybeSpawnUpdateCheckFor(cfg updateConfig, now time.Time, kind installKind) {
-	if cfg.mode() == "off" {
+func maybeSpawnUpdateCheckFor(cfg config.UpdateConfig, now time.Time, kind installKind) {
+	if cfg.ModeOrDefault() == "off" {
 		return
 	}
 	if kind == kindDev {
@@ -351,7 +352,7 @@ func maybeSpawnUpdateCheckFor(cfg updateConfig, now time.Time, kind installKind)
 		// makes elapsed negative; without the >= 0 guard that reads as
 		// "always fresh" and wedges the check forever. Treat it as stale so
 		// the next render spawns a worker and overwrites it with a sane time.
-		if elapsed := now.Unix() - cache.CheckedAt; elapsed >= 0 && elapsed < int64(cfg.checkEvery().Seconds()) {
+		if elapsed := now.Unix() - cache.CheckedAt; elapsed >= 0 && elapsed < int64(cfg.CheckEvery().Seconds()) {
 			return
 		}
 	}
@@ -1293,11 +1294,11 @@ func runUpdateCheck() {
 	if kind == kindDev || !isReleaseVersion(current) {
 		return
 	}
-	cfg, _ := loadConfigWarn()
+	cfg, _ := config.LoadConfigWarn()
 	// Honor mode=off in the worker itself, not just at the spawn gate: the
 	// `update-check` subcommand is directly dispatchable and mode can flip
 	// between spawn and exec, so "off = no network, ever" must hold here too.
-	if cfg.Update.mode() == "off" {
+	if cfg.Update.ModeOrDefault() == "off" {
 		return
 	}
 
@@ -1312,7 +1313,7 @@ func runUpdateCheck() {
 	if err := saveUpdateCheck(updateCheck{CheckedAt: now.Unix(), Latest: latest}); err != nil {
 		return
 	}
-	if cfg.Update.mode() != "auto" {
+	if cfg.Update.ModeOrDefault() != "auto" {
 		return
 	}
 	if compareVersions(latest, current) <= 0 {

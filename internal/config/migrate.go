@@ -1,4 +1,4 @@
-package main
+package config
 
 // ─── Legacy Config Migration ─────────────────────────────────────────
 //
@@ -25,7 +25,7 @@ type legacyConfig struct {
 	Segments []string                  `json:"segments"`
 	Lines    map[string]int            `json:"lines"`
 	Colors   map[string]string         `json:"colors"`
-	Plugins  []pluginDef               `json:"plugins"`
+	Plugins  []PluginDef               `json:"plugins"`
 	Reflow   string                    `json:"reflow"`
 	Settings map[string]map[string]any `json:"settings"`
 }
@@ -35,24 +35,24 @@ type legacyConfig struct {
 // caller uses it directly so a failed TOML write still renders correctly
 // (migration retries next invocation). Idempotent: a present config.toml
 // short-circuits immediately.
-func migrateLegacyJSON() (config, bool) {
-	dir := configDir()
+func migrateLegacyJSON() (Config, bool) {
+	dir := ConfigDir()
 	if _, err := os.Stat(filepath.Join(dir, "config.toml")); err == nil {
-		return config{}, false
+		return Config{}, false
 	}
 	jsonPath := filepath.Join(dir, "config.json")
 	data, err := os.ReadFile(jsonPath)
 	if err != nil {
-		return config{}, false
+		return Config{}, false
 	}
 
 	var legacy legacyConfig
 	if err := json.Unmarshal(data, &legacy); err != nil {
 		fmt.Fprintf(os.Stderr, "claude-statusline: cannot migrate config.json (%v); using defaults\n", err)
-		return config{}, false
+		return Config{}, false
 	}
 
-	cfg := config{
+	cfg := Config{
 		SchemaVersion: currentSchemaVersion,
 		Reflow:        legacy.Reflow,
 		Segments:      legacy.Segments,
@@ -62,7 +62,7 @@ func migrateLegacyJSON() (config, bool) {
 		Plugins:       legacy.Plugins,
 	}
 
-	tomlData, err := marshalConfigTOML(cfg)
+	tomlData, err := MarshalConfigTOML(cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "claude-statusline: cannot convert config.json to TOML (%v)\n", err)
 		return cfg, true

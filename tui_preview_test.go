@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"regexp"
 	"strconv"
 	"strings"
@@ -61,7 +62,7 @@ func TestSamplePayloadShowsNewSegments(t *testing.T) {
 		if !ok {
 			t.Fatalf("no segment %q", tc.id)
 		}
-		out, show := seg.render(renderCtx{P: p, S: settingsFor(config{}, seg), Now: time.Unix(1750000000, 0)})
+		out, show := seg.render(renderCtx{P: p, S: config.SettingsFor(config.Config{}, seg.id, seg.settings), Now: time.Unix(1750000000, 0)})
 		if !show {
 			t.Errorf("%s hidden with samplePayload, want visible", tc.id)
 			continue

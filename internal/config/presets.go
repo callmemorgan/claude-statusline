@@ -1,4 +1,4 @@
-package main
+package config
 
 // ─── Layout Presets ──────────────────────────────────────────────────
 //
@@ -6,7 +6,7 @@ package main
 // config.toml (used only when `segments` is absent). A preset's theme is a
 // suggestion: it applies only when the user hasn't chosen a theme.
 
-type layoutPreset struct {
+type LayoutPreset struct {
 	ID       string
 	Desc     string
 	Segments []string
@@ -15,11 +15,11 @@ type layoutPreset struct {
 	Theme    string
 }
 
-var layoutPresets = []layoutPreset{
+var LayoutPresets = []LayoutPreset{
 	{
 		ID:       "classic",
 		Desc:     "The default layout — everything on three lines",
-		Segments: defaultConfig().Segments,
+		Segments: DefaultConfig().Segments,
 	},
 	{
 		ID:       "minimal",
@@ -93,20 +93,20 @@ var layoutPresets = []layoutPreset{
 	},
 }
 
-func presetByID(id string) (layoutPreset, bool) {
-	for _, p := range layoutPresets {
+func PresetByID(id string) (LayoutPreset, bool) {
+	for _, p := range LayoutPresets {
 		if p.ID == id {
 			return p, true
 		}
 	}
-	return layoutPreset{}, false
+	return LayoutPreset{}, false
 }
 
-// applyPreset replaces the layout-shaped parts of cfg (segments, lines,
+// ApplyPreset replaces the layout-shaped parts of cfg (segments, lines,
 // per-segment settings) with the preset's, deep-copied so later edits never
 // mutate the preset data. Colors and plugins are kept; the preset theme
 // applies only when the user hasn't set one.
-func applyPreset(cfg *config, p layoutPreset) {
+func ApplyPreset(cfg *Config, p LayoutPreset) {
 	cfg.Segments = append([]string(nil), p.Segments...)
 	cfg.Lines = nil
 	if len(p.Lines) > 0 {
@@ -148,8 +148,8 @@ func applyPreset(cfg *config, p layoutPreset) {
 	}
 }
 
-// cloneConfig deep-copies a config so the TUI can snapshot and restore it.
-func cloneConfig(c config) config {
+// CloneConfig deep-copies a Config so the TUI can snapshot and restore it.
+func CloneConfig(c Config) Config {
 	out := c
 	out.Segments = append([]string(nil), c.Segments...)
 	if c.Lines != nil {
@@ -180,6 +180,6 @@ func cloneConfig(c config) config {
 			out.Settings[id] = m
 		}
 	}
-	out.Plugins = append([]pluginDef(nil), c.Plugins...)
+	out.Plugins = append([]PluginDef(nil), c.Plugins...)
 	return out
 }

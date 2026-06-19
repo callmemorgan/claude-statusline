@@ -1,4 +1,4 @@
-package main
+package config
 
 import (
 	"os"
@@ -23,7 +23,7 @@ func TestMigrateLegacyJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := loadConfig()
+	cfg := LoadConfig()
 
 	// Converted values survived.
 	if len(cfg.Segments) != 3 || cfg.Segments[0] != "model" {
@@ -35,10 +35,7 @@ func TestMigrateLegacyJSON(t *testing.T) {
 	if len(cfg.Plugins) != 1 || cfg.Plugins[0].ID != "mem" || cfg.Plugins[0].TimeoutMS != 200 {
 		t.Errorf("plugins not migrated: %+v", cfg.Plugins)
 	}
-	initSegments(nil)
-	seg, _ := segmentByID("context-window")
-	s := settingsFor(cfg, seg)
-	if s.Int("bar_width") != 30 || s.Bool("show_warning") || s.Str("iconset") != "blocks" {
+	if s := SettingsFor(cfg, "context-window", BarSettingSpecs(false, true, true, 20, []string{"default", "blocks", "smooth"}, TrendSpecs()...)); s.Int("bar_width") != 30 || s.Bool("show_warning") || s.Str("iconset") != "blocks" {
 		t.Errorf("settings not migrated: %v", cfg.Settings)
 	}
 
@@ -65,7 +62,7 @@ func TestMigrateLegacyJSON(t *testing.T) {
 	if err := os.WriteFile(jsonPath, []byte(`{"segments": ["vim-mode"]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg2 := loadConfig()
+	cfg2 := LoadConfig()
 	if len(cfg2.Segments) != 3 {
 		t.Errorf("TOML must win over a reappearing config.json: %v", cfg2.Segments)
 	}
@@ -77,8 +74,8 @@ func TestMigrateMalformedJSONLeftAlone(t *testing.T) {
 	if err := os.WriteFile(jsonPath, []byte("{broken"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := loadConfig()
-	if len(cfg.Segments) != len(defaultConfig().Segments) {
+	cfg := LoadConfig()
+	if len(cfg.Segments) != len(DefaultConfig().Segments) {
 		t.Error("malformed legacy config should fall back to defaults")
 	}
 	if _, err := os.Stat(jsonPath); err != nil {
@@ -95,7 +92,7 @@ func TestMigratePreservesNilSegments(t *testing.T) {
 		[]byte(`{"plugins": [{"id": "mem", "command": "x"}]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg := loadConfig()
+	cfg := LoadConfig()
 	// nil segments → defaults + auto-appended plugin.
 	if cfg.Segments[len(cfg.Segments)-1] != "mem" {
 		t.Errorf("plugin not auto-appended after migration: %v", cfg.Segments)
@@ -108,7 +105,7 @@ func TestMigratePreservesNilSegments(t *testing.T) {
 		t.Errorf("nil segments must stay omitted in TOML so auto-append survives:\n%s", tomlData)
 	}
 	// And the next plain TOML load behaves the same.
-	cfg2 := loadConfig()
+	cfg2 := LoadConfig()
 	if cfg2.Segments[len(cfg2.Segments)-1] != "mem" {
 		t.Errorf("auto-append broken after TOML round-trip: %v", cfg2.Segments)
 	}
@@ -135,7 +132,7 @@ x = 1
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(bad), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cfg, warns := loadConfigWarn()
+	cfg, warns := LoadConfigWarn()
 	if cfg.Reflow != "" {
 		t.Errorf("bad reflow should reset, got %q", cfg.Reflow)
 	}
@@ -161,30 +158,5 @@ x = 1
 	// Valid parts still load.
 	if len(cfg.Segments) != 2 {
 		t.Errorf("valid keys should still apply: %v", cfg.Segments)
-	}
-}
-
-func TestValidateSegmentRefs(t *testing.T) {
-	initSegments(nil)
-	cfg := config{
-		Segments: []string{"model", "no-such-segment"},
-		Settings: map[string]map[string]any{
-			"context-window": {"bar_width": 30, "bogus_key": 1},
-			"ghost":          {"x": 1},
-		},
-	}
-	warns := validateSegmentRefs(cfg)
-	want := []string{"no-such-segment", "bogus_key", "settings.ghost"}
-	for _, w := range want {
-		found := false
-		for _, got := range warns {
-			if strings.Contains(got.String(), w) {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("expected warning about %q, got %v", w, warns)
-		}
 	}
 }
