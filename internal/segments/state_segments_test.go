@@ -1,11 +1,11 @@
-package main
+package segments
 
 import (
-	"github.com/callmemorgan/claude-statusline/internal/config"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/payload"
 	"github.com/callmemorgan/claude-statusline/internal/state"
 )
@@ -32,10 +32,11 @@ func rlState(now time.Time, span time.Duration, perHour, last, costPerHour, last
 	return st
 }
 
-func renderWithState(t *testing.T, id string, p payload.Payload, st *state.SessionState, now time.Time, overrides map[string]any) string {
+// RenderWithState is exported for cross-package TUI-preview tests.
+func RenderWithState(t testing.TB, id string, p payload.Payload, st *state.SessionState, now time.Time, overrides map[string]any) string {
 	t.Helper()
-	initSegments(nil)
-	seg, ok := segmentByID(id)
+	Init()
+	seg, ok := ByID(id)
 	if !ok {
 		t.Fatalf("no segment %q", id)
 	}
@@ -43,7 +44,7 @@ func renderWithState(t *testing.T, id string, p payload.Payload, st *state.Sessi
 	if overrides != nil {
 		cfg.Settings = map[string]map[string]any{id: overrides}
 	}
-	out, _ := seg.render(renderCtx{P: p, S: config.SettingsFor(cfg, seg.id, seg.settings), State: st, Now: now})
+	out, _ := seg.Render(RenderCtx{P: p, S: config.SettingsFor(cfg, seg.ID, seg.Settings), State: st, Now: now})
 	return out
 }
 
@@ -56,40 +57,40 @@ func TestRateLimitProjection(t *testing.T) {
 
 	// 10%/h ending at 40% → projected 60% at reset in 2h.
 	st := rlState(now, 30*time.Minute, 10, 40, 0, 0)
-	out := renderWithState(t, "rate-limit-5h", p, st, now, nil)
+	out := RenderWithState(t, "rate-limit-5h", p, st, now, nil)
 	if !strings.Contains(out, "→60%") {
 		t.Errorf("expected →60%% projection, got %q", out)
 	}
 
 	// No state → no projection.
-	out = renderWithState(t, "rate-limit-5h", p, nil, now, nil)
+	out = RenderWithState(t, "rate-limit-5h", p, nil, now, nil)
 	if strings.Contains(out, "→") {
 		t.Errorf("projection without state: %q", out)
 	}
 
 	// Flat usage → no projection.
 	flat := rlState(now, 30*time.Minute, 0, 40, 0, 0)
-	out = renderWithState(t, "rate-limit-5h", p, flat, now, nil)
+	out = RenderWithState(t, "rate-limit-5h", p, flat, now, nil)
 	if strings.Contains(out, "→") {
 		t.Errorf("projection with flat usage: %q", out)
 	}
 
 	// Too little history → no projection.
 	short := rlState(now, 2*time.Minute, 10, 40, 0, 0)
-	out = renderWithState(t, "rate-limit-5h", p, short, now, nil)
+	out = RenderWithState(t, "rate-limit-5h", p, short, now, nil)
 	if strings.Contains(out, "→") {
 		t.Errorf("projection with 2min history: %q", out)
 	}
 
 	// Toggle off.
-	out = renderWithState(t, "rate-limit-5h", p, st, now, map[string]any{"show_projection": false})
+	out = RenderWithState(t, "rate-limit-5h", p, st, now, map[string]any{"show_projection": false})
 	if strings.Contains(out, "→") {
 		t.Errorf("projection despite show_projection=false: %q", out)
 	}
 
 	// Steep burn projecting past 100% still renders (callers see →130%).
 	steep := rlState(now, 30*time.Minute, 45, 40, 0, 0)
-	out = renderWithState(t, "rate-limit-5h", p, steep, now, nil)
+	out = RenderWithState(t, "rate-limit-5h", p, steep, now, nil)
 	if !strings.Contains(out, "→130%") {
 		t.Errorf("expected →130%%, got %q", out)
 	}
@@ -98,17 +99,17 @@ func TestRateLimitProjection(t *testing.T) {
 func TestCostRateSegment(t *testing.T) {
 	now := time.Unix(1750000000, 0)
 	st := rlState(now, 30*time.Minute, 0, 0, 1.50, 2.0)
-	out := renderWithState(t, "cost-rate", payload.Payload{}, st, now, nil)
+	out := RenderWithState(t, "cost-rate", payload.Payload{}, st, now, nil)
 	if out != "$1.50/h" {
 		t.Errorf("cost-rate = %q", out)
 	}
 
-	if out := renderWithState(t, "cost-rate", payload.Payload{}, nil, now, nil); out != "" {
+	if out := RenderWithState(t, "cost-rate", payload.Payload{}, nil, now, nil); out != "" {
 		t.Errorf("cost-rate without state = %q", out)
 	}
 	// Negligible rate hides.
 	tiny := rlState(now, 30*time.Minute, 0, 0, 0.001, 0.01)
-	if out := renderWithState(t, "cost-rate", payload.Payload{}, tiny, now, nil); out != "" {
+	if out := RenderWithState(t, "cost-rate", payload.Payload{}, tiny, now, nil); out != "" {
 		t.Errorf("cost-rate with negligible burn = %q", out)
 	}
 }
@@ -122,21 +123,21 @@ func TestContextTrend(t *testing.T) {
 
 	// Growing 20%/h at 50%, compact at 80% → ETA 1h30m.
 	growing := rlState(now, 15*time.Minute, 20, 50, 0, 0)
-	out := renderWithState(t, "context-window", p, growing, now, nil)
+	out := RenderWithState(t, "context-window", p, growing, now, nil)
 	if !strings.Contains(out, "↗ ~1h30m") {
 		t.Errorf("expected ↗ ~1h30m, got %q", out)
 	}
 
 	// Shrinking (post-compact) → ↘ with no ETA.
 	shrinking := rlState(now, 15*time.Minute, -20, 50, 0, 0)
-	out = renderWithState(t, "context-window", p, shrinking, now, nil)
+	out = RenderWithState(t, "context-window", p, shrinking, now, nil)
 	if !strings.Contains(out, "↘") || strings.Contains(out, "~") {
 		t.Errorf("expected bare ↘, got %q", out)
 	}
 
 	// Flat → no arrow.
 	flat := rlState(now, 15*time.Minute, 1, 50, 0, 0)
-	out = renderWithState(t, "context-window", p, flat, now, nil)
+	out = RenderWithState(t, "context-window", p, flat, now, nil)
 	if strings.Contains(out, "↗") || strings.Contains(out, "↘") {
 		t.Errorf("expected no trend when flat, got %q", out)
 	}
@@ -145,7 +146,7 @@ func TestContextTrend(t *testing.T) {
 	pct90 := 90.0
 	p.ContextWindow.UsedPercentage = &pct90
 	past := rlState(now, 15*time.Minute, 20, 90, 0, 0)
-	out = renderWithState(t, "context-window", p, past, now, nil)
+	out = RenderWithState(t, "context-window", p, past, now, nil)
 	if !strings.Contains(out, "↗") || strings.Contains(out, "~") {
 		t.Errorf("expected ↗ without ETA past compact_at, got %q", out)
 	}

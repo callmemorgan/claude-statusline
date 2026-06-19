@@ -1,8 +1,7 @@
-package main
+package segments
 
 import (
 	"errors"
-	"github.com/callmemorgan/claude-statusline/internal/config"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/palette"
 	"github.com/callmemorgan/claude-statusline/internal/payload"
 )
@@ -124,19 +124,19 @@ func TestGitStatusNonRepo(t *testing.T) {
 // replace them (regression: the worktree suffix used to rebuild the display
 // from the bare branch, silently dropping the dirty marker and ahead/behind).
 func TestGitBranchKeepsRichStatusWithWorktree(t *testing.T) {
-	gitStatusPreview = &gitStatusInfo{Dirty: true, Ahead: 1, Behind: 2}
-	t.Cleanup(func() { gitStatusPreview = nil })
-	initSegments(nil)
+	GitStatusPreview = &GitStatusInfo{Dirty: true, Ahead: 1, Behind: 2}
+	t.Cleanup(func() { GitStatusPreview = nil })
+	Init()
 
 	var p payload.Payload
 	p.Workspace.CurrentDir = "/nonexistent/proj"
 	p.Worktree = payload.Worktree{Name: "my-project", Branch: "feature/x"}
 	cfg := config.Config{Settings: map[string]map[string]any{"git-branch": {"git_status": true}}}
-	seg, ok := segmentByID("git-branch")
+	seg, ok := ByID("git-branch")
 	if !ok {
 		t.Fatal("no git-branch segment")
 	}
-	out, show := seg.render(renderCtx{P: p, S: config.SettingsFor(cfg, seg.id, seg.settings), Now: time.Now()})
+	out, show := seg.Render(RenderCtx{P: p, S: config.SettingsFor(cfg, seg.ID, seg.Settings), Now: time.Now()})
 	if !show {
 		t.Fatal("git-branch hidden")
 	}
@@ -281,23 +281,23 @@ func TestGitStashNonRepo(t *testing.T) {
 }
 
 func TestRenderGitStash(t *testing.T) {
-	initSegments(nil)
-	seg, ok := segmentByID("git-stash")
+	Init()
+	seg, ok := ByID("git-stash")
 	if !ok {
 		t.Fatal("no git-stash segment")
 	}
 	render := func() (string, bool) {
-		return seg.render(renderCtx{
+		return seg.Render(RenderCtx{
 			P:   payload.Payload{Workspace: payload.Workspace{CurrentDir: "/whatever"}},
-			S:   config.SettingsFor(config.Config{}, seg.id, seg.settings),
+			S:   config.SettingsFor(config.Config{}, seg.ID, seg.Settings),
 			C:   palette.Palette{Git: "", Rst: ""},
 			Now: time.Unix(1750000000, 0),
 		})
 	}
 
 	n := 3
-	gitStashPreview = &n
-	t.Cleanup(func() { gitStashPreview = nil })
+	GitStashPreview = &n
+	t.Cleanup(func() { GitStashPreview = nil })
 	out, show := render()
 	if !show || !strings.Contains(out, "⚑3") {
 		t.Errorf("count 3 should show ⚑3, got %q show=%v", out, show)

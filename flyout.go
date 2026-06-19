@@ -7,19 +7,20 @@ import (
 
 	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/payload"
+	"github.com/callmemorgan/claude-statusline/internal/segments"
 )
 
 // ─── Flyout Helpers ──────────────────────────────────────────────────
 //
 // The flyout panel is fully schema-driven: it renders whatever config.SettingSpec
-// list the selected segment declares (segmentInfo.settings). Only the two
+// list the selected segment declares (segments.Info.settings). Only the two
 // ephemeral actions — stress_test and sync_to_all — have bespoke handling.
 
 // segmentSpecs returns the settings schema for a segment ID, or nil when the
 // segment has no configurable settings (no flyout).
 func segmentSpecs(segID string) []config.SettingSpec {
-	if s, ok := segmentByID(segID); ok {
-		return s.settings
+	if s, ok := segments.ByID(segID); ok {
+		return s.Settings
 	}
 	return nil
 }
@@ -29,10 +30,10 @@ func segmentSpecs(segID string) []config.SettingSpec {
 // bar_width setting. Adding a new bar segment automatically joins the group.
 func progressBarSegmentIDs() []string {
 	var ids []string
-	for _, s := range registeredSegments {
-		for _, sp := range s.settings {
+	for _, s := range segments.All() {
+		for _, sp := range s.Settings {
 			if sp.Key == "bar_width" {
-				ids = append(ids, s.id)
+				ids = append(ids, s.ID)
 				break
 			}
 		}
@@ -79,11 +80,11 @@ func flyoutValueStr(segID string, sp config.SettingSpec, cfg config.Config) stri
 	case "sync_to_all":
 		return ""
 	}
-	seg, ok := segmentByID(segID)
+	seg, ok := segments.ByID(segID)
 	if !ok {
 		return ""
 	}
-	return config.SettingsFor(cfg, seg.id, seg.settings).ValueString(sp)
+	return config.SettingsFor(cfg, seg.ID, seg.Settings).ValueString(sp)
 }
 
 func cycleOption(options []string, current string, delta int) string {
@@ -106,11 +107,11 @@ func applyFlyoutChange(segID string, sp config.SettingSpec, cfg *config.Config, 
 		stressTestActive[segID] = !stressTestActive[segID]
 		return
 	}
-	seg, ok := segmentByID(segID)
+	seg, ok := segments.ByID(segID)
 	if !ok {
 		return
 	}
-	s := config.SettingsFor(*cfg, seg.id, seg.settings)
+	s := config.SettingsFor(*cfg, seg.ID, seg.Settings)
 	switch sp.Kind {
 	case config.KindBool:
 		s[sp.Key] = !s.Bool(sp.Key)
@@ -126,38 +127,38 @@ func applyFlyoutChange(segID string, sp config.SettingSpec, cfg *config.Config, 
 		}
 		s[sp.Key] = v
 	}
-	config.SetSegmentSettings(cfg, segID, config.PruneSettings(seg.settings, s))
+	config.SetSegmentSettings(cfg, segID, config.PruneSettings(seg.Settings, s))
 }
 
 // setFlyoutValue writes one setting directly (used by the color picker).
 func setFlyoutValue(segID string, sp config.SettingSpec, cfg *config.Config, value string) {
-	seg, ok := segmentByID(segID)
+	seg, ok := segments.ByID(segID)
 	if !ok {
 		return
 	}
-	s := config.SettingsFor(*cfg, seg.id, seg.settings)
+	s := config.SettingsFor(*cfg, seg.ID, seg.Settings)
 	s[sp.Key] = sp.Coerce(value)
-	config.SetSegmentSettings(cfg, segID, config.PruneSettings(seg.settings, s))
+	config.SetSegmentSettings(cfg, segID, config.PruneSettings(seg.Settings, s))
 }
 
 // syncSettingsToAllBars copies the source segment's settings to every other
 // bar segment, pruned against each target's own schema (keys a target doesn't
 // declare are dropped).
 func syncSettingsToAllBars(cfg *config.Config, sourceID string) {
-	source, ok := segmentByID(sourceID)
+	source, ok := segments.ByID(sourceID)
 	if !ok {
 		return
 	}
-	s := config.SettingsFor(*cfg, source.id, source.settings)
+	s := config.SettingsFor(*cfg, source.ID, source.Settings)
 	for _, target := range progressBarSegmentIDs() {
 		if target == sourceID {
 			continue
 		}
-		tseg, ok := segmentByID(target)
+		tseg, ok := segments.ByID(target)
 		if !ok {
 			continue
 		}
-		config.SetSegmentSettings(cfg, target, config.PruneSettings(tseg.settings, s))
+		config.SetSegmentSettings(cfg, target, config.PruneSettings(tseg.Settings, s))
 	}
 }
 

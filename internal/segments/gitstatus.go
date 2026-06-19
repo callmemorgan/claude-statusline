@@ -1,4 +1,4 @@
-package main
+package segments
 
 // ─── Rich Git Status (opt-in) ────────────────────────────────────────
 //
@@ -21,7 +21,7 @@ import (
 	"github.com/callmemorgan/claude-statusline/internal/sys"
 )
 
-type gitStatusInfo struct {
+type GitStatusInfo struct {
 	TS     int64  `json:"ts"`
 	Branch string `json:"branch,omitempty"`
 	Dirty  bool   `json:"dirty,omitempty"`
@@ -74,8 +74,8 @@ var runGitStatusCmd = func(root string, timeout time.Duration) (string, error) {
 
 // parsePorcelainV2 extracts branch, ahead/behind, and dirtiness. With -uno,
 // untracked files don't count as dirty — only tracked modifications do.
-func parsePorcelainV2(out string) gitStatusInfo {
-	var info gitStatusInfo
+func parsePorcelainV2(out string) GitStatusInfo {
+	var info GitStatusInfo
 	for _, line := range strings.Split(out, "\n") {
 		switch {
 		case strings.HasPrefix(line, "# branch.head "):
@@ -98,19 +98,19 @@ func parsePorcelainV2(out string) gitStatusInfo {
 	return info
 }
 
-func loadGitCache() map[string]gitStatusInfo {
+func loadGitCache() map[string]GitStatusInfo {
 	data, err := os.ReadFile(gitCachePath())
 	if err != nil {
-		return map[string]gitStatusInfo{}
+		return map[string]GitStatusInfo{}
 	}
-	cache := map[string]gitStatusInfo{}
+	cache := map[string]GitStatusInfo{}
 	if err := json.Unmarshal(data, &cache); err != nil {
-		return map[string]gitStatusInfo{}
+		return map[string]GitStatusInfo{}
 	}
 	return cache
 }
 
-func saveGitCache(cache map[string]gitStatusInfo, now time.Time) {
+func saveGitCache(cache map[string]GitStatusInfo, now time.Time) {
 	// Drop entries that haven't been refreshed in a day.
 	cutoff := now.Add(-24 * time.Hour).Unix()
 	for k, v := range cache {
@@ -128,22 +128,22 @@ func saveGitCache(cache map[string]gitStatusInfo, now time.Time) {
 	_ = sys.WriteFileAtomic(gitCachePath(), data)
 }
 
-// gitStatusPreview, when non-nil, short-circuits gitStatusFor. The configure
+// GitStatusPreview, when non-nil, short-circuits gitStatusFor. The configure
 // TUI sets it so the preview can demonstrate rich status (dirty marker,
 // ahead/behind) without the sample payload pointing at a real repo. Never set
 // on the render path.
-var gitStatusPreview *gitStatusInfo
+var GitStatusPreview *GitStatusInfo
 
 // gitStatusFor returns rich status for the repo containing dir. Fresh cache
 // entries are returned without exec; stale ones trigger a bounded git run,
 // falling back to the stale value on error or timeout.
-func gitStatusFor(dir string, ttl, timeout time.Duration, now time.Time) (gitStatusInfo, bool) {
-	if gitStatusPreview != nil {
-		return *gitStatusPreview, true
+func gitStatusFor(dir string, ttl, timeout time.Duration, now time.Time) (GitStatusInfo, bool) {
+	if GitStatusPreview != nil {
+		return *GitStatusPreview, true
 	}
 	root := repoRoot(dir)
 	if root == "" {
-		return gitStatusInfo{}, false
+		return GitStatusInfo{}, false
 	}
 	cache := loadGitCache()
 	cached, hasCached := cache[root]
@@ -226,18 +226,18 @@ func saveGitStashCache(cache map[string]gitStashInfo, now time.Time) {
 	_ = sys.WriteFileAtomic(gitStashCachePath(), data)
 }
 
-// gitStashPreview, when non-nil, short-circuits gitStashFor so the configure
+// GitStashPreview, when non-nil, short-circuits gitStashFor so the configure
 // TUI can demonstrate the stash count without the sample payload pointing at a
 // real repo. Never set on the render path.
-var gitStashPreview *int
+var GitStashPreview *int
 
 // gitStashFor returns the stash count for the repo containing dir, cached like
 // gitStatusFor. A missing stash ref (git exits non-zero) is treated as zero and
 // cached, so a repo that has never stashed doesn't re-exec every render. A
 // stale cached value beats nothing on a transient error.
 func gitStashFor(dir string, ttl, timeout time.Duration, now time.Time) (int, bool) {
-	if gitStashPreview != nil {
-		return *gitStashPreview, true
+	if GitStashPreview != nil {
+		return *GitStashPreview, true
 	}
 	root := repoRoot(dir)
 	if root == "" {

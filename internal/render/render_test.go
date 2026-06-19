@@ -1,8 +1,7 @@
-package main
+package render
 
 import (
 	"flag"
-	"github.com/callmemorgan/claude-statusline/internal/config"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,9 +9,10 @@ import (
 	"time"
 
 	"github.com/callmemorgan/claude-statusline/internal/ansi"
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/palette"
-
 	"github.com/callmemorgan/claude-statusline/internal/payload"
+	"github.com/callmemorgan/claude-statusline/internal/segments"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -24,7 +24,7 @@ var testNow = time.Unix(1750000000, 0)
 // loadPayload reads and parses a fixture from testdata/payloads.
 func loadPayload(t *testing.T, name string) payload.Payload {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("testdata", "payloads", name))
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "payloads", name))
 	if err != nil {
 		t.Fatalf("read payload fixture: %v", err)
 	}
@@ -35,7 +35,7 @@ func loadPayload(t *testing.T, name string) payload.Payload {
 // file when -update is set.
 func checkGolden(t *testing.T, name, got string) {
 	t.Helper()
-	path := filepath.Join("testdata", "golden", name+".txt")
+	path := filepath.Join("..", "..", "testdata", "golden", name+".txt")
 	if *update {
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
@@ -98,8 +98,8 @@ func TestBuildStatuslineGolden(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			p := loadPayload(t, tc.Payload)
-			initSegments(tc.cfg.Plugins)
-			lines := buildStatusline(buildInput{P: p, Cfg: tc.cfg, Width: tc.columns, Now: testNow})
+			segments.Init()
+			lines := Statusline(Input{P: p, Cfg: tc.cfg, Width: tc.columns, Now: testNow})
 			checkGolden(t, tc.name, strings.Join(lines, "\n")+"\n")
 		})
 	}
@@ -110,8 +110,8 @@ func TestBuildStatuslineGolden(t *testing.T) {
 func TestBuildStatuslineEmptySegments(t *testing.T) {
 	p := loadPayload(t, "claude-full.json")
 	cfg := config.Config{Segments: []string{}}
-	initSegments(nil)
-	if lines := buildStatusline(buildInput{P: p, Cfg: cfg, Now: testNow}); len(lines) != 0 {
+	segments.Init()
+	if lines := Statusline(Input{P: p, Cfg: cfg, Now: testNow}); len(lines) != 0 {
 		t.Errorf("expected no lines, got %q", lines)
 	}
 }
@@ -122,10 +122,10 @@ func TestBuildStatuslineColorCodes(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	p := loadPayload(t, "claude-full.json")
 	cfg := config.Config{Segments: []string{"directory"}}
-	initSegments(nil)
+	segments.Init()
 
-	colored := buildStatusline(buildInput{P: p, C: palette.Palette{Dir: "\x1b[36m", Rst: "\x1b[0m"}, Cfg: cfg, Now: testNow})
-	plain := buildStatusline(buildInput{P: p, Cfg: cfg, Now: testNow})
+	colored := Statusline(Input{P: p, C: palette.Palette{Dir: "\x1b[36m", Rst: "\x1b[0m"}, Cfg: cfg, Now: testNow})
+	plain := Statusline(Input{P: p, Cfg: cfg, Now: testNow})
 	if len(colored) != 1 || len(plain) != 1 {
 		t.Fatalf("expected 1 line, got %d / %d", len(colored), len(plain))
 	}
@@ -137,51 +137,5 @@ func TestBuildStatuslineColorCodes(t *testing.T) {
 	}
 	if ansi.VisibleWidth(colored[0]) != ansi.VisibleWidth(plain[0]) {
 		t.Errorf("visibleWidth differs: %d vs %d", ansi.VisibleWidth(colored[0]), ansi.VisibleWidth(plain[0]))
-	}
-}
-
-// TestNewPayloadSegments covers output-style, added-dirs, and email.
-func TestNewPayloadSegments(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	initSegments(nil)
-	render := func(p payload.Payload, id string) (string, bool) {
-		seg, ok := segmentByID(id)
-		if !ok {
-			t.Fatalf("segment %q not registered", id)
-		}
-		return seg.render(renderCtx{P: p, Now: testNow})
-	}
-
-	var p payload.Payload
-	if _, show := render(p, "output-style"); show {
-		t.Error("output-style should hide with no payload data")
-	}
-	p.OutputStyle.Name = "default"
-	if _, show := render(p, "output-style"); show {
-		t.Error("output-style should hide when style is default")
-	}
-	p.OutputStyle.Name = "Explanatory"
-	if got, show := render(p, "output-style"); !show || got != "✎ Explanatory" {
-		t.Errorf("output-style = %q, %v", got, show)
-	}
-
-	if _, show := render(p, "added-dirs"); show {
-		t.Error("added-dirs should hide when empty")
-	}
-	p.Workspace.AddedDirs = []string{"/a"}
-	if got, _ := render(p, "added-dirs"); got != "+1 dir" {
-		t.Errorf("added-dirs singular = %q", got)
-	}
-	p.Workspace.AddedDirs = []string{"/a", "/b"}
-	if got, _ := render(p, "added-dirs"); got != "+2 dirs" {
-		t.Errorf("added-dirs plural = %q", got)
-	}
-
-	if _, show := render(p, "email"); show {
-		t.Error("email should hide when empty")
-	}
-	p.Email = "morgan@skyslope.com"
-	if got, _ := render(p, "email"); got != "morgan@…" {
-		t.Errorf("email = %q", got)
 	}
 }

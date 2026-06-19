@@ -23,6 +23,7 @@ import (
 	"github.com/callmemorgan/claude-statusline/internal/ansi"
 	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/palette"
+	"github.com/callmemorgan/claude-statusline/internal/render"
 	"github.com/callmemorgan/claude-statusline/internal/state"
 	"github.com/callmemorgan/claude-statusline/internal/sys"
 	"github.com/callmemorgan/claude-statusline/internal/version"
@@ -466,7 +467,7 @@ func takeoverLineBudgets(width int, n int, padding int) []int {
 		// The leading padding (style.padding, default 1) is added back by
 		// announceLines, so reserve it here too. (The renderer instead counts
 		// padding inside each measured line — same accounting, other side.)
-		out[i] = max(lineBudget(width, i == 0)-padding, 10)
+		out[i] = max(render.LineBudget(width, i == 0)-padding, 10)
 	}
 	return out
 }

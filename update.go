@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/callmemorgan/claude-statusline/internal/config"
+	"github.com/callmemorgan/claude-statusline/internal/segments"
 	"github.com/callmemorgan/claude-statusline/internal/state"
 	"github.com/callmemorgan/claude-statusline/internal/sys"
 	"github.com/callmemorgan/claude-statusline/internal/version"
@@ -180,6 +181,58 @@ func recordUpdateResult(from, to, method string, verified bool) {
 		Verified: verified,
 		At:       time.Now().Unix(),
 	})
+}
+
+// updateHintFor returns the user-facing update command for an install kind.
+func updateHintFor(kind installKind) string {
+	switch kind {
+	case kindBrew:
+		return "brew upgrade --cask claude-statusline"
+	case kindNpm:
+		return "npm update -g @morgan.rebrand/claude-statusline"
+	default:
+		return "claude-statusline update"
+	}
+}
+
+// renderUpdate renders the update-available segment. It lives in the root
+// package because it depends on the update-check state machinery, and is
+// injected into internal/segments via segments.UpdateRenderer.
+func renderUpdate(ctx segments.RenderCtx) (string, bool) {
+	current, _, _ := version.VersionString()
+	now := ctx.Now
+
+	// Post-update confirmation takes precedence over everything, including
+	// mode=off, so a manual `claude-statusline update` is briefly acknowledged.
+	if r, ok := loadUpdateResult(); ok && r.To == current {
+		if d := now.Unix() - r.At; d >= 0 && d < int64(expandedWindow/time.Second) {
+			return fmt.Sprintf("%s✓ updated to v%s%s", ctx.C.ROK, current, ctx.C.Rst), true
+		}
+	}
+
+	if ctx.Cfg.Update.ModeOrDefault() == "off" {
+		return "", false
+	}
+	if !isReleaseVersion(current) {
+		return "", false
+	}
+	cache, ok := loadUpdateCheck()
+	if !ok || cache.Latest == "" {
+		return "", false
+	}
+	if compareVersions(cache.Latest, current) <= 0 {
+		return "", false
+	}
+
+	kind := detectInstallKind(currentExePath(), current)
+	hint := updateHintFor(kind)
+
+	// Recent check (within the expanded window): show the full hint.
+	if d := now.Unix() - cache.CheckedAt; d >= 0 && d < int64(expandedWindow/time.Second) {
+		return fmt.Sprintf("%s⬆ v%s%s  %s", ctx.C.Dim, cache.Latest, ctx.C.Rst, hint), true
+	}
+	// Older check: compact notice only.
+	return fmt.Sprintf("%s⬆ v%s%s", ctx.C.Dim, cache.Latest, ctx.C.Rst), true
 }
 
 // detectInstallKind classifies the running binary. Pure on its inputs
@@ -356,7 +409,7 @@ func maybeSpawnUpdateCheckFor(cfg config.UpdateConfig, now time.Time, kind insta
 			return
 		}
 	}
-	if tryAcquireLock(updateLockPath(), updateStaleLockTolerance) {
+	if sys.TryAcquireLock(updateLockPath(), updateStaleLockTolerance) {
 		if err := spawnUpdateCheck(); err != nil {
 			_ = os.Remove(updateLockPath())
 		}
@@ -449,7 +502,7 @@ func runUpdateFor(args []string, checkOnly bool, current string, kind installKin
 	// lock, so a foreground `update` and a background `update-check` can't run
 	// overlapping swaps. If the worker (or another `update`) holds it, bail
 	// cleanly rather than racing.
-	if !tryAcquireLock(updateLockPath(), updateStaleLockTolerance) {
+	if !sys.TryAcquireLock(updateLockPath(), updateStaleLockTolerance) {
 		fmt.Fprintln(os.Stderr, "claude-statusline update: another update is already in progress; try again shortly.")
 		osExit(1)
 		return

@@ -11,14 +11,16 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"github.com/callmemorgan/claude-statusline/internal/config"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/callmemorgan/claude-statusline/internal/config"
+
 	"github.com/callmemorgan/claude-statusline/internal/palette"
+	"github.com/callmemorgan/claude-statusline/internal/segments"
 	"github.com/callmemorgan/claude-statusline/internal/version"
 
 	"github.com/callmemorgan/claude-statusline/internal/state"
@@ -833,44 +835,44 @@ func TestRenderUpdate(t *testing.T) {
 	// dev → always hidden, even with a cache that says we're behind.
 	withTestVersion(t, "dev")
 	_ = saveUpdateCheck(updateCheck{CheckedAt: now.Unix(), Latest: "9.9.9"})
-	if got, show := renderUpdate(renderCtx{Now: now}); show {
+	if got, show := renderUpdate(segments.RenderCtx{Now: now}); show {
 		t.Errorf("dev should hide, got %q", got)
 	}
 
 	// Non-release-shaped version (e.g. +dirty) → also hidden.
 	withTestVersion(t, "1.2.0+dirty")
-	if got, show := renderUpdate(renderCtx{Now: now}); show {
+	if got, show := renderUpdate(segments.RenderCtx{Now: now}); show {
 		t.Errorf("non-release version should hide, got %q", got)
 	}
 
 	// Release version, no cache → hidden.
 	withTestVersion(t, "1.0.0")
 	_ = os.Remove(updateCheckPath())
-	if got, show := renderUpdate(renderCtx{Now: now}); show {
+	if got, show := renderUpdate(segments.RenderCtx{Now: now}); show {
 		t.Errorf("no cache should hide, got %q", got)
 	}
 
 	// Cache with empty Latest (last check failed) → hidden.
 	_ = saveUpdateCheck(updateCheck{CheckedAt: now.Unix(), Latest: ""})
-	if got, show := renderUpdate(renderCtx{Now: now}); show {
+	if got, show := renderUpdate(segments.RenderCtx{Now: now}); show {
 		t.Errorf("empty-latest cache should hide, got %q", got)
 	}
 
 	// Cache with latest == current → hidden (not behind).
 	_ = saveUpdateCheck(updateCheck{CheckedAt: now.Unix(), Latest: "1.0.0"})
-	if got, show := renderUpdate(renderCtx{Now: now}); show {
+	if got, show := renderUpdate(segments.RenderCtx{Now: now}); show {
 		t.Errorf("equal version should hide, got %q", got)
 	}
 
 	// Cache with latest < current (downgrade) → hidden.
 	_ = saveUpdateCheck(updateCheck{CheckedAt: now.Unix(), Latest: "0.9.0"})
-	if got, show := renderUpdate(renderCtx{Now: now}); show {
+	if got, show := renderUpdate(segments.RenderCtx{Now: now}); show {
 		t.Errorf("older latest should hide, got %q", got)
 	}
 
 	// Cache with latest > current, recent check (within 5 min) → expanded.
 	_ = saveUpdateCheck(updateCheck{CheckedAt: now.Unix() - 60, Latest: "1.2.0"})
-	got, show := renderUpdate(renderCtx{Now: now, C: palette.Palette{Dim: "", Rst: ""}})
+	got, show := renderUpdate(segments.RenderCtx{Now: now, C: palette.Palette{Dim: "", Rst: ""}})
 	if !show {
 		t.Fatal("expected expanded form to show")
 	}
@@ -891,7 +893,7 @@ func TestRenderUpdate(t *testing.T) {
 		return "/tmp/npm-test/node_modules/@morgan.rebrand/claude-statusline-darwin-arm64/bin/claude-statusline", nil
 	}
 	t.Cleanup(func() { osExecutable = oldExe })
-	got, show = renderUpdate(renderCtx{Now: now, C: palette.Palette{Dim: "", Rst: ""}})
+	got, show = renderUpdate(segments.RenderCtx{Now: now, C: palette.Palette{Dim: "", Rst: ""}})
 	if !show {
 		t.Fatal("expected npm expanded form to show")
 	}
@@ -901,7 +903,7 @@ func TestRenderUpdate(t *testing.T) {
 	osExecutable = oldExe
 
 	// Same cache, Now 10 min after check → compact.
-	got, show = renderUpdate(renderCtx{Now: now.Add(10 * time.Minute), C: palette.Palette{Dim: "", Rst: ""}})
+	got, show = renderUpdate(segments.RenderCtx{Now: now.Add(10 * time.Minute), C: palette.Palette{Dim: "", Rst: ""}})
 	if !show {
 		t.Fatal("expected compact form to show")
 	}
@@ -913,14 +915,14 @@ func TestRenderUpdate(t *testing.T) {
 	}
 
 	// Real palette → ANSI codes appear.
-	got, show = renderUpdate(renderCtx{Now: now.Add(10 * time.Minute), C: palette.Palette{Dim: "\x1b[2m", Rst: "\x1b[0m"}})
+	got, show = renderUpdate(segments.RenderCtx{Now: now.Add(10 * time.Minute), C: palette.Palette{Dim: "\x1b[2m", Rst: "\x1b[0m"}})
 	if !show || !strings.Contains(got, "\x1b[2m") || !strings.Contains(got, "\x1b[0m") {
 		t.Errorf("real palette should render ANSI: %q", got)
 	}
 
 	// mode = off hides even when the cache says we're behind.
 	_ = saveUpdateCheck(updateCheck{CheckedAt: now.Unix() - 60, Latest: "1.2.0"})
-	if got, show := renderUpdate(renderCtx{
+	if got, show := renderUpdate(segments.RenderCtx{
 		Now: now,
 		Cfg: config.Config{Update: config.UpdateConfig{Mode: "off"}},
 		C:   palette.Palette{Dim: "", Rst: ""},
@@ -1307,29 +1309,29 @@ func TestRenderUpdateConfirmation(t *testing.T) {
 
 	// Result targets the running version, recorded just now → confirmation shows.
 	_ = saveUpdateResult(updateResult{From: "1.2.0", To: "1.2.1", Method: "swap", Verified: true, At: now.Unix()})
-	got, show := renderUpdate(renderCtx{Now: now, C: c})
+	got, show := renderUpdate(segments.RenderCtx{Now: now, C: c})
 	if !show || !strings.Contains(got, "✓ updated to v1.2.1") {
 		t.Errorf("fresh matching result should confirm, got %q show=%v", got, show)
 	}
 	// Confirmation precedes the mode==off guard (a manual update still confirms).
-	if _, show := renderUpdate(renderCtx{Now: now, C: c, Cfg: config.Config{Update: config.UpdateConfig{Mode: "off"}}}); !show {
+	if _, show := renderUpdate(segments.RenderCtx{Now: now, C: c, Cfg: config.Config{Update: config.UpdateConfig{Mode: "off"}}}); !show {
 		t.Error("confirmation should show even with mode=off")
 	}
 
 	// Expired window → falls through (no update.json cache → hidden).
-	if got, show := renderUpdate(renderCtx{Now: now.Add(10 * time.Minute), C: c}); show {
+	if got, show := renderUpdate(segments.RenderCtx{Now: now.Add(10 * time.Minute), C: c}); show {
 		t.Errorf("expired confirmation should not show, got %q", got)
 	}
 
 	// Result targets a different version (e.g. brew no-op / stale) → no confirm.
 	_ = saveUpdateResult(updateResult{From: "1.2.0", To: "9.9.9", Method: "brew", At: now.Unix()})
-	if got, show := renderUpdate(renderCtx{Now: now, C: c}); show {
+	if got, show := renderUpdate(segments.RenderCtx{Now: now, C: c}); show {
 		t.Errorf("non-matching To should not confirm, got %q", got)
 	}
 
 	// Future At (clock skew) → guarded, no confirm.
 	_ = saveUpdateResult(updateResult{From: "1.2.0", To: "1.2.1", Method: "swap", At: now.Add(time.Hour).Unix()})
-	if got, show := renderUpdate(renderCtx{Now: now, C: c}); show {
+	if got, show := renderUpdate(segments.RenderCtx{Now: now, C: c}); show {
 		t.Errorf("future At should be guarded, got %q", got)
 	}
 }

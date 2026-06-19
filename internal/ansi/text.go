@@ -131,6 +131,23 @@ func SGRToTag(params string) string {
 	return ""
 }
 
+// FooterRows returns how many rows a footer needs at the given width, using
+// tview's own word-wrap so the count matches what gets drawn. Clamped to 3 so
+// a pathologically narrow terminal can't squeeze the segment list away.
+func FooterRows(text string, width int) int {
+	if width <= 0 {
+		return 1
+	}
+	rows := len(tview.WordWrap(text, width))
+	if rows < 1 {
+		return 1
+	}
+	if rows > 3 {
+		return 3
+	}
+	return rows
+}
+
 // AnsiToTview converts ANSI SGR escapes into tview color tags, escaping
 // literal '[' characters so they are not interpreted as tags.
 func AnsiToTview(s string) string {

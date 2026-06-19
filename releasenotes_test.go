@@ -4,13 +4,14 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/callmemorgan/claude-statusline/internal/config"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/callmemorgan/claude-statusline/internal/config"
 
 	"github.com/pelletier/go-toml/v2"
 

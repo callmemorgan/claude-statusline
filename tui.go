@@ -15,6 +15,8 @@ import (
 	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/palette"
 	"github.com/callmemorgan/claude-statusline/internal/payload"
+	"github.com/callmemorgan/claude-statusline/internal/render"
+	"github.com/callmemorgan/claude-statusline/internal/segments"
 	"github.com/callmemorgan/claude-statusline/internal/state"
 )
 
@@ -24,43 +26,26 @@ func effectiveLine(id string, cfg config.Config) int {
 	if override, ok := cfg.Lines[id]; ok && override >= 1 {
 		return override
 	}
-	if s, ok := segmentByID(id); ok {
-		return s.line
+	if s, ok := segments.ByID(id); ok {
+		return s.Line
 	}
 	return 1
 }
 
 // filterSegments returns the segments whose id or description contains the
 // query (case-insensitive). An empty query returns everything.
-func filterSegments(all []segmentInfo, query string) []segmentInfo {
+func filterSegments(all []segments.Info, query string) []segments.Info {
 	q := strings.ToLower(strings.TrimSpace(query))
 	if q == "" {
 		return all
 	}
-	var out []segmentInfo
+	var out []segments.Info
 	for _, s := range all {
-		if strings.Contains(strings.ToLower(s.id), q) || strings.Contains(strings.ToLower(s.desc), q) {
+		if strings.Contains(strings.ToLower(s.ID), q) || strings.Contains(strings.ToLower(s.Desc), q) {
 			out = append(out, s)
 		}
 	}
 	return out
-}
-
-// footerRows returns how many rows a footer needs at the given width, using
-// tview's own word-wrap so the count matches what gets drawn. Clamped to 3 so
-// a pathologically narrow terminal can't squeeze the segment list away.
-func footerRows(text string, width int) int {
-	if width <= 0 {
-		return 1
-	}
-	rows := len(tview.WordWrap(text, width))
-	if rows < 1 {
-		return 1
-	}
-	if rows > 3 {
-		return 3
-	}
-	return rows
 }
 
 // previewState returns an hour of synthetic, steadily-rising session history
@@ -103,19 +88,19 @@ func runConfigure() {
 	// for the state-derived segments, and a fake rich-git result (the sample
 	// payload's workspace isn't a real repo). Both are preview-only.
 	pvState := previewState(time.Now())
-	gitStatusPreview = &gitStatusInfo{Dirty: true, Ahead: 1, Behind: 2}
-	defer func() { gitStatusPreview = nil }()
+	segments.GitStatusPreview = &segments.GitStatusInfo{Dirty: true, Ahead: 1, Behind: 2}
+	defer func() { segments.GitStatusPreview = nil }()
 	stashPreview := 3
-	gitStashPreview = &stashPreview
-	defer func() { gitStashPreview = nil }()
+	segments.GitStashPreview = &stashPreview
+	defer func() { segments.GitStashPreview = nil }()
 
 	// demoActive animates the whole preview through all states (d). Session-
 	// only, like the per-segment stress test.
 	demoActive := false
 
 	// visible is the (possibly filtered) slice the list renders from; every
-	// handler resolves the selection through it, never registeredSegments.
-	visible := registeredSegments
+	// handler resolves the selection through it, never segments.All().
+	visible := segments.All()
 
 	// dirty tracks unsaved changes; mutate is the single mutation funnel.
 	dirty := false
@@ -129,10 +114,10 @@ func runConfigure() {
 		ShowSecondaryText(false)
 	list.SetBorder(true)
 
-	selectedSegment := func() (segmentInfo, bool) {
+	selectedSegment := func() (segments.Info, bool) {
 		idx := list.GetCurrentItem()
 		if idx < 0 || idx >= len(visible) {
-			return segmentInfo{}, false
+			return segments.Info{}, false
 		}
 		return visible[idx], true
 	}
@@ -281,21 +266,21 @@ func runConfigure() {
 		// Update preview
 		p := flyoutPreviewPayload(currentFlyoutSegment, payload.SamplePayload())
 		segPalette := palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors)
-		if s, ok := segmentByID(currentFlyoutSegment); ok && segPalette.Rst != "" {
+		if s, ok := segments.ByID(currentFlyoutSegment); ok && segPalette.Rst != "" {
 			if colorName := cfg.Colors[currentFlyoutSegment]; colorName != "" && colorName != "default" {
-				segPalette = palette.PaletteWithOverride(segPalette, s.primaryColor, colorName)
+				segPalette = palette.PaletteWithOverride(segPalette, s.PrimaryColor, colorName)
 			}
 		}
-		if s, ok := segmentByID(currentFlyoutSegment); ok {
-			ctx := renderCtx{
+		if s, ok := segments.ByID(currentFlyoutSegment); ok {
+			ctx := segments.RenderCtx{
 				P:     p,
 				C:     segPalette,
-				S:     config.SettingsFor(cfg, s.id, s.settings),
+				S:     config.SettingsFor(cfg, s.ID, s.Settings),
 				Cfg:   cfg,
 				State: pvState,
 				Now:   time.Now(),
 			}
-			if rendered, show := s.render(ctx); show {
+			if rendered, show := s.Render(ctx); show {
 				flyoutPreview.SetText(ansi.AnsiToTview(strings.TrimLeft(rendered, " ")))
 			} else {
 				flyoutPreview.SetText("(segment hidden)")
@@ -372,7 +357,7 @@ func runConfigure() {
 	list.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
 		if action == tview.MouseLeftDoubleClick && list.InRect(event.Position()) {
 			if seg, ok := selectedSegment(); ok {
-				openFlyout(seg.id)
+				openFlyout(seg.ID)
 			}
 			return tview.MouseConsumed, nil
 		}
@@ -383,7 +368,7 @@ func runConfigure() {
 				itemOff, _ := list.GetOffset()
 				clickedIdx := y - innerY + itemOff
 				if clickedIdx >= 0 && clickedIdx < len(visible) {
-					id := visible[clickedIdx].id
+					id := visible[clickedIdx].ID
 					list.SetCurrentItem(clickedIdx)
 					app.SetFocus(list)
 					toggleSegment(id)
@@ -398,11 +383,11 @@ func runConfigure() {
 	// live-previewing hovered colors through the flyout preview.
 	openFlyoutColorPicker := func(sp config.SettingSpec) {
 		segID := currentFlyoutSegment
-		seg, ok := segmentByID(segID)
+		seg, ok := segments.ByID(segID)
 		if !ok {
 			return
 		}
-		orig := config.SettingsFor(cfg, seg.id, seg.settings).Str(sp.Key)
+		orig := config.SettingsFor(cfg, seg.ID, seg.Settings).Str(sp.Key)
 		openColorPicker(app, pages, palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors), sp.Name+" — "+segID,
 			func(spec string) { // hover
 				setFlyoutValue(segID, sp, &cfg, spec)
@@ -487,9 +472,9 @@ func runConfigure() {
 
 	// describeSegment renders the description panel for a segment, including
 	// the "press o" discoverability hint when it has settings.
-	describeSegment := func(seg segmentInfo) {
-		text := seg.desc
-		if n := len(seg.settings); n > 0 {
+	describeSegment := func(seg segments.Info) {
+		text := seg.Desc
+		if n := len(seg.Settings); n > 0 {
 			text += fmt.Sprintf("\n\n[gray]%d options — press o to configure[-]", n)
 		}
 		descView.SetText(text)
@@ -512,7 +497,7 @@ func runConfigure() {
 		if demoActive {
 			p = demoPreviewPayload(p, time.Now())
 		}
-		lines := buildStatusline(buildInput{P: p, C: palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors), Cfg: cfg, State: pvState, Width: width, Now: time.Now()})
+		lines := render.Statusline(render.Input{P: p, C: palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors), Cfg: cfg, State: pvState, Width: width, Now: time.Now()})
 		var previewText string
 		if previewWidth > 0 {
 			for i, l := range lines {
@@ -565,7 +550,7 @@ func runConfigure() {
 		for _, s := range visible {
 			enabled := false
 			for _, id := range cfg.Segments {
-				if id == s.id {
+				if id == s.ID {
 					enabled = true
 					break
 				}
@@ -575,25 +560,25 @@ func runConfigure() {
 				mark = "✓ "
 			}
 
-			line := s.line
-			if override, ok := cfg.Lines[s.id]; ok && override >= 1 {
+			line := s.Line
+			if override, ok := cfg.Lines[s.ID]; ok && override >= 1 {
 				line = override
 			}
 			lineStr := ""
-			if line != s.line {
+			if line != s.Line {
 				lineStr = fmt.Sprintf(" [L%d]", line)
 			}
 
 			colorStr := ""
-			if colorName := cfg.Colors[s.id]; colorName != "" && colorName != "default" {
+			if colorName := cfg.Colors[s.ID]; colorName != "" && colorName != "default" {
 				colorStr = fmt.Sprintf("[%s]", colorName)
 			}
 
 			arrow := ""
-			if len(s.settings) > 0 {
+			if len(s.Settings) > 0 {
 				arrow = " →"
 			}
-			mainText := fmt.Sprintf("%s%s%s%s", mark, s.id, lineStr, colorStr)
+			mainText := fmt.Sprintf("%s%s%s%s", mark, s.ID, lineStr, colorStr)
 			if arrow != "" {
 				_, _, innerWidth, _ := list.GetInnerRect()
 				pad := innerWidth - tview.TaggedStringWidth(mainText) - tview.TaggedStringWidth(arrow)
@@ -608,9 +593,9 @@ func runConfigure() {
 		if currentIdx >= 0 && currentIdx < len(visible) {
 			list.SetCurrentItem(currentIdx)
 		}
-		title := fmt.Sprintf(" Segments (%d/%d) ", len(cfg.Segments), len(registeredSegments))
+		title := fmt.Sprintf(" Segments (%d/%d) ", len(cfg.Segments), len(segments.All()))
 		if q := filterInput.GetText(); q != "" {
-			title = fmt.Sprintf(" Segments (%d/%d) — /%s ", len(cfg.Segments), len(registeredSegments), q)
+			title = fmt.Sprintf(" Segments (%d/%d) — /%s ", len(cfg.Segments), len(segments.All()), q)
 		}
 		list.SetTitle(title)
 
@@ -645,7 +630,7 @@ func runConfigure() {
 	}
 
 	applyFilter := func(query string) {
-		visible = filterSegments(registeredSegments, query)
+		visible = filterSegments(segments.All(), query)
 		updateUI()
 		if len(visible) > 0 {
 			list.SetCurrentItem(0)
@@ -820,7 +805,7 @@ func runConfigure() {
 				return nil
 			case 'o', 'O':
 				if seg, ok := selectedSegment(); ok {
-					openFlyout(seg.id)
+					openFlyout(seg.ID)
 				}
 				return nil
 			case 'h', 'H', '?':
@@ -829,7 +814,7 @@ func runConfigure() {
 				return nil
 			case ' ':
 				if seg, ok := selectedSegment(); ok {
-					toggleSegment(seg.id)
+					toggleSegment(seg.ID)
 				}
 				return nil
 			case 'c':
@@ -841,7 +826,7 @@ func runConfigure() {
 					if cfg.Colors == nil {
 						cfg.Colors = make(map[string]string)
 					}
-					currentColor := cfg.Colors[seg.id]
+					currentColor := cfg.Colors[seg.ID]
 					if currentColor == "" {
 						currentColor = "default"
 					}
@@ -853,11 +838,11 @@ func runConfigure() {
 						}
 					}
 					if nextColor == "default" {
-						delete(cfg.Colors, seg.id)
+						delete(cfg.Colors, seg.ID)
 					} else {
-						cfg.Colors[seg.id] = nextColor
+						cfg.Colors[seg.ID] = nextColor
 					}
-					ensureEnabled(seg.id)
+					ensureEnabled(seg.ID)
 				})
 				return nil
 			case 'C':
@@ -865,32 +850,32 @@ func runConfigure() {
 				if !ok {
 					return nil
 				}
-				orig, hadOrig := cfg.Colors[seg.id]
+				orig, hadOrig := cfg.Colors[seg.ID]
 				applyColor := func(spec string) {
 					if cfg.Colors == nil {
 						cfg.Colors = make(map[string]string)
 					}
 					if spec == "" || spec == "default" {
-						delete(cfg.Colors, seg.id)
+						delete(cfg.Colors, seg.ID)
 					} else {
-						cfg.Colors[seg.id] = spec
+						cfg.Colors[seg.ID] = spec
 					}
 					refreshPreview()
 				}
-				openColorPicker(app, pages, palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors), "color — "+seg.id,
+				openColorPicker(app, pages, palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors), "color — "+seg.ID,
 					applyColor,
 					func(spec string, picked bool) {
 						if picked {
 							mutate(func() {
 								applyColor(spec)
-								ensureEnabled(seg.id)
+								ensureEnabled(seg.ID)
 							})
 							pushRecentColor(spec)
 						} else {
 							if hadOrig {
-								cfg.Colors[seg.id] = orig
+								cfg.Colors[seg.ID] = orig
 							} else {
-								delete(cfg.Colors, seg.id)
+								delete(cfg.Colors, seg.ID)
 							}
 							updateUI()
 						}
@@ -909,12 +894,12 @@ func runConfigure() {
 						if cfg.Lines == nil {
 							cfg.Lines = make(map[string]int)
 						}
-						if seg.line == n {
-							delete(cfg.Lines, seg.id)
+						if seg.Line == n {
+							delete(cfg.Lines, seg.ID)
 						} else {
-							cfg.Lines[seg.id] = n
+							cfg.Lines[seg.ID] = n
 						}
-						ensureEnabled(seg.id)
+						ensureEnabled(seg.ID)
 					})
 					return nil
 				}
@@ -1009,7 +994,7 @@ func runConfigure() {
 					if err != nil || w <= 0 {
 						w = 80
 					}
-					lines := buildStatusline(buildInput{P: payload.SamplePayload(), C: palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors), Cfg: cfg, State: pvState, Width: w, Now: time.Now()})
+					lines := render.Statusline(render.Input{P: payload.SamplePayload(), C: palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors), Cfg: cfg, State: pvState, Width: w, Now: time.Now()})
 					themeName := cfg.Theme
 					if themeName == "" {
 						themeName = "classic"
@@ -1050,7 +1035,7 @@ func runConfigure() {
 			if !ok {
 				return nil
 			}
-			myLine := effectiveLine(seg.id, cfg)
+			myLine := effectiveLine(seg.ID, cfg)
 			targetLine := myLine - 1
 			if event.Key() == tcell.KeyDown {
 				targetLine = myLine + 1
@@ -1074,8 +1059,8 @@ func runConfigure() {
 				}
 				assignLine := func(sid string, line int) {
 					naturalLine := 1
-					if s, ok := segmentByID(sid); ok {
-						naturalLine = s.line
+					if s, ok := segments.ByID(sid); ok {
+						naturalLine = s.Line
 					}
 					if line == naturalLine {
 						delete(cfg.Lines, sid)
@@ -1096,7 +1081,7 @@ func runConfigure() {
 			if !ok {
 				return event
 			}
-			myLine := effectiveLine(seg.id, cfg)
+			myLine := effectiveLine(seg.ID, cfg)
 			// Collect indices in cfg.Segments that share the same line, in order.
 			var peers []int
 			for i, sid := range cfg.Segments {
@@ -1107,7 +1092,7 @@ func runConfigure() {
 			// Find this segment's position within peers.
 			pos := -1
 			for i, pi := range peers {
-				if cfg.Segments[pi] == seg.id {
+				if cfg.Segments[pi] == seg.ID {
 					pos = i
 					break
 				}
@@ -1166,8 +1151,8 @@ func runConfigure() {
 		}
 		if sw, _ := screen.Size(); sw != lastScreenWidth {
 			lastScreenWidth = sw
-			flex.ResizeItem(help, footerRows(footerText("main"), sw), 0)
-			flyoutFlex.ResizeItem(flyoutHelp, footerRows(footerText("flyout"), sw), 0)
+			flex.ResizeItem(help, ansi.FooterRows(footerText("main"), sw), 0)
+			flyoutFlex.ResizeItem(flyoutHelp, ansi.FooterRows(footerText("flyout"), sw), 0)
 		}
 		return false
 	})

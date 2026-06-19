@@ -11,6 +11,9 @@ import (
 	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/palette"
 	"github.com/callmemorgan/claude-statusline/internal/payload"
+	"github.com/callmemorgan/claude-statusline/internal/plugins"
+	"github.com/callmemorgan/claude-statusline/internal/render"
+	"github.com/callmemorgan/claude-statusline/internal/segments"
 	"github.com/callmemorgan/claude-statusline/internal/state"
 	"github.com/callmemorgan/claude-statusline/internal/version"
 )
@@ -40,7 +43,7 @@ func dispatch() {
 			runRender(true)
 			return
 		case "plugin-refresh":
-			if err := runPluginRefresh(); err != nil {
+			if err := plugins.RunPluginRefresh(); err != nil {
 				os.Exit(1)
 			}
 			return
@@ -87,18 +90,18 @@ func runRender(debug bool) {
 	}
 	initSegments(cfg.Plugins)
 
-	st := state.LoadState(cfg.State, firstNonEmpty(p.SessionID, p.ConversationID), start)
+	st := state.LoadState(cfg.State, segments.FirstNonEmpty(p.SessionID, p.ConversationID), start)
 	st.Record(p, start)
 
 	width := payload.TerminalWidth(p)
-	style := styleFor(cfg, colors)
-	lines := buildStatusline(buildInput{P: p, C: colors, Cfg: cfg, State: st, Width: width, Now: start})
+	style := render.StyleFor(cfg, colors)
+	lines := render.Statusline(render.Input{P: p, C: colors, Cfg: cfg, State: st, Width: width, Now: start})
 
-	lines = maybeReleaseTakeover(cfg.ReleaseNotes, lines, colors, width, style.padding, start)
+	lines = maybeReleaseTakeover(cfg.ReleaseNotes, lines, colors, width, style.Padding, start)
 
 	elapsedMS := float64(time.Since(start).Microseconds()) / 1000.0
 	if len(lines) > 0 {
-		fmt.Printf("%s%s%s%.1fms%s\n", lines[0], style.sep, colors.Dim, elapsedMS, colors.Rst)
+		fmt.Printf("%s%s%s%.1fms%s\n", lines[0], style.Sep, colors.Dim, elapsedMS, colors.Rst)
 		for _, l := range lines[1:] {
 			fmt.Println(l)
 		}
@@ -115,13 +118,22 @@ func runRender(debug bool) {
 	maybeSpawnUpdateCheck(cfg.Update, start)
 }
 
+// initSegments initializes the segment registry and registers plugin segments.
+// It also wires the update segment renderer, which lives in the root package to
+// avoid an import cycle with the update-check machinery.
+func initSegments(pluginDefs []config.PluginDef) {
+	segments.Init()
+	plugins.Load(pluginDefs)
+	segments.UpdateRenderer = renderUpdate
+}
+
 // validateSegmentRefs reports config references to segments or setting keys
 // that don't exist. Requires initSegments to have run (so plugin segments are
 // registered). Read-only: unknown IDs are kept (the renderer skips them).
 func validateSegmentRefs(cfg config.Config) []config.ConfigWarning {
 	var warns []config.ConfigWarning
 	known := func(id string) bool {
-		_, ok := segmentByID(id)
+		_, ok := segments.ByID(id)
 		return ok
 	}
 	for _, id := range cfg.Segments {
@@ -140,14 +152,14 @@ func validateSegmentRefs(cfg config.Config) []config.ConfigWarning {
 		}
 	}
 	for id, vals := range cfg.Settings {
-		seg, ok := segmentByID(id)
+		seg, ok := segments.ByID(id)
 		if !ok {
 			warns = append(warns, config.ConfigWarning{Path: "settings." + id, Msg: "unknown segment"})
 			continue
 		}
 		for key := range vals {
 			found := false
-			for _, sp := range seg.settings {
+			for _, sp := range seg.Settings {
 				if sp.Key == key && !sp.Ephemeral {
 					found = true
 					break

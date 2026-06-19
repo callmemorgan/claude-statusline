@@ -1,15 +1,16 @@
-package main
+package render
 
 import (
-	"github.com/callmemorgan/claude-statusline/internal/config"
 	"strings"
 	"testing"
 
+	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/palette"
+	"github.com/callmemorgan/claude-statusline/internal/segments"
 )
 
-func classicStyle() lineStyle {
-	return styleFor(config.Config{}, palette.Palette{})
+func classicStyle() LineStyle {
+	return StyleFor(config.Config{}, palette.Palette{})
 }
 
 func seg(s string, width int) string {
@@ -73,13 +74,13 @@ func TestReflowCascadeNoColumns(t *testing.T) {
 func TestReflowOptIn(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	p := loadPayload(t, "claude-full.json")
-	initSegments(nil)
+	segments.Init()
 
 	for _, mode := range []string{"", "off"} {
 		cfg := config.DefaultConfig()
 		cfg.Reflow = mode
-		wide := buildStatusline(buildInput{P: p, Cfg: cfg, Width: 0, Now: testNow})
-		narrow := buildStatusline(buildInput{P: p, Cfg: cfg, Width: 40, Now: testNow})
+		wide := Statusline(Input{P: p, Cfg: cfg, Width: 0, Now: testNow})
+		narrow := Statusline(Input{P: p, Cfg: cfg, Width: 40, Now: testNow})
 		if strings.Join(wide, "\n") != strings.Join(narrow, "\n") {
 			t.Errorf("reflow %q must be width-independent (no wrapping)\nwidth0=%q\nwidth40=%q", mode, wide, narrow)
 		}
@@ -87,10 +88,10 @@ func TestReflowOptIn(t *testing.T) {
 
 	// Explicit cascade at a narrow width produces more physical lines than the
 	// no-wrap default — i.e. it actually wraps.
-	def := buildStatusline(buildInput{P: p, Cfg: config.DefaultConfig(), Width: 40, Now: testNow})
+	def := Statusline(Input{P: p, Cfg: config.DefaultConfig(), Width: 40, Now: testNow})
 	casc := config.DefaultConfig()
 	casc.Reflow = "cascade"
-	wrapped := buildStatusline(buildInput{P: p, Cfg: casc, Width: 40, Now: testNow})
+	wrapped := Statusline(Input{P: p, Cfg: casc, Width: 40, Now: testNow})
 	if len(wrapped) <= len(def) {
 		t.Errorf("cascade should wrap to more lines than no-wrap default: default=%d cascade=%d", len(def), len(wrapped))
 	}

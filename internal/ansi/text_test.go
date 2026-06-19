@@ -108,6 +108,22 @@ func TestEffortBadge(t *testing.T) {
 	}
 }
 
+func TestFooterRows(t *testing.T) {
+	long := strings.Repeat("a", 200)
+	if got := FooterRows(long, 0); got != 1 {
+		t.Errorf("zero width = %d rows, want 1", got)
+	}
+	if got := FooterRows(long, len(long)+10); got != 1 {
+		t.Errorf("wide terminal = %d rows, want 1", got)
+	}
+	if got := FooterRows(long, 100); got < 2 {
+		t.Errorf("long text at 100 cols = %d rows, want ≥2 (len %d)", got, len(long))
+	}
+	if got := FooterRows(long, 10); got != 3 {
+		t.Errorf("pathological width = %d rows, want clamp at 3", got)
+	}
+}
+
 func TestAnsiToTview(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"\x1b[32mok\x1b[0m", "[#00cd00]ok[-:-:-]"},

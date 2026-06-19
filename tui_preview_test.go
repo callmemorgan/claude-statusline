@@ -1,19 +1,38 @@
 package main
 
 import (
-	"github.com/callmemorgan/claude-statusline/internal/config"
 	"regexp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/callmemorgan/claude-statusline/internal/config"
+
 	"github.com/callmemorgan/claude-statusline/internal/payload"
+	"github.com/callmemorgan/claude-statusline/internal/segments"
+	"github.com/callmemorgan/claude-statusline/internal/state"
 )
 
 // The TUI preview must demonstrate every feature, including ones whose real
 // data source (session history, payload fields) the sample payload can't
 // carry on its own.
+
+// renderWithState renders one segment with synthetic session state for tests.
+func renderWithState(t testing.TB, id string, p payload.Payload, st *state.SessionState, now time.Time, overrides map[string]any) string {
+	t.Helper()
+	segments.Init()
+	seg, ok := segments.ByID(id)
+	if !ok {
+		t.Fatalf("no segment %q", id)
+	}
+	cfg := config.Config{}
+	if overrides != nil {
+		cfg.Settings = map[string]map[string]any{id: overrides}
+	}
+	out, _ := seg.Render(segments.RenderCtx{P: p, S: config.SettingsFor(cfg, seg.ID, seg.Settings), State: st, Now: now})
+	return out
+}
 
 func TestPreviewStateRendersStateFeatures(t *testing.T) {
 	// samplePayload computes resets_at from the wall clock, so this test
@@ -58,11 +77,11 @@ func TestSamplePayloadShowsNewSegments(t *testing.T) {
 		{"added-dirs", "+1 dir"},
 		{"email", "you@…"},
 	} {
-		seg, ok := segmentByID(tc.id)
+		seg, ok := segments.ByID(tc.id)
 		if !ok {
 			t.Fatalf("no segment %q", tc.id)
 		}
-		out, show := seg.render(renderCtx{P: p, S: config.SettingsFor(config.Config{}, seg.id, seg.settings), Now: time.Unix(1750000000, 0)})
+		out, show := seg.Render(segments.RenderCtx{P: p, S: config.SettingsFor(config.Config{}, seg.ID, seg.Settings), Now: time.Unix(1750000000, 0)})
 		if !show {
 			t.Errorf("%s hidden with samplePayload, want visible", tc.id)
 			continue

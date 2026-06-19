@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/callmemorgan/claude-statusline/internal/config"
+	"github.com/callmemorgan/claude-statusline/internal/segments"
 )
 
 // useTempConfigDir points ConfigDir at a temp dir for the duration of a test.
@@ -39,8 +40,8 @@ func TestSaveConfigRoundTripWithSegments(t *testing.T) {
 	}
 	out := config.LoadConfig()
 	initSegments(nil)
-	seg, _ := segmentByID("context-window")
-	if s := config.SettingsFor(out, seg.id, seg.settings); s.Int("bar_width") != 30 {
+	seg, _ := segments.ByID("context-window")
+	if s := config.SettingsFor(out, seg.ID, seg.Settings); s.Int("bar_width") != 30 {
 		t.Errorf("settings not round-tripped through JSON: %v", out.Settings)
 	}
 }
@@ -49,19 +50,19 @@ func TestPresetSegmentIDsExist(t *testing.T) {
 	initSegments(nil)
 	for _, p := range config.LayoutPresets {
 		for _, id := range p.Segments {
-			if _, ok := segmentByID(id); !ok {
+			if _, ok := segments.ByID(id); !ok {
 				t.Errorf("preset %q references unknown segment %q", p.ID, id)
 			}
 		}
 		for id := range p.Settings {
-			seg, ok := segmentByID(id)
+			seg, ok := segments.ByID(id)
 			if !ok {
 				t.Errorf("preset %q settings reference unknown segment %q", p.ID, id)
 				continue
 			}
 			for key := range p.Settings[id] {
 				found := false
-				for _, sp := range seg.settings {
+				for _, sp := range seg.Settings {
 					if sp.Key == key {
 						found = true
 					}
@@ -93,8 +94,8 @@ func TestMigrateLegacyJSONWithSegments(t *testing.T) {
 	cfg := config.LoadConfig()
 
 	initSegments(nil)
-	seg, _ := segmentByID("context-window")
-	s := config.SettingsFor(cfg, seg.id, seg.settings)
+	seg, _ := segments.ByID("context-window")
+	s := config.SettingsFor(cfg, seg.ID, seg.Settings)
 	if s.Int("bar_width") != 30 || s.Bool("show_warning") || s.Str("iconset") != "blocks" {
 		t.Errorf("settings not migrated: %v", cfg.Settings)
 	}

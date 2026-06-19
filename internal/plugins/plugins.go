@@ -1,4 +1,4 @@
-package main
+package plugins
 
 import (
 	"context"
@@ -15,24 +15,24 @@ import (
 
 	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/payload"
+	"github.com/callmemorgan/claude-statusline/internal/segments"
 	"github.com/callmemorgan/claude-statusline/internal/state"
 	"github.com/callmemorgan/claude-statusline/internal/sys"
 )
 
 // ─── Plugin System ───────────────────────────────────────────────────
 
-var registeredSegments []segmentInfo
-
-// pluginCache holds per-command parsed output within a single buildStatusline
-// call so multi-field plugins run their command only once per turn.
+// pluginCache holds per-command parsed output within a single render turn so
+// multi-field plugins run their command only once per turn.
 var pluginCache map[string]map[string]string
 
-func clearPluginCache() {
+// ClearCache resets the per-render plugin cache.
+func ClearCache() {
 	pluginCache = map[string]map[string]string{}
 }
 
-func initSegments(plugins []config.PluginDef) {
-	registeredSegments = allSegmentInfos()
+// Load registers segments for the configured plugins.
+func Load(plugins []config.PluginDef) {
 	for _, p := range plugins {
 		def := p
 		if len(def.Fields) > 0 {
@@ -47,13 +47,13 @@ func initSegments(plugins []config.PluginDef) {
 				if desc == "" {
 					desc = field.ID
 				}
-				registeredSegments = append(registeredSegments, segmentInfo{
-					id:           field.ID,
-					line:         line,
-					desc:         desc + " [plugin]",
-					primaryColor: "Dim",
-					render: func(ctx renderCtx) (string, bool) {
-						out := runPluginField(def, ctx.P, field.ID)
+				segments.Register(segments.Info{
+					ID:           field.ID,
+					Line:         line,
+					Desc:         desc + " [plugin]",
+					PrimaryColor: "Dim",
+					Render: func(ctx segments.RenderCtx) (string, bool) {
+						out := RunPluginField(def, ctx.P, field.ID)
 						return out, out != ""
 					},
 				})
@@ -68,13 +68,13 @@ func initSegments(plugins []config.PluginDef) {
 			if desc == "" {
 				desc = def.ID
 			}
-			registeredSegments = append(registeredSegments, segmentInfo{
-				id:           def.ID,
-				line:         line,
-				desc:         desc + " [plugin]",
-				primaryColor: "Dim",
-				render: func(ctx renderCtx) (string, bool) {
-					out := runPluginRaw(def, ctx.P)
+			segments.Register(segments.Info{
+				ID:           def.ID,
+				Line:         line,
+				Desc:         desc + " [plugin]",
+				PrimaryColor: "Dim",
+				Render: func(ctx segments.RenderCtx) (string, bool) {
+					out := RunPluginRaw(def, ctx.P)
 					return out, out != ""
 				},
 			})
@@ -82,14 +82,14 @@ func initSegments(plugins []config.PluginDef) {
 	}
 }
 
-// runPluginField runs a multi-field plugin (cached per command) and returns
+// RunPluginField runs a multi-field plugin (cached per command) and returns
 // the value for the requested field ID.
-func runPluginField(def config.PluginDef, p payload.Payload, fieldID string) string {
+func RunPluginField(def config.PluginDef, p payload.Payload, fieldID string) string {
 	if pluginCache == nil {
 		pluginCache = map[string]map[string]string{}
 	}
 	if _, ok := pluginCache[def.Command]; !ok {
-		raw := runPluginRaw(def, p)
+		raw := RunPluginRaw(def, p)
 		pluginCache[def.Command] = parseKeyValueOutput(raw)
 	}
 	return pluginCache[def.Command][fieldID]
@@ -111,8 +111,8 @@ func parseKeyValueOutput(raw string) map[string]string {
 	return result
 }
 
-// runPluginRaw dispatches to the sync or async plugin implementation.
-func runPluginRaw(def config.PluginDef, p payload.Payload) string {
+// RunPluginRaw dispatches to the sync or async plugin implementation.
+func RunPluginRaw(def config.PluginDef, p payload.Payload) string {
 	if def.Async {
 		return readAsyncPlugin(def, p)
 	}
@@ -251,47 +251,19 @@ func trySpawnRefresher(def config.PluginDef, p payload.Payload, cachePath, lockP
 	if timeout <= 0 {
 		timeout = 10000 * time.Millisecond
 	}
-	if tryAcquireLock(lockPath, timeout+5*time.Second) {
+	if sys.TryAcquireLock(lockPath, timeout+5*time.Second) {
 		spawnRefresher(def, p, cachePath, lockPath)
 	}
 }
 
-// tryAcquireLock attempts to create the lock file with O_CREATE|O_EXCL. If the
-// lock already exists and is older than staleAfter, it is removed and the
-// acquisition is retried once (handles crashed/killed refreshers).
-func tryAcquireLock(lockPath string, staleAfter time.Duration) bool {
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL, 0o644)
-	if err == nil {
-		_ = f.Close()
-		return true
-	}
-	if !errors.Is(err, os.ErrExist) {
-		return false
-	}
-	info, err := os.Stat(lockPath)
-	if err != nil {
-		return false
-	}
-	if time.Since(info.ModTime()) <= staleAfter {
-		return false
-	}
-	_ = os.Remove(lockPath)
-	f, err = os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL, 0o644)
-	if err == nil {
-		_ = f.Close()
-		return true
-	}
-	return false
-}
-
 // ─── Plugin Refresh Subcommand ───────────────────────────────────────
 
-// runPluginRefresh executes the hidden "plugin-refresh" subcommand. It reads
+// RunPluginRefresh executes the hidden "plugin-refresh" subcommand. It reads
 // configuration from STATUSLINE_REFRESH_* env vars, runs the plugin command,
 // atomically updates the cache, and releases the lock. It returns an error
 // only when invoked without the required env vars; plugin execution failures
 // are handled internally and do not produce an error.
-func runPluginRefresh() error {
+func RunPluginRefresh() error {
 	command := os.Getenv("STATUSLINE_REFRESH_COMMAND")
 	timeoutMS, _ := strconv.Atoi(os.Getenv("STATUSLINE_REFRESH_TIMEOUT_MS"))
 	cachePath := os.Getenv("STATUSLINE_REFRESH_CACHE")
