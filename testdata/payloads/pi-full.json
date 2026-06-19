@@ -1,6 +1,7 @@
 {
   "cwd": "/Users/me/code/my-project",
   "session_id": "pi:session-abc123",
+  "conversation_id": "pi:session-abc123",
   "model": {"id": "claude-sonnet-4", "display_name": "Claude Sonnet"},
   "workspace": {"current_dir": "/Users/me/code/my-project", "project_dir": "/Users/me/code/my-project"},
   "context_window": {

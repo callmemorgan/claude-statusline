@@ -177,6 +177,9 @@ func renderAPIEfficiency(ctx RenderCtx) (string, bool) {
 }
 
 func renderTokens(ctx RenderCtx) (string, bool) {
+	if ctx.P.ContextWindow.TotalInputTokens == 0 && ctx.P.ContextWindow.TotalOutputTokens == 0 {
+		return "", false
+	}
 	inStr := ansi.FormatTokens(ctx.P.ContextWindow.TotalInputTokens)
 	outStr := ansi.FormatTokens(ctx.P.ContextWindow.TotalOutputTokens)
 	return ctx.C.Dim + "↑" + inStr + " ↓" + outStr + ctx.C.Rst, true

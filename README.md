@@ -139,7 +139,7 @@ After `pi install npm:@morgan.rebrand/claude-statusline`, the extension is activ
 claude-statusline configure   # edit themes, segments, and settings
 ```
 
-Changes are picked up on the next Pi render. The extension builds a Claude-compatible payload from Pi's live context — working directory, model, and context-window usage — so a focused set of segments shows up under Pi: `directory`, `model`, the `context-window` bar, `git-branch`, `git-stash`, and the `update` notice. The Claude- and Antigravity-specific segments don't render, because Pi doesn't send their data. See the [harness support](#harness-support) matrix for the exact per-segment breakdown (including one rough edge — `tokens` currently shows `↑0 ↓0` under Pi instead of hiding).
+Changes are picked up on the next Pi render. The extension builds a Claude-compatible payload from Pi's live context — session id, working directory, model, and context-window usage — so a focused set of segments shows up under Pi: `session-name`, `directory`, `model`, the `context-window` bar, `git-branch`, `git-stash`, and the `update` notice. The Claude- and Antigravity-specific segments don't render, because Pi doesn't send their data. See the [harness support](#harness-support) matrix for the exact per-segment breakdown.
 
 To remove the statusline from Pi:
 
@@ -175,7 +175,7 @@ Segments that receive no data from the active tool hide themselves automatically
 |---------|-------------|--------|-------------|
 | `vim-mode` | 1 | Claude Code | Vim mode indicator, e.g. `[normal]` or `[INSERT]` |
 | `sandbox` | 1 | Antigravity | `[SANDBOX]` indicator when sandbox mode is enabled |
-| `session-name` | 1 | Claude Code, Antigravity | Session name (Claude Code) or conversation ID (Antigravity). UUIDs are truncated to 8 chars |
+| `session-name` | 1 | all three | Session name (Claude Code) or conversation ID (Antigravity / Pi). UUIDs are truncated to 8 chars |
 | `agent-state` | 1 | Antigravity | Agent working status, e.g. `[working]` — green when active |
 | `agent-name` | 1 | Claude Code | Agent name when running with `--agent` |
 | `directory` | 1 | all three | Current / project directory. Shows `project→subdir` when inside a project subdirectory |
@@ -208,7 +208,7 @@ No segment is gated by tool name — each one renders when the active harness se
 |---------|:---:|:---:|:---:|
 | `vim-mode` | ✓ | ✗ | ✗ |
 | `sandbox` | ✗ | ✓ | ✗ |
-| `session-name` | ✓ | ✓ | ✗ |
+| `session-name` | ✓ | ✓ | ✓ |
 | `agent-state` | ✗ | ✓ | ✗ |
 | `agent-name` | ✓ | ✗ | ✗ |
 | `directory` | ✓ | ✓ | ✓ |
@@ -228,12 +228,12 @@ No segment is gated by tool name — each one renders when the active harness se
 | `duration` | ✓ | ✗ | ✗ |
 | `cost-rate` | ✓ | ✗ | ✗ |
 | `api-efficiency` | ✓ | ✗ | ✗ |
-| `tokens` | ✓ | ✓ | ✗ † |
+| `tokens` | ✓ | ✓ | ✗ |
 | `context-window` | ✓ | ✓ | ✓ |
 | `rate-limit-5h` | ✓ | ✗ | ✗ |
 | `rate-limit-7d` | ✓ | ✗ | ✗ |
 
-✓ renders · ✗ no data, stays hidden. **†** Under Pi, `tokens` doesn't self-hide yet: Pi reports context-window % but no token counts, so the segment shows `↑0 ↓0` — marked ✗ here because it carries no real data.
+✓ renders · ✗ no data, stays hidden.
 
 ### Burn rates, projections, and trends
 
@@ -675,7 +675,7 @@ Source builds (`version = "dev"`) short-circuit the whole feature: no check, no 
 **Segments are hidden unexpectedly**
 
 - Check `debug` output to see if the fields are present in the payload
-- Remember: zero values hide `cost`, `duration`, `lines-changed`, etc.
+- Remember: zero values hide `cost`, `duration`, `lines-changed`, `tokens`, etc.
 - `rate_limits` only appears for Claude Pro/Max after the first API call
 - Burn rates, projections, and trends need ~5 minutes of session history
 - `agent-name` only appears when running with `--agent`; `vim-mode` only with vim mode on

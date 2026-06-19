@@ -5,6 +5,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 interface Payload {
 	cwd: string;
 	session_id: string;
+	conversation_id: string;
 	model?: { id?: string; display_name?: string };
 	workspace: { current_dir: string; project_dir: string };
 	context_window?: {
@@ -67,6 +68,9 @@ function buildPayload(ctx: PiContext): Payload {
 	return {
 		cwd,
 		session_id: `pi:${sessionId}`,
+		// session_id keys per-session state; conversation_id is the field the
+		// session-name segment actually reads, so set both to the same value.
+		conversation_id: `pi:${sessionId}`,
 		model: {
 			id: model.id,
 			display_name: model.displayName ?? model.name ?? model.id,
