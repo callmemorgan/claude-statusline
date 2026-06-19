@@ -4,11 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/callmemorgan/claude-statusline/internal/payload"
 )
 
 // ─── Debug Schema ────────────────────────────────────────────────────
 
-func printDebugSchema(raw []byte, p payload) {
+func printDebugSchema(raw []byte, p payload.Payload) {
 	tool := "claude-code"
 	if p.Product == "antigravity" {
 		tool = "agy"

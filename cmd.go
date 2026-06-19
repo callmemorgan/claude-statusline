@@ -7,6 +7,11 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/callmemorgan/claude-statusline/internal/palette"
+	"github.com/callmemorgan/claude-statusline/internal/payload"
+	"github.com/callmemorgan/claude-statusline/internal/state"
+	"github.com/callmemorgan/claude-statusline/internal/version"
 )
 
 // dispatch routes subcommands. The bare no-args invocation is the renderer —
@@ -19,7 +24,7 @@ func dispatch() {
 			printHelp()
 			return
 		case "version", "v", "V":
-			runVersion()
+			version.RunVersion()
 			return
 		case "configure":
 			runConfigure()
@@ -60,8 +65,8 @@ func dispatch() {
 func runRender(debug bool) {
 	start := time.Now()
 
-	input := readInput()
-	p := parsePayload(input)
+	input := payload.ReadInput()
+	p := payload.ParsePayload(input)
 
 	if debug {
 		printDebugSchema(input, p)
@@ -73,7 +78,7 @@ func runRender(debug bool) {
 	}
 
 	cfg, warns := loadConfigWarn()
-	colors := currentPalette(cfg)
+	colors := palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors)
 	if os.Getenv("STATUSLINE_VERBOSE") != "" {
 		for _, w := range warns {
 			fmt.Fprintf(os.Stderr, "claude-statusline: config: %s\n", w)
@@ -81,10 +86,10 @@ func runRender(debug bool) {
 	}
 	initSegments(cfg.Plugins)
 
-	st := loadState(cfg.State, firstNonEmpty(p.SessionID, p.ConversationID), start)
+	st := state.LoadState(cfg.State, firstNonEmpty(p.SessionID, p.ConversationID), start)
 	st.Record(p, start)
 
-	width := terminalWidth(p)
+	width := payload.TerminalWidth(p)
 	style := styleFor(cfg, colors)
 	lines := buildStatusline(buildInput{P: p, C: colors, Cfg: cfg, State: st, Width: width, Now: start})
 

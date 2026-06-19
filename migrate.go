@@ -14,6 +14,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/callmemorgan/claude-statusline/internal/sys"
 )
 
 // legacyConfig matches the pre-1.0 JSON schema. The old fixed-field
@@ -66,7 +68,7 @@ func migrateLegacyJSON() (config, bool) {
 		return cfg, true
 	}
 	header := fmt.Sprintf("# migrated from config.json on %s\n", time.Now().Format("2006-01-02"))
-	if err := writeFileAtomic(filepath.Join(dir, "config.toml"), append([]byte(header), tomlData...)); err != nil {
+	if err := sys.WriteFileAtomic(filepath.Join(dir, "config.toml"), append([]byte(header), tomlData...)); err != nil {
 		// Keep config.json in place; migration retries on the next run and
 		// this run uses the in-memory conversion.
 		fmt.Fprintf(os.Stderr, "claude-statusline: cannot write config.toml (%v); will retry\n", err)

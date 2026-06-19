@@ -1,4 +1,4 @@
-package main
+package palette
 
 // ─── Color Depth ─────────────────────────────────────────────────────
 //
@@ -12,56 +12,56 @@ import (
 	"strings"
 )
 
-type colorDepth int
+type ColorDepth int
 
 const (
-	depthNone colorDepth = iota // NO_COLOR, TERM=dumb
-	depth16
-	depth256
-	depthTrue
+	DepthNone ColorDepth = iota // NO_COLOR, TERM=dumb
+	Depth16
+	Depth256
+	DepthTrue
 )
 
 // detectDepth sniffs terminal color capability from the environment. Claude
 // Code may strip COLORTERM from the statusline subprocess env, so known
 // truecolor terminal programs are also checked; the color_depth config key
 // overrides all of this.
-func detectDepth() colorDepth {
+func detectDepth() ColorDepth {
 	if os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
-		return depthNone
+		return DepthNone
 	}
 	ct := strings.ToLower(os.Getenv("COLORTERM"))
 	if ct == "truecolor" || ct == "24bit" {
-		return depthTrue
+		return DepthTrue
 	}
 	switch os.Getenv("TERM_PROGRAM") {
 	case "iTerm.app", "ghostty", "WezTerm", "vscode":
-		return depthTrue
+		return DepthTrue
 	}
 	if os.Getenv("WT_SESSION") != "" {
-		return depthTrue
+		return DepthTrue
 	}
 	if strings.Contains(os.Getenv("TERM"), "256color") {
-		return depth256
+		return Depth256
 	}
-	return depth16
+	return Depth16
 }
 
 // resolveDepth applies the config override ("auto" | "truecolor" | "256" |
 // "16" | "none") on top of detection.
-func resolveDepth(override string) colorDepth {
+func resolveDepth(override string) ColorDepth {
 	switch strings.ToLower(override) {
 	case "none":
-		return depthNone
+		return DepthNone
 	case "16":
-		return depth16
+		return Depth16
 	case "256":
-		return depth256
+		return Depth256
 	case "truecolor", "24bit":
 		// NO_COLOR still wins — it is an explicit user-wide opt-out.
 		if os.Getenv("NO_COLOR") != "" {
-			return depthNone
+			return DepthNone
 		}
-		return depthTrue
+		return DepthTrue
 	}
 	return detectDepth()
 }
@@ -174,7 +174,7 @@ func nearestAnsi16(r, g, b int) string {
 
 // index256ToRGB converts an xterm-256 index back to RGB (for degrading
 // 256-index color specs on 16-color terminals).
-func index256ToRGB(idx int) (r, g, b int) {
+func Index256ToRGB(idx int) (r, g, b int) {
 	switch {
 	case idx >= 232 && idx <= 255:
 		v := 8 + 10*(idx-232)
@@ -193,17 +193,17 @@ func index256ToRGB(idx int) (r, g, b int) {
 }
 
 // hexEscape renders a hex color at the given depth (quantizing as needed).
-func hexEscape(hex string, d colorDepth) (string, bool) {
+func hexEscape(hex string, d ColorDepth) (string, bool) {
 	r, g, b, ok := parseHexRGB(hex)
 	if !ok {
 		return "", false
 	}
 	switch d {
-	case depthNone:
+	case DepthNone:
 		return "", true
-	case depth16:
+	case Depth16:
 		return nearestAnsi16(r, g, b), true
-	case depth256:
+	case Depth256:
 		return fmt.Sprintf("\x1b[38;5;%dm", rgbTo256(r, g, b)), true
 	default:
 		return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b), true

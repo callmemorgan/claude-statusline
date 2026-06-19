@@ -1,17 +1,18 @@
 package main
 
 import (
-	"regexp"
 	"sort"
 	"strings"
 	"time"
-	"unicode/utf8"
+
+	"github.com/callmemorgan/claude-statusline/internal/ansi"
+	"github.com/callmemorgan/claude-statusline/internal/palette"
+	"github.com/callmemorgan/claude-statusline/internal/payload"
+	"github.com/callmemorgan/claude-statusline/internal/state"
 )
 
 const (
-	barWidth  = 20
-	maxInput  = 1 << 20
-	minObject = `{"model":{"display_name":"Claude"},"workspace":{"current_dir":"~"}}`
+	barWidth = 20
 
 	// Layout budget: line 1 reserves room for the trailing " │ X.Xms" timing
 	// suffix, and every line keeps a small safety margin before wrapping.
@@ -34,37 +35,27 @@ func lineBudget(columns int, first bool) int {
 	return b
 }
 
-var reANSI = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-
-func stripANSI(s string) string {
-	return reANSI.ReplaceAllString(s, "")
-}
-
-func visibleWidth(s string) int {
-	return utf8.RuneCountInString(stripANSI(s))
-}
-
 // ─── Statusline Builder ──────────────────────────────────────────────
 
 // renderCtx carries everything a segment renderer needs. The palette already
 // has the per-segment color override applied, and S holds the segment's own
 // resolved settings. Now is injected so countdowns and rates are testable.
 type renderCtx struct {
-	P     payload
-	C     palette
+	P     payload.Payload
+	C     palette.Palette
 	S     settings
-	State *sessionState // nil unless the segment declares needsState
-	Cfg   config        // resolved config, rarely needed (e.g. update segment)
+	State *state.SessionState // nil unless the segment declares needsState
+	Cfg   config              // resolved config, rarely needed (e.g. update segment)
 	Width int
 	Now   time.Time
 }
 
 // buildInput is the top-level input to buildStatusline.
 type buildInput struct {
-	P     payload
-	C     palette
+	P     payload.Payload
+	C     palette.Palette
 	Cfg   config
-	State *sessionState
+	State *state.SessionState
 	Width int
 	Now   time.Time
 }
@@ -87,7 +78,7 @@ type lineStyle struct {
 	padding  int
 }
 
-func styleFor(cfg config, c palette) lineStyle {
+func styleFor(cfg config, c palette.Palette) lineStyle {
 	glyph, ok := separators[cfg.Style.Separator]
 	if !ok {
 		if cfg.Style.Separator == "custom" && cfg.Style.SeparatorCustom != "" {
@@ -96,7 +87,7 @@ func styleFor(cfg config, c palette) lineStyle {
 			glyph = separators["bar"]
 		}
 	}
-	st := lineStyle{sep: glyph, sepWidth: visibleWidth(glyph), padding: 1}
+	st := lineStyle{sep: glyph, sepWidth: ansi.VisibleWidth(glyph), padding: 1}
 	if cfg.Style.Padding != nil {
 		st.padding = *cfg.Style.Padding
 	}
@@ -114,7 +105,7 @@ func buildStatusline(in buildInput) []string {
 			segPalette := in.C
 			if in.C.Rst != "" {
 				if colorName := in.Cfg.Colors[id]; colorName != "" && colorName != "default" {
-					segPalette = paletteWithOverride(in.C, s.primaryColor, colorName)
+					segPalette = palette.PaletteWithOverride(in.C, s.primaryColor, colorName)
 				}
 			}
 			ctx := renderCtx{
@@ -194,7 +185,7 @@ func buildStatuslineCascade(parts map[int][]string, columns int, st lineStyle) [
 					if i > 0 {
 						width += st.sepWidth
 					}
-					width += visibleWidth(seg)
+					width += ansi.VisibleWidth(seg)
 				}
 				if width <= budget {
 					break
@@ -246,7 +237,7 @@ func buildStatuslineGroup(parts map[int][]string, columns int, st lineStyle) []s
 		currentWidth := 0
 
 		for _, seg := range segs {
-			segWidth := visibleWidth(seg)
+			segWidth := ansi.VisibleWidth(seg)
 			sep := st.padding // leading padding
 			if len(current) > 0 {
 				sep = st.sepWidth
@@ -327,7 +318,7 @@ func iconsetPair(name string) (string, string) {
 	return is.Filled, is.Empty
 }
 
-func progressBarWithIconset(pct int, fillColor, emptyColor string, c palette, width int, name string) string {
+func progressBarWithIconset(pct int, fillColor, emptyColor string, c palette.Palette, width int, name string) string {
 	if pct < 0 {
 		pct = 0
 	}
@@ -362,7 +353,7 @@ func progressBarWithIconset(pct int, fillColor, emptyColor string, c palette, wi
 	return b.String()
 }
 
-func progressBarWithTimeAndIconset(pct, timePct int, fillColor, emptyColor string, c palette, width int, iconset string) string {
+func progressBarWithTimeAndIconset(pct, timePct int, fillColor, emptyColor string, c palette.Palette, width int, iconset string) string {
 	if pct < 0 {
 		pct = 0
 	}
@@ -395,7 +386,7 @@ func progressBarWithTimeAndIconset(pct, timePct int, fillColor, emptyColor strin
 	return b.String()
 }
 
-func pctColorWithSettings(pct int, c palette, s settings) string {
+func pctColorWithSettings(pct int, c palette.Palette, s settings) string {
 	warnAt, critAt := s.Int("warn_at"), s.Int("crit_at")
 	var colorName, natural string
 	switch {
@@ -410,5 +401,5 @@ func pctColorWithSettings(pct int, c palette, s settings) string {
 	if colorName == "" || colorName == "default" {
 		colorName = natural
 	}
-	return resolveColor(colorName, c)
+	return palette.ResolveColor(colorName, c)
 }

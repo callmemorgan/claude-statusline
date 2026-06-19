@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/callmemorgan/claude-statusline/internal/payload"
 )
 
 // The TUI preview must demonstrate every feature, including ones whose real
@@ -17,7 +19,7 @@ func TestPreviewStateRendersStateFeatures(t *testing.T) {
 	// must too (the TUI runs both against time.Now()).
 	now := time.Now()
 	st := previewState(now)
-	p := samplePayload()
+	p := payload.SamplePayload()
 
 	out := renderWithState(t, "cost-rate", p, st, now, nil)
 	if !strings.Contains(out, "$0.42/h") {
@@ -49,7 +51,7 @@ func TestPreviewStateRendersStateFeatures(t *testing.T) {
 
 func TestSamplePayloadShowsNewSegments(t *testing.T) {
 	initSegments(nil)
-	p := samplePayload()
+	p := payload.SamplePayload()
 	for _, tc := range []struct{ id, want string }{
 		{"output-style", "Explanatory"},
 		{"added-dirs", "+1 dir"},
@@ -73,7 +75,7 @@ func TestSamplePayloadShowsNewSegments(t *testing.T) {
 func TestDemoPreviewPayload(t *testing.T) {
 	// 1750000000000 is a multiple of the 5000ms sweep; +4500ms → pct 90.
 	now := time.UnixMilli(1750000000000 + 4500)
-	p := demoPreviewPayload(samplePayload(), now)
+	p := demoPreviewPayload(payload.SamplePayload(), now)
 
 	if p.ContextWindow.UsedPercentage == nil || *p.ContextWindow.UsedPercentage != 90 {
 		t.Errorf("ctx pct = %v, want 90", p.ContextWindow.UsedPercentage)

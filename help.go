@@ -1,11 +1,15 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/callmemorgan/claude-statusline/internal/version"
+)
 
 // ─── Help ────────────────────────────────────────────────────────────
 
 func printHelp() {
-	v, _, _ := versionString()
+	v, _, _ := version.VersionString()
 	fmt.Printf("claude-statusline v%s — statusline renderer for Claude Code and Antigravity CLI\n", v)
 	fmt.Println(`
 Usage:

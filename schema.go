@@ -6,7 +6,11 @@ package main
 // The TUI flyout, settings resolution, validation, and config persistence all
 // derive from this single declaration — there is no parallel feature map.
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/callmemorgan/claude-statusline/internal/palette"
+)
 
 type settingKind int
 
@@ -66,7 +70,7 @@ func (sp settingSpec) coerce(raw any) any {
 			}
 		}
 	case kindColor:
-		if v, ok := raw.(string); ok && validColorSpec(v) {
+		if v, ok := raw.(string); ok && palette.ValidColorSpec(v) {
 			return v
 		}
 	}
@@ -192,9 +196,9 @@ func barSettingSpecs(countdown, warning, syncToAll bool, extra ...settingSpec) [
 		settingSpec{Key: "iconset", Name: "Iconset", Desc: "Visual style of the progress bar", Kind: kindEnum, Default: "default", Options: iconsetNames()},
 		settingSpec{Key: "warn_at", Name: "Warn at", Desc: "Percentage threshold for the warning color", Kind: kindInt, Default: 60, Min: 0, Max: 100, Step: 5},
 		settingSpec{Key: "crit_at", Name: "Critical at", Desc: "Percentage threshold for the critical color", Kind: kindInt, Default: 80, Min: 0, Max: 100, Step: 5},
-		settingSpec{Key: "ok_color", Name: "OK color", Desc: "Color below the warning threshold (space cycles, enter opens the picker)", Kind: kindColor, Default: "green", Options: colorCycle},
-		settingSpec{Key: "warn_color", Name: "Warn color", Desc: "Color between the warn and critical thresholds (space cycles, enter opens the picker)", Kind: kindColor, Default: "yellow", Options: colorCycle},
-		settingSpec{Key: "crit_color", Name: "Critical color", Desc: "Color above the critical threshold (space cycles, enter opens the picker)", Kind: kindColor, Default: "bright-red", Options: colorCycle},
+		settingSpec{Key: "ok_color", Name: "OK color", Desc: "Color below the warning threshold (space cycles, enter opens the picker)", Kind: kindColor, Default: "green", Options: palette.ColorCycle},
+		settingSpec{Key: "warn_color", Name: "Warn color", Desc: "Color between the warn and critical thresholds (space cycles, enter opens the picker)", Kind: kindColor, Default: "yellow", Options: palette.ColorCycle},
+		settingSpec{Key: "crit_color", Name: "Critical color", Desc: "Color above the critical threshold (space cycles, enter opens the picker)", Kind: kindColor, Default: "bright-red", Options: palette.ColorCycle},
 	)
 	specs = append(specs, extra...)
 	specs = append(specs, settingSpec{Key: "stress_test", Name: "Stress test preview", Desc: "Animate the preview from 0% to 100% to see all colors", Kind: kindBool, Default: false, Ephemeral: true})

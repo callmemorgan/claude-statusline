@@ -26,6 +26,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/callmemorgan/claude-statusline/internal/state"
+	"github.com/callmemorgan/claude-statusline/internal/sys"
+	"github.com/callmemorgan/claude-statusline/internal/version"
 )
 
 // installKind classifies the running binary so the worker can choose between
@@ -98,7 +102,7 @@ type updateCheck struct {
 
 // updateCheckPath is a sibling of last-version.json inside the state dir.
 func updateCheckPath() string {
-	return filepath.Join(stateBaseDir(), "update.json")
+	return filepath.Join(state.StateBaseDir(), "update.json")
 }
 
 func loadUpdateCheck() (updateCheck, bool) {
@@ -114,14 +118,14 @@ func loadUpdateCheck() (updateCheck, bool) {
 }
 
 func saveUpdateCheck(c updateCheck) error {
-	if err := os.MkdirAll(stateBaseDir(), 0o755); err != nil {
+	if err := os.MkdirAll(state.StateBaseDir(), 0o755); err != nil {
 		return err
 	}
 	data, err := json.Marshal(c)
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(updateCheckPath(), data)
+	return sys.WriteFileAtomic(updateCheckPath(), data)
 }
 
 // updateResult records the outcome of the last completed update so the next
@@ -138,7 +142,7 @@ type updateResult struct {
 
 // updateResultPath is a sibling of update.json inside the state dir.
 func updateResultPath() string {
-	return filepath.Join(stateBaseDir(), "update-result.json")
+	return filepath.Join(state.StateBaseDir(), "update-result.json")
 }
 
 func loadUpdateResult() (updateResult, bool) {
@@ -154,14 +158,14 @@ func loadUpdateResult() (updateResult, bool) {
 }
 
 func saveUpdateResult(r updateResult) error {
-	if err := os.MkdirAll(stateBaseDir(), 0o755); err != nil {
+	if err := os.MkdirAll(state.StateBaseDir(), 0o755); err != nil {
 		return err
 	}
 	data, err := json.Marshal(r)
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(updateResultPath(), data)
+	return sys.WriteFileAtomic(updateResultPath(), data)
 }
 
 // recordUpdateResult stamps the current time and persists the outcome. Called
@@ -300,7 +304,7 @@ func spawnUpdateCheckReal() error {
 	}
 	c := exec.Command(exe, "update-check")
 	c.Stdin, c.Stdout, c.Stderr = nil, nil, nil
-	applyDetachSysProcAttr(c)
+	sys.ApplyDetachSysProcAttr(c)
 	if err := c.Start(); err != nil {
 		return err
 	}
@@ -316,7 +320,7 @@ func maybeSpawnUpdateCheck(cfg updateConfig, now time.Time) {
 	if cfg.mode() == "off" {
 		return
 	}
-	current, _, _ := versionString()
+	current, _, _ := version.VersionString()
 	if !isReleaseVersion(current) {
 		return
 	}
@@ -362,7 +366,7 @@ func maybeSpawnUpdateCheckFor(cfg updateConfig, now time.Time, kind installKind)
 // serialize concurrent checks. Lock-acquire-and-spawn matches the plugin
 // pattern in plugins.go.
 func updateLockPath() string {
-	return filepath.Join(stateBaseDir(), "update-check.lock")
+	return filepath.Join(state.StateBaseDir(), "update-check.lock")
 }
 
 // updateBrewTimeout is the worker's per-upgrade budget for `brew upgrade`.
@@ -395,7 +399,7 @@ func runUpdate(args []string) {
 		}
 	}
 
-	current, _, _ := versionString()
+	current, _, _ := version.VersionString()
 	exe := currentExePath()
 	kind := detectInstallKind(exe, current)
 	runUpdateFor(args, checkOnly, current, kind)
@@ -564,7 +568,7 @@ const updateMaxDownloadBytes = 64 * 1024 * 1024
 // running binary's, which makes the request self-identifying in GH logs
 // (and lets us correlate errors when users paste the headers).
 func updateUserAgent() string {
-	v, _, _ := versionString()
+	v, _, _ := version.VersionString()
 	if v == "dev" {
 		return "claude-statusline/dev"
 	}
@@ -724,10 +728,10 @@ func fetchToTemp(dir, url, name string) (string, error) {
 // os.MkdirTemp makes it 0o700, so staged artifacts aren't world-readable on a
 // shared host. The caller defers os.RemoveAll on the returned path.
 func newStagingDir() (string, error) {
-	if err := os.MkdirAll(stateBaseDir(), 0o755); err != nil {
+	if err := os.MkdirAll(state.StateBaseDir(), 0o755); err != nil {
 		return "", err
 	}
-	return os.MkdirTemp(stateBaseDir(), "staging-*")
+	return os.MkdirTemp(state.StateBaseDir(), "staging-*")
 }
 
 // verifyChecksum authenticates checksums.txt, then confirms the file at path
@@ -1283,7 +1287,7 @@ func copyFile(src, dst string, mode os.FileMode) error {
 func runUpdateCheck() {
 	defer func() { _ = os.Remove(updateLockPath()) }()
 
-	current, _, _ := versionString()
+	current, _, _ := version.VersionString()
 	exe := currentExePath()
 	kind := detectInstallKind(exe, current)
 	if kind == kindDev || !isReleaseVersion(current) {

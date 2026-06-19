@@ -13,6 +13,9 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+
+	"github.com/callmemorgan/claude-statusline/internal/ansi"
+	"github.com/callmemorgan/claude-statusline/internal/palette"
 )
 
 // recentColors is the session-only MRU of picked color specs.
@@ -32,13 +35,13 @@ func pushRecentColor(spec string) {
 }
 
 // specToColor resolves a color spec to a tcell color for swatch rendering.
-func specToColor(spec string, c palette) tcell.Color {
-	code, ok := resolveColorSpec(spec, c)
+func specToColor(spec string, c palette.Palette) tcell.Color {
+	code, ok := palette.ResolveColorSpec(spec, c)
 	if !ok || code == "" {
 		return tcell.ColorDefault
 	}
 	params := strings.TrimSuffix(strings.TrimPrefix(code, "\x1b["), "m")
-	tag := sgrToTag(params)
+	tag := ansi.SGRToTag(params)
 	if strings.HasPrefix(tag, "[#") {
 		return tcell.GetColor(strings.Trim(tag, "[]"))
 	}
@@ -52,11 +55,11 @@ type pickerEntry struct {
 
 func colorPickerEntries() []pickerEntry {
 	entries := []pickerEntry{{header: "Theme"}}
-	for _, role := range themeRoles {
+	for _, role := range palette.ThemeRoles {
 		entries = append(entries, pickerEntry{spec: role})
 	}
 	entries = append(entries, pickerEntry{header: "ANSI"})
-	for _, name := range colorCycle[1:] { // skip "default" — that's the d key
+	for _, name := range palette.ColorCycle[1:] { // skip "default" — that's the d key
 		entries = append(entries, pickerEntry{spec: name})
 	}
 	if len(recentColors) > 0 {
@@ -72,7 +75,7 @@ const pickerCols = 4
 
 // openColorPicker shows the picker as a floating page. onHover fires as the
 // selection moves; onDone fires exactly once with picked=false on cancel.
-func openColorPicker(app *tview.Application, pages *tview.Pages, c palette, title string, onHover func(spec string), onDone func(spec string, picked bool)) {
+func openColorPicker(app *tview.Application, pages *tview.Pages, c palette.Palette, title string, onHover func(spec string), onDone func(spec string, picked bool)) {
 	entries := colorPickerEntries()
 
 	table := tview.NewTable().SetSelectable(true, true)

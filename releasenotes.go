@@ -19,6 +19,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/callmemorgan/claude-statusline/internal/ansi"
+	"github.com/callmemorgan/claude-statusline/internal/palette"
+	"github.com/callmemorgan/claude-statusline/internal/state"
+	"github.com/callmemorgan/claude-statusline/internal/sys"
+	"github.com/callmemorgan/claude-statusline/internal/version"
 )
 
 //go:embed CHANGELOG.md
@@ -181,7 +187,7 @@ type versionSeen struct {
 
 // versionSeenPath is sibling of the sessions/ and plugins/ state directories.
 func versionSeenPath() string {
-	return filepath.Join(stateBaseDir(), "last-version.json")
+	return filepath.Join(state.StateBaseDir(), "last-version.json")
 }
 
 func loadVersionSeen() (versionSeen, bool) {
@@ -205,7 +211,7 @@ func saveVersionSeen(v versionSeen) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(versionSeenPath(), data)
+	return sys.WriteFileAtomic(versionSeenPath(), data)
 }
 
 // reReleaseVersion matches a clean release-shaped version: MAJOR.MINOR.REVISION
@@ -301,10 +307,10 @@ func releaseNotesBetween(notes []releaseNote, from, to string, limit int) []rele
 // runReleaseNotes implements the `release-notes` subcommand.
 func runReleaseNotes(args []string) {
 	notes := parseChangelog(changelogRaw)
-	current, _, _ := versionString()
+	current, _, _ := version.VersionString()
 
 	cfg, _ := loadConfigWarn()
-	colors := currentPalette(cfg)
+	colors := palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors)
 
 	mode, target, fallback, missing := selectReleaseNote(notes, current, args)
 	if len(missing) > 0 {
@@ -416,7 +422,7 @@ func bulletDisplayText(b releaseBullet) string {
 	return b.Text
 }
 
-func printReleaseNote(n releaseNote, c palette) {
+func printReleaseNote(n releaseNote, c palette.Palette) {
 	header := fmt.Sprintf("claude-statusline v%s", n.Version)
 	if n.Date != "" {
 		header += " — " + n.Date
@@ -451,9 +457,9 @@ func printReleaseNote(n releaseNote, c palette) {
 // truncation budget mirrors the renderer's width reserves: line 0 reserves
 // columns for the trailing " │ X.Xms" timing suffix, every line keeps the
 // safety margin.
-func maybeReleaseTakeover(cfg releaseNotesConfig, lines []string, c palette, width int, padding int, now time.Time) []string {
+func maybeReleaseTakeover(cfg releaseNotesConfig, lines []string, c palette.Palette, width int, padding int, now time.Time) []string {
 	prev, prevOK := loadVersionSeen()
-	current, _, _ := versionString()
+	current, _, _ := version.VersionString()
 	show, next := announceDecision(prev, prevOK, current, cfg, now)
 	if next.Version != "" {
 		if saveVersionSeen(next) != nil {
@@ -523,7 +529,7 @@ func takeoverLineBudgets(width int, n int, padding int) []int {
 // passing nil disables truncation. padding is the leading indent (matches
 // [style].padding so the takeover doesn't shift horizontally). Pure: no
 // I/O, easy to unit-test.
-func announceLines(note releaseNote, n int, budgets []int, c palette, padding int) []string {
+func announceLines(note releaseNote, n int, budgets []int, c palette.Palette, padding int) []string {
 	n = max(n, 1)
 	// Present bullets in importance order regardless of how the caller built
 	// the note. The sort is stable, so equal-importance bullets keep their
@@ -588,7 +594,7 @@ func truncateToWidth(s string, width int) string {
 	if width <= 0 {
 		return s
 	}
-	if visibleWidth(s) <= width {
+	if ansi.VisibleWidth(s) <= width {
 		return s
 	}
 	if width <= 1 {

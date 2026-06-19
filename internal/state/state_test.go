@@ -1,4 +1,4 @@
-package main
+package state
 
 import (
 	"encoding/json"
@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/callmemorgan/claude-statusline/internal/payload"
 )
 
 func useTempStateDir(t *testing.T) string {
@@ -15,8 +17,8 @@ func useTempStateDir(t *testing.T) string {
 	return filepath.Join(dir, "claude-statusline", "sessions")
 }
 
-func costPayload(c float64) payload {
-	var p payload
+func costPayload(c float64) payload.Payload {
+	var p payload.Payload
 	p.Cost.TotalCostUSD = c
 	return p
 }
@@ -24,9 +26,9 @@ func costPayload(c float64) payload {
 func TestSessionStateRecordSaveLoad(t *testing.T) {
 	sessions := useTempStateDir(t)
 	now := time.Unix(1750000000, 0)
-	cfg := stateConfig{}
+	cfg := StateConfig{}
 
-	st := loadState(cfg, "abc-123", now)
+	st := LoadState(cfg, "abc-123", now)
 	if st == nil {
 		t.Fatal("state should load when enabled with a session id")
 	}
@@ -43,7 +45,7 @@ func TestSessionStateRecordSaveLoad(t *testing.T) {
 		t.Fatalf("state file missing: %v", err)
 	}
 
-	st2 := loadState(cfg, "abc-123", now.Add(time.Minute))
+	st2 := LoadState(cfg, "abc-123", now.Add(time.Minute))
 	if len(st2.Samples) != 2 {
 		t.Errorf("round-trip lost samples: %d", len(st2.Samples))
 	}
@@ -55,15 +57,15 @@ func TestSessionStateRecordSaveLoad(t *testing.T) {
 func TestSessionStateDisabledAndNil(t *testing.T) {
 	useTempStateDir(t)
 	off := false
-	if st := loadState(stateConfig{Enabled: &off}, "x", time.Now()); st != nil {
+	if st := LoadState(StateConfig{Enabled: &off}, "x", time.Now()); st != nil {
 		t.Error("disabled state must return nil")
 	}
-	if st := loadState(stateConfig{}, "", time.Now()); st != nil {
+	if st := LoadState(StateConfig{}, "", time.Now()); st != nil {
 		t.Error("empty session id must return nil")
 	}
 	// nil receiver methods must be safe.
-	var st *sessionState
-	st.Record(payload{}, time.Now())
+	var st *SessionState
+	st.Record(payload.Payload{}, time.Now())
 	if err := st.Save(); err != nil {
 		t.Error("nil Save should be a no-op")
 	}
@@ -80,7 +82,7 @@ func TestSessionStateCorruptFile(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sessions, "bad.json"), []byte("{nope"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	st := loadState(stateConfig{}, "bad", time.Now())
+	st := LoadState(StateConfig{}, "bad", time.Now())
 	if st == nil || len(st.Samples) != 0 {
 		t.Error("corrupt state should start fresh, not fail")
 	}
@@ -94,11 +96,11 @@ func TestSessionStateLoadPrunesOldSamples(t *testing.T) {
 	now := time.Unix(1750000000, 0)
 	old := now.Add(-100 * time.Hour).Unix()
 	recent := now.Add(-time.Hour).Unix()
-	data, _ := json.Marshal(sessionState{SessionID: "s", Samples: []sample{{T: old, Cost: 1}, {T: recent, Cost: 2}}})
+	data, _ := json.Marshal(SessionState{SessionID: "s", Samples: []Sample{{T: old, Cost: 1}, {T: recent, Cost: 2}}})
 	if err := os.WriteFile(filepath.Join(sessions, "s.json"), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	st := loadState(stateConfig{}, "s", now) // default 48h retention
+	st := LoadState(StateConfig{}, "s", now) // default 48h retention
 	if len(st.Samples) != 1 || st.Samples[0].Cost != 2 {
 		t.Errorf("expected only the recent sample, got %+v", st.Samples)
 	}
@@ -107,7 +109,7 @@ func TestSessionStateLoadPrunesOldSamples(t *testing.T) {
 func TestSessionStateSanitizesID(t *testing.T) {
 	sessions := useTempStateDir(t)
 	now := time.Unix(1750000000, 0)
-	st := loadState(stateConfig{}, "weird/../id with spaces", now)
+	st := LoadState(StateConfig{}, "weird/../id with spaces", now)
 	st.Record(costPayload(1), now)
 	if err := st.Save(); err != nil {
 		t.Fatal(err)
@@ -123,12 +125,12 @@ func TestSessionStateSanitizesID(t *testing.T) {
 
 func TestSeriesRateDeltaProjection(t *testing.T) {
 	now := time.Unix(1750000000, 0)
-	st := &sessionState{}
+	st := &SessionState{}
 	// Cost rises $0.50/h; rl5h rises 10%/h from 40%.
 	for i := 0; i <= 6; i++ {
 		ts := now.Add(time.Duration(i-6) * 10 * time.Minute)
 		rl := 40.0 + float64(i-6+6)*10.0/6.0
-		st.Samples = append(st.Samples, sample{
+		st.Samples = append(st.Samples, Sample{
 			T:    ts.Unix(),
 			Cost: 1.0 + 0.5*float64(i)/6.0,
 			RL5h: &rl,
@@ -166,13 +168,13 @@ func TestSeriesRateDeltaProjection(t *testing.T) {
 	}
 
 	// Too little data → no rate.
-	short := &sessionState{Samples: []sample{{T: now.Unix(), Cost: 1}}}
+	short := &SessionState{Samples: []Sample{{T: now.Unix(), Cost: 1}}}
 	if _, ok := short.Series("cost").Rate(time.Hour, now); ok {
 		t.Error("rate with one point should not be ok")
 	}
 
 	// Falling series never projects a future crossing.
-	falling := &sessionState{Samples: []sample{
+	falling := &SessionState{Samples: []Sample{
 		{T: now.Add(-30 * time.Minute).Unix(), Cost: 2},
 		{T: now.Unix(), Cost: 1},
 	}}

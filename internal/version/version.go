@@ -1,4 +1,4 @@
-package main
+package version
 
 // ─── Version ─────────────────────────────────────────────────────────
 
@@ -9,18 +9,18 @@ import (
 	"strings"
 )
 
-// Set via GoReleaser ldflags (-X main.version=... etc). Source builds keep
-// "dev" and fall back to module build info below.
+// Set via GoReleaser ldflags (-X github.com/callmemorgan/claude-statusline/internal/version.Version=... etc).
+// Source builds keep "dev" and fall back to module build info below.
 var (
-	version = "dev"
-	commit  = ""
-	date    = ""
+	Version = "dev"
+	Commit  = ""
+	Date    = ""
 )
 
 // versionString returns the version, resolving from debug.ReadBuildInfo for
 // `go install` / source builds that don't get ldflags.
-func versionString() (v, c, d string) {
-	v, c, d = version, commit, date
+func VersionString() (v, c, d string) {
+	v, c, d = Version, Commit, Date
 	if v != "dev" {
 		return v, c, d
 	}
@@ -46,8 +46,8 @@ func versionString() (v, c, d string) {
 	return v, c, d
 }
 
-func runVersion() {
-	v, c, d := versionString()
+func RunVersion() {
+	v, c, d := VersionString()
 	fmt.Printf("claude-statusline v%s\n", v)
 	if c != "" {
 		fmt.Printf("  commit: %s\n", c)

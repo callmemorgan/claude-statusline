@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/callmemorgan/claude-statusline/internal/palette"
+	"github.com/callmemorgan/claude-statusline/internal/payload"
 )
 
 const porcelainSample = `# branch.oid 4b5d763
@@ -124,9 +127,9 @@ func TestGitBranchKeepsRichStatusWithWorktree(t *testing.T) {
 	t.Cleanup(func() { gitStatusPreview = nil })
 	initSegments(nil)
 
-	var p payload
+	var p payload.Payload
 	p.Workspace.CurrentDir = "/nonexistent/proj"
-	p.Worktree = worktree{Name: "my-project", Branch: "feature/x"}
+	p.Worktree = payload.Worktree{Name: "my-project", Branch: "feature/x"}
 	cfg := config{Settings: map[string]map[string]any{"git-branch": {"git_status": true}}}
 	seg, ok := segmentByID("git-branch")
 	if !ok {
@@ -284,9 +287,9 @@ func TestRenderGitStash(t *testing.T) {
 	}
 	render := func() (string, bool) {
 		return seg.render(renderCtx{
-			P:   payload{Workspace: workspace{CurrentDir: "/whatever"}},
+			P:   payload.Payload{Workspace: payload.Workspace{CurrentDir: "/whatever"}},
 			S:   settingsFor(config{}, seg),
-			C:   palette{Git: "", Rst: ""},
+			C:   palette.Palette{Git: "", Rst: ""},
 			Now: time.Unix(1750000000, 0),
 		})
 	}

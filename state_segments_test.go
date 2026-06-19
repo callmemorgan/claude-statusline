@@ -4,13 +4,16 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/callmemorgan/claude-statusline/internal/payload"
+	"github.com/callmemorgan/claude-statusline/internal/state"
 )
 
 // rlState builds session history where the 5h rate limit climbs `perHour`
 // %/h ending at `last` percent, and cost climbs costPerHour $/h ending at
 // lastCost, over the trailing `span`.
-func rlState(now time.Time, span time.Duration, perHour, last, costPerHour, lastCost float64) *sessionState {
-	st := &sessionState{}
+func rlState(now time.Time, span time.Duration, perHour, last, costPerHour, lastCost float64) *state.SessionState {
+	st := &state.SessionState{}
 	const n = 10
 	for i := 0; i <= n; i++ {
 		frac := float64(i) / n
@@ -18,7 +21,7 @@ func rlState(now time.Time, span time.Duration, perHour, last, costPerHour, last
 		hoursBack := (1 - frac) * span.Hours()
 		rl := last - perHour*hoursBack
 		ctxPct := rl // reuse the same ramp for ctx
-		st.Samples = append(st.Samples, sample{
+		st.Samples = append(st.Samples, state.Sample{
 			T:      ts.Unix(),
 			Cost:   lastCost - costPerHour*hoursBack,
 			CtxPct: ctxPct,
@@ -28,7 +31,7 @@ func rlState(now time.Time, span time.Duration, perHour, last, costPerHour, last
 	return st
 }
 
-func renderWithState(t *testing.T, id string, p payload, st *sessionState, now time.Time, overrides map[string]any) string {
+func renderWithState(t *testing.T, id string, p payload.Payload, st *state.SessionState, now time.Time, overrides map[string]any) string {
 	t.Helper()
 	initSegments(nil)
 	seg, ok := segmentByID(id)
@@ -47,8 +50,8 @@ func TestRateLimitProjection(t *testing.T) {
 	now := time.Unix(1750000000, 0)
 	resetAt := now.Add(2 * time.Hour).Unix()
 	pct := 40.0
-	var p payload
-	p.RateLimits.FiveHour = limitWindow{UsedPercentage: &pct, ResetsAt: &resetAt}
+	var p payload.Payload
+	p.RateLimits.FiveHour = payload.LimitWindow{UsedPercentage: &pct, ResetsAt: &resetAt}
 
 	// 10%/h ending at 40% → projected 60% at reset in 2h.
 	st := rlState(now, 30*time.Minute, 10, 40, 0, 0)
@@ -94,17 +97,17 @@ func TestRateLimitProjection(t *testing.T) {
 func TestCostRateSegment(t *testing.T) {
 	now := time.Unix(1750000000, 0)
 	st := rlState(now, 30*time.Minute, 0, 0, 1.50, 2.0)
-	out := renderWithState(t, "cost-rate", payload{}, st, now, nil)
+	out := renderWithState(t, "cost-rate", payload.Payload{}, st, now, nil)
 	if out != "$1.50/h" {
 		t.Errorf("cost-rate = %q", out)
 	}
 
-	if out := renderWithState(t, "cost-rate", payload{}, nil, now, nil); out != "" {
+	if out := renderWithState(t, "cost-rate", payload.Payload{}, nil, now, nil); out != "" {
 		t.Errorf("cost-rate without state = %q", out)
 	}
 	// Negligible rate hides.
 	tiny := rlState(now, 30*time.Minute, 0, 0, 0.001, 0.01)
-	if out := renderWithState(t, "cost-rate", payload{}, tiny, now, nil); out != "" {
+	if out := renderWithState(t, "cost-rate", payload.Payload{}, tiny, now, nil); out != "" {
 		t.Errorf("cost-rate with negligible burn = %q", out)
 	}
 }
@@ -112,7 +115,7 @@ func TestCostRateSegment(t *testing.T) {
 func TestContextTrend(t *testing.T) {
 	now := time.Unix(1750000000, 0)
 	pct := 50.0
-	var p payload
+	var p payload.Payload
 	p.ContextWindow.UsedPercentage = &pct
 	p.ContextWindow.ContextWindowSize = 200000
 

@@ -10,6 +10,11 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 	"golang.org/x/term"
+
+	"github.com/callmemorgan/claude-statusline/internal/ansi"
+	"github.com/callmemorgan/claude-statusline/internal/palette"
+	"github.com/callmemorgan/claude-statusline/internal/payload"
+	"github.com/callmemorgan/claude-statusline/internal/state"
 )
 
 // ─── Configure Mode ──────────────────────────────────────────────────
@@ -63,14 +68,14 @@ func footerRows(text string, width int) int {
 // preview and their settings visibly change the output. Rates: $0.42/h cost,
 // 24%/h context growth (↗ ~37m to the default 80% compact threshold), 16%/h
 // on the 5h quota, 0.4%/h on the 7d quota.
-func previewState(now time.Time) *sessionState {
-	st := &sessionState{SessionID: "tui-preview", retention: 48 * time.Hour}
+func previewState(now time.Time) *state.SessionState {
+	st := &state.SessionState{SessionID: "tui-preview", Retention: 48 * time.Hour}
 	const n = 13 // a sample every 5 minutes over the last hour
 	for i := 0; i < n; i++ {
 		frac := float64(i) / float64(n-1)
 		rl5h := 34 + 16*frac
 		rl7d := 29.6 + 0.4*frac
-		st.Samples = append(st.Samples, sample{
+		st.Samples = append(st.Samples, state.Sample{
 			T:      now.Add(-time.Duration(float64(time.Hour) * (1 - frac))).Unix(),
 			Cost:   0.42 * frac,
 			CtxPct: 41 + 24*frac,
@@ -178,9 +183,9 @@ func runConfigure() {
 	activePreset := ""
 
 	updateStrip := func() {
-		theme := cfg.Theme
-		if theme == "" {
-			theme = "classic"
+		themeID := cfg.Theme
+		if themeID == "" {
+			themeID = "classic"
 		}
 		preset := activePreset
 		if preset == "" {
@@ -190,7 +195,7 @@ func runConfigure() {
 		if dirty {
 			marker = " [yellow]●[-]"
 		}
-		stripLeft.SetText(fmt.Sprintf(" theme: [::b]%s[-:-:-] · preset: %s%s", theme, preset, marker))
+		stripLeft.SetText(fmt.Sprintf(" theme: [::b]%s[-:-:-] · preset: %s%s", themeID, preset, marker))
 	}
 
 	// Footer generated from the keymap table. Word-wrapped: the before-draw
@@ -273,11 +278,11 @@ func runConfigure() {
 		flyoutList.SetTitle(fmt.Sprintf(" %s settings ", currentFlyoutSegment))
 
 		// Update preview
-		p := flyoutPreviewPayload(currentFlyoutSegment, samplePayload())
-		segPalette := currentPalette(cfg)
+		p := flyoutPreviewPayload(currentFlyoutSegment, payload.SamplePayload())
+		segPalette := palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors)
 		if s, ok := segmentByID(currentFlyoutSegment); ok && segPalette.Rst != "" {
 			if colorName := cfg.Colors[currentFlyoutSegment]; colorName != "" && colorName != "default" {
-				segPalette = paletteWithOverride(segPalette, s.primaryColor, colorName)
+				segPalette = palette.PaletteWithOverride(segPalette, s.primaryColor, colorName)
 			}
 		}
 		if s, ok := segmentByID(currentFlyoutSegment); ok {
@@ -290,7 +295,7 @@ func runConfigure() {
 				Now:   time.Now(),
 			}
 			if rendered, show := s.render(ctx); show {
-				flyoutPreview.SetText(ansiToTview(strings.TrimLeft(rendered, " ")))
+				flyoutPreview.SetText(ansi.AnsiToTview(strings.TrimLeft(rendered, " ")))
 			} else {
 				flyoutPreview.SetText("(segment hidden)")
 			}
@@ -397,7 +402,7 @@ func runConfigure() {
 			return
 		}
 		orig := settingsFor(cfg, seg).Str(sp.Key)
-		openColorPicker(app, pages, currentPalette(cfg), sp.Name+" — "+segID,
+		openColorPicker(app, pages, palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors), sp.Name+" — "+segID,
 			func(spec string) { // hover
 				setFlyoutValue(segID, sp, &cfg, spec)
 				updateFlyout()
@@ -502,15 +507,15 @@ func runConfigure() {
 		if width == 0 && panelW > 0 {
 			width = panelW
 		}
-		p := samplePayload()
+		p := payload.SamplePayload()
 		if demoActive {
 			p = demoPreviewPayload(p, time.Now())
 		}
-		lines := buildStatusline(buildInput{P: p, C: currentPalette(cfg), Cfg: cfg, State: pvState, Width: width, Now: time.Now()})
+		lines := buildStatusline(buildInput{P: p, C: palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors), Cfg: cfg, State: pvState, Width: width, Now: time.Now()})
 		var previewText string
 		if previewWidth > 0 {
 			for i, l := range lines {
-				pad := previewWidth - visibleWidth(l)
+				pad := previewWidth - ansi.VisibleWidth(l)
 				if pad < 0 {
 					pad = 0
 				}
@@ -526,7 +531,7 @@ func runConfigure() {
 		if strings.TrimSpace(previewText) == "" {
 			previewText = "(statusline hidden — no segments enabled)"
 		} else {
-			previewText = ansiToTview(previewText)
+			previewText = ansi.AnsiToTview(previewText)
 		}
 		preview.SetText(previewText)
 		if previewWidth > 0 {
@@ -840,9 +845,9 @@ func runConfigure() {
 						currentColor = "default"
 					}
 					nextColor := "default"
-					for i, name := range colorCycle {
+					for i, name := range palette.ColorCycle {
 						if name == currentColor {
-							nextColor = colorCycle[(i+1)%len(colorCycle)]
+							nextColor = palette.ColorCycle[(i+1)%len(palette.ColorCycle)]
 							break
 						}
 					}
@@ -871,7 +876,7 @@ func runConfigure() {
 					}
 					refreshPreview()
 				}
-				openColorPicker(app, pages, currentPalette(cfg), "color — "+seg.id,
+				openColorPicker(app, pages, palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors), "color — "+seg.id,
 					applyColor,
 					func(spec string, picked bool) {
 						if picked {
@@ -1003,7 +1008,7 @@ func runConfigure() {
 					if err != nil || w <= 0 {
 						w = 80
 					}
-					lines := buildStatusline(buildInput{P: samplePayload(), C: currentPalette(cfg), Cfg: cfg, State: pvState, Width: w, Now: time.Now()})
+					lines := buildStatusline(buildInput{P: payload.SamplePayload(), C: palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors), Cfg: cfg, State: pvState, Width: w, Now: time.Now()})
 					themeName := cfg.Theme
 					if themeName == "" {
 						themeName = "classic"

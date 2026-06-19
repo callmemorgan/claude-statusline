@@ -1,4 +1,4 @@
-package main
+package payload
 
 import (
 	"bytes"
@@ -10,7 +10,12 @@ import (
 	"time"
 )
 
-func terminalWidth(p payload) int {
+const (
+	maxInput  = 1 << 20
+	minObject = `{"model":{"display_name":"Claude"},"workspace":{"current_dir":"~"}}`
+)
+
+func TerminalWidth(p Payload) int {
 	if p.TerminalWidth > 0 {
 		return p.TerminalWidth
 	}
@@ -24,7 +29,7 @@ func terminalWidth(p payload) int {
 
 // ─── Payload ─────────────────────────────────────────────────────────
 
-type payload struct {
+type Payload struct {
 	SessionID      string      `json:"session_id"`
 	SessionName    string      `json:"session_name"`
 	ConversationID string      `json:"conversation_id"`
@@ -32,52 +37,52 @@ type payload struct {
 	Version        string      `json:"version"`
 	TranscriptPath string      `json:"transcript_path"`
 	Exceeds200K    *bool       `json:"exceeds_200k_tokens"`
-	Model          model       `json:"model"`
-	Workspace      workspace   `json:"workspace"`
-	Cost           cost        `json:"cost"`
-	ContextWindow  contextWin  `json:"context_window"`
-	RateLimits     rateLimits  `json:"rate_limits"`
-	Agent          agent       `json:"agent"`
-	Worktree       worktree    `json:"worktree"`
-	Vim            vim         `json:"vim"`
-	Effort         effort      `json:"effort"`
-	OutputStyle    outputStyle `json:"output_style"`
+	Model          Model       `json:"model"`
+	Workspace      Workspace   `json:"workspace"`
+	Cost           Cost        `json:"cost"`
+	ContextWindow  ContextWin  `json:"context_window"`
+	RateLimits     RateLimits  `json:"rate_limits"`
+	Agent          Agent       `json:"agent"`
+	Worktree       Worktree    `json:"worktree"`
+	Vim            Vim         `json:"vim"`
+	Effort         Effort      `json:"effort"`
+	OutputStyle    OutputStyle `json:"output_style"`
 
 	// agy additions
 	Product       string  `json:"product"`
 	AgentState    string  `json:"agent_state"`
-	Sandbox       sandbox `json:"sandbox"`
+	Sandbox       Sandbox `json:"sandbox"`
 	ArtifactCount int     `json:"artifact_count"`
 	PlanTier      string  `json:"plan_tier"`
 	Email         string  `json:"email"`
 	TerminalWidth int     `json:"terminal_width"`
 }
 
-type sandbox struct {
+type Sandbox struct {
 	Enabled bool `json:"enabled"`
 }
 
-type model struct {
+type Model struct {
 	DisplayName string `json:"display_name"`
 	ID          string `json:"id"`
 }
 
-type workspace struct {
+type Workspace struct {
 	CurrentDir  string   `json:"current_dir"`
 	ProjectDir  string   `json:"project_dir"`
 	GitWorktree string   `json:"git_worktree"`
 	AddedDirs   []string `json:"added_dirs"`
 }
 
-type outputStyle struct {
+type OutputStyle struct {
 	Name string `json:"name"`
 }
 
-type effort struct {
+type Effort struct {
 	Level string `json:"level"`
 }
 
-type cost struct {
+type Cost struct {
 	TotalCostUSD      float64 `json:"total_cost_usd"`
 	TotalLinesAdded   int64   `json:"total_lines_added"`
 	TotalLinesRemoved int64   `json:"total_lines_removed"`
@@ -85,45 +90,45 @@ type cost struct {
 	TotalAPIDuration  int64   `json:"total_api_duration_ms"`
 }
 
-type contextWin struct {
+type ContextWin struct {
 	TotalInputTokens  int64        `json:"total_input_tokens"`
 	TotalOutputTokens int64        `json:"total_output_tokens"`
 	ContextWindowSize int64        `json:"context_window_size"`
 	UsedPercentage    *float64     `json:"used_percentage"`
-	CurrentUsage      currentUsage `json:"current_usage"`
+	CurrentUsage      CurrentUsage `json:"current_usage"`
 }
 
-type currentUsage struct {
+type CurrentUsage struct {
 	InputTokens              int64 `json:"input_tokens"`
 	OutputTokens             int64 `json:"output_tokens"`
 	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
 	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
 }
 
-type rateLimits struct {
-	FiveHour limitWindow `json:"five_hour"`
-	SevenDay limitWindow `json:"seven_day"`
+type RateLimits struct {
+	FiveHour LimitWindow `json:"five_hour"`
+	SevenDay LimitWindow `json:"seven_day"`
 }
 
-type limitWindow struct {
+type LimitWindow struct {
 	UsedPercentage *float64 `json:"used_percentage"`
 	ResetsAt       *int64   `json:"resets_at"`
 }
 
-type agent struct {
+type Agent struct {
 	Name string `json:"name"`
 }
 
-type worktree struct {
+type Worktree struct {
 	Name   string `json:"name"`
 	Branch string `json:"branch"`
 }
 
-type vim struct {
+type Vim struct {
 	Mode string `json:"mode"`
 }
 
-func samplePayload() payload {
+func SamplePayload() Payload {
 	trueVal := true
 	now := time.Now().Unix()
 	reset5h := now + 3600*2 + 1800
@@ -131,48 +136,48 @@ func samplePayload() payload {
 	pct50 := 50.0
 	pct30 := 30.0
 	pct65 := 65.0
-	return payload{
+	return Payload{
 		SessionName: "my-project",
 		Cwd:         "/Users/me/code/my-project",
 		Version:     "0.1.0",
 		Exceeds200K: &trueVal,
-		Model:       model{DisplayName: "Claude 3.7 Sonnet"},
-		Workspace:   workspace{CurrentDir: "/Users/me/code/my-project", ProjectDir: "/Users/me/code/my-project", GitWorktree: "my-project", AddedDirs: []string{"/Users/me/code/shared-lib"}},
-		OutputStyle: outputStyle{Name: "Explanatory"},
+		Model:       Model{DisplayName: "Claude 3.7 Sonnet"},
+		Workspace:   Workspace{CurrentDir: "/Users/me/code/my-project", ProjectDir: "/Users/me/code/my-project", GitWorktree: "my-project", AddedDirs: []string{"/Users/me/code/shared-lib"}},
+		OutputStyle: OutputStyle{Name: "Explanatory"},
 		Email:       "you@example.com",
-		Cost: cost{
+		Cost: Cost{
 			TotalCostUSD:      0.42,
 			TotalLinesAdded:   128,
 			TotalLinesRemoved: 45,
 			TotalDurationMS:   1234567,
 			TotalAPIDuration:  890123,
 		},
-		ContextWindow: contextWin{
+		ContextWindow: ContextWin{
 			TotalInputTokens:  45678,
 			TotalOutputTokens: 1234,
 			ContextWindowSize: 200000,
 			UsedPercentage:    &pct65,
-			CurrentUsage: currentUsage{
+			CurrentUsage: CurrentUsage{
 				InputTokens:              40000,
 				OutputTokens:             1234,
 				CacheCreationInputTokens: 2000,
 				CacheReadInputTokens:     3000,
 			},
 		},
-		RateLimits: rateLimits{
-			FiveHour: limitWindow{UsedPercentage: &pct50, ResetsAt: &reset5h},
-			SevenDay: limitWindow{UsedPercentage: &pct30, ResetsAt: &reset7d},
+		RateLimits: RateLimits{
+			FiveHour: LimitWindow{UsedPercentage: &pct50, ResetsAt: &reset5h},
+			SevenDay: LimitWindow{UsedPercentage: &pct30, ResetsAt: &reset7d},
 		},
-		Agent:    agent{Name: "CodeReview"},
-		Worktree: worktree{Name: "my-project", Branch: "feature/config"},
-		Vim:      vim{Mode: "normal"},
-		Effort:   effort{Level: "high"},
+		Agent:    Agent{Name: "CodeReview"},
+		Worktree: Worktree{Name: "my-project", Branch: "feature/config"},
+		Vim:      Vim{Mode: "normal"},
+		Effort:   Effort{Level: "high"},
 	}
 }
 
 // ─── Input ───────────────────────────────────────────────────────────
 
-func readInput() []byte {
+func ReadInput() []byte {
 	data, err := io.ReadAll(io.LimitReader(os.Stdin, maxInput))
 	if err != nil {
 		return []byte(minObject)
@@ -184,8 +189,8 @@ func readInput() []byte {
 	return data
 }
 
-func parsePayload(data []byte) payload {
-	var p payload
+func ParsePayload(data []byte) Payload {
+	var p Payload
 	if err := json.Unmarshal(data, &p); err != nil {
 		_ = json.Unmarshal([]byte(minObject), &p)
 	}

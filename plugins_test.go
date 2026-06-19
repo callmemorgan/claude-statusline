@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"testing"
 	"time"
+
+	"github.com/callmemorgan/claude-statusline/internal/payload"
 )
 
 // writeScript drops an executable shell script into a temp dir.
@@ -20,7 +22,7 @@ func writeScript(t *testing.T, body string) string {
 
 func TestPluginSingleField(t *testing.T) {
 	def := pluginDef{ID: "hello", Command: writeScript(t, `echo "hello world"`)}
-	if got := runPluginRaw(def, payload{}); got != "hello world" {
+	if got := runPluginRaw(def, payload.Payload{}); got != "hello world" {
 		t.Errorf("runPluginRaw = %q, want %q", got, "hello world")
 	}
 }
@@ -31,31 +33,31 @@ func TestPluginMultiField(t *testing.T) {
 		Command: writeScript(t, "echo cpu:42%\necho mem: 73%"),
 		Fields:  []pluginField{{ID: "cpu"}, {ID: "mem"}},
 	}
-	if got := runPluginField(def, payload{}, "cpu"); got != "42%" {
+	if got := runPluginField(def, payload.Payload{}, "cpu"); got != "42%" {
 		t.Errorf("cpu = %q, want %q", got, "42%")
 	}
-	if got := runPluginField(def, payload{}, "mem"); got != "73%" {
+	if got := runPluginField(def, payload.Payload{}, "mem"); got != "73%" {
 		t.Errorf("mem = %q, want %q", got, "73%")
 	}
 }
 
 func TestPluginTimeout(t *testing.T) {
 	def := pluginDef{ID: "slow", Command: writeScript(t, "sleep 5; echo done"), TimeoutMS: 50}
-	if got := runPluginRaw(def, payload{}); got != "" {
+	if got := runPluginRaw(def, payload.Payload{}); got != "" {
 		t.Errorf("timed-out plugin should return empty, got %q", got)
 	}
 }
 
 func TestPluginNonZeroExit(t *testing.T) {
 	def := pluginDef{ID: "fail", Command: writeScript(t, "echo oops; exit 3")}
-	if got := runPluginRaw(def, payload{}); got != "" {
+	if got := runPluginRaw(def, payload.Payload{}); got != "" {
 		t.Errorf("failing plugin should return empty, got %q", got)
 	}
 }
 
 func TestPluginMissingExecutable(t *testing.T) {
 	def := pluginDef{ID: "ghost", Command: "/nonexistent/plugin.sh"}
-	if got := runPluginRaw(def, payload{}); got != "" {
+	if got := runPluginRaw(def, payload.Payload{}); got != "" {
 		t.Errorf("missing plugin should return empty, got %q", got)
 	}
 }
@@ -93,7 +95,7 @@ func stubSpawnRefresher(t *testing.T) *[]spawnCall {
 	t.Helper()
 	var calls []spawnCall
 	old := spawnRefresher
-	spawnRefresher = func(def pluginDef, p payload, cachePath, lockPath string) {
+	spawnRefresher = func(def pluginDef, p payload.Payload, cachePath, lockPath string) {
 		calls = append(calls, spawnCall{def: def, cachePath: cachePath, lockPath: lockPath})
 	}
 	t.Cleanup(func() { spawnRefresher = old })
@@ -140,7 +142,7 @@ func TestAsyncPluginReadsCache(t *testing.T) {
 	cachePath, lockPath, _ := pluginCachePaths(def.Command)
 
 	// Missing cache: empty result, refresh triggered.
-	if got := runPluginRaw(def, payload{}); got != "" {
+	if got := runPluginRaw(def, payload.Payload{}); got != "" {
 		t.Errorf("missing cache = %q, want empty", got)
 	}
 	if len(*calls) != 1 {
@@ -154,7 +156,7 @@ func TestAsyncPluginReadsCache(t *testing.T) {
 	if err := os.WriteFile(cachePath, []byte("cached-value"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := runPluginRaw(def, payload{}); got != "cached-value" {
+	if got := runPluginRaw(def, payload.Payload{}); got != "cached-value" {
 		t.Errorf("fresh cache = %q, want %q", got, "cached-value")
 	}
 	if len(*calls) != 1 {
@@ -164,7 +166,7 @@ func TestAsyncPluginReadsCache(t *testing.T) {
 	// Stale cache: cached value, refresh triggered again.
 	_ = os.Remove(lockPath)
 	_ = os.Chtimes(cachePath, time.Now().Add(-time.Hour), time.Now().Add(-time.Hour))
-	if got := runPluginRaw(def, payload{}); got != "cached-value" {
+	if got := runPluginRaw(def, payload.Payload{}); got != "cached-value" {
 		t.Errorf("stale cache = %q, want %q", got, "cached-value")
 	}
 	if len(*calls) != 2 {
@@ -192,7 +194,7 @@ func TestAsyncPluginStampedeLock(t *testing.T) {
 	if err := os.WriteFile(lockPath, nil, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := runPluginRaw(def, payload{}); got != "value" {
+	if got := runPluginRaw(def, payload.Payload{}); got != "value" {
 		t.Errorf("locked cache = %q, want %q", got, "value")
 	}
 	if len(*calls) != 0 {
@@ -201,7 +203,7 @@ func TestAsyncPluginStampedeLock(t *testing.T) {
 
 	// Stale cache with an old lock: lock is reaped and refresh is spawned.
 	_ = os.Chtimes(lockPath, time.Now().Add(-time.Hour), time.Now().Add(-time.Hour))
-	if got := runPluginRaw(def, payload{}); got != "value" {
+	if got := runPluginRaw(def, payload.Payload{}); got != "value" {
 		t.Errorf("reaped lock cache = %q, want %q", got, "value")
 	}
 	if len(*calls) != 1 {

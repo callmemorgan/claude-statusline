@@ -3,10 +3,12 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/callmemorgan/claude-statusline/internal/palette"
 )
 
 func classicStyle() lineStyle {
-	return styleFor(config{}, palette{})
+	return styleFor(config{}, palette.Palette{})
 }
 
 func seg(s string, width int) string {

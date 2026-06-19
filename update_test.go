@@ -16,6 +16,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/callmemorgan/claude-statusline/internal/palette"
+	"github.com/callmemorgan/claude-statusline/internal/version"
+
+	"github.com/callmemorgan/claude-statusline/internal/state"
 )
 
 // ─── step 2: detectInstallKind, compareVersions, cache ─────────────────
@@ -180,7 +185,7 @@ func TestMaybeSpawnUpdateCheck(t *testing.T) {
 	if err := saveUpdateCheck(stale); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(stateBaseDir(), 0o755); err != nil {
+	if err := os.MkdirAll(state.StateBaseDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(updateLockPath(), nil, 0o644); err != nil {
@@ -804,9 +809,9 @@ func TestRunUpdateCheckNonRelease(t *testing.T) {
 // the package-level `version` variable. Returns a cleanup that restores it.
 func withTestVersion(t *testing.T, v string) {
 	t.Helper()
-	old := version
-	version = v
-	t.Cleanup(func() { version = old })
+	old := version.Version
+	version.Version = v
+	t.Cleanup(func() { version.Version = old })
 }
 
 // initUpdateSegment registers the update segment with the registry. Tests
@@ -864,7 +869,7 @@ func TestRenderUpdate(t *testing.T) {
 
 	// Cache with latest > current, recent check (within 5 min) → expanded.
 	_ = saveUpdateCheck(updateCheck{CheckedAt: now.Unix() - 60, Latest: "1.2.0"})
-	got, show := renderUpdate(renderCtx{Now: now, C: palette{Dim: "", Rst: ""}})
+	got, show := renderUpdate(renderCtx{Now: now, C: palette.Palette{Dim: "", Rst: ""}})
 	if !show {
 		t.Fatal("expected expanded form to show")
 	}
@@ -885,7 +890,7 @@ func TestRenderUpdate(t *testing.T) {
 		return "/tmp/npm-test/node_modules/@morgan.rebrand/claude-statusline-darwin-arm64/bin/claude-statusline", nil
 	}
 	t.Cleanup(func() { osExecutable = oldExe })
-	got, show = renderUpdate(renderCtx{Now: now, C: palette{Dim: "", Rst: ""}})
+	got, show = renderUpdate(renderCtx{Now: now, C: palette.Palette{Dim: "", Rst: ""}})
 	if !show {
 		t.Fatal("expected npm expanded form to show")
 	}
@@ -895,7 +900,7 @@ func TestRenderUpdate(t *testing.T) {
 	osExecutable = oldExe
 
 	// Same cache, Now 10 min after check → compact.
-	got, show = renderUpdate(renderCtx{Now: now.Add(10 * time.Minute), C: palette{Dim: "", Rst: ""}})
+	got, show = renderUpdate(renderCtx{Now: now.Add(10 * time.Minute), C: palette.Palette{Dim: "", Rst: ""}})
 	if !show {
 		t.Fatal("expected compact form to show")
 	}
@@ -907,7 +912,7 @@ func TestRenderUpdate(t *testing.T) {
 	}
 
 	// Real palette → ANSI codes appear.
-	got, show = renderUpdate(renderCtx{Now: now.Add(10 * time.Minute), C: palette{Dim: "\x1b[2m", Rst: "\x1b[0m"}})
+	got, show = renderUpdate(renderCtx{Now: now.Add(10 * time.Minute), C: palette.Palette{Dim: "\x1b[2m", Rst: "\x1b[0m"}})
 	if !show || !strings.Contains(got, "\x1b[2m") || !strings.Contains(got, "\x1b[0m") {
 		t.Errorf("real palette should render ANSI: %q", got)
 	}
@@ -917,7 +922,7 @@ func TestRenderUpdate(t *testing.T) {
 	if got, show := renderUpdate(renderCtx{
 		Now: now,
 		Cfg: config{Update: updateConfig{Mode: "off"}},
-		C:   palette{Dim: "", Rst: ""},
+		C:   palette.Palette{Dim: "", Rst: ""},
 	}); show {
 		t.Errorf("mode=off should hide, got %q", got)
 	}
@@ -1084,7 +1089,7 @@ func callRunUpdateFor(t *testing.T, checkOnly bool, current string, kind install
 func driveWorkerBrew(t *testing.T, kind installKind, latest, current string, cfg updateConfig) []string {
 	t.Helper()
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	dir := stateBaseDir()
+	dir := state.StateBaseDir()
 	_ = os.MkdirAll(dir, 0o755)
 	_ = saveUpdateCheck(updateCheck{CheckedAt: time.Now().Unix(), Latest: latest})
 
@@ -1297,7 +1302,7 @@ func TestRenderUpdateConfirmation(t *testing.T) {
 	initUpdateSegment()
 	withTestVersion(t, "1.2.1")
 	now := time.Unix(1750000000, 0)
-	c := palette{ROK: "", Rst: ""}
+	c := palette.Palette{ROK: "", Rst: ""}
 
 	// Result targets the running version, recorded just now → confirmation shows.
 	_ = saveUpdateResult(updateResult{From: "1.2.0", To: "1.2.1", Method: "swap", Verified: true, At: now.Unix()})

@@ -12,6 +12,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/callmemorgan/claude-statusline/internal/payload"
+	"github.com/callmemorgan/claude-statusline/internal/state"
+	"github.com/callmemorgan/claude-statusline/internal/sys"
 )
 
 // ─── Plugin System ───────────────────────────────────────────────────
@@ -79,7 +83,7 @@ func initSegments(plugins []pluginDef) {
 
 // runPluginField runs a multi-field plugin (cached per command) and returns
 // the value for the requested field ID.
-func runPluginField(def pluginDef, p payload, fieldID string) string {
+func runPluginField(def pluginDef, p payload.Payload, fieldID string) string {
 	if pluginCache == nil {
 		pluginCache = map[string]map[string]string{}
 	}
@@ -107,7 +111,7 @@ func parseKeyValueOutput(raw string) map[string]string {
 }
 
 // runPluginRaw dispatches to the sync or async plugin implementation.
-func runPluginRaw(def pluginDef, p payload) string {
+func runPluginRaw(def pluginDef, p payload.Payload) string {
 	if def.Async {
 		return readAsyncPlugin(def, p)
 	}
@@ -116,7 +120,7 @@ func runPluginRaw(def pluginDef, p payload) string {
 
 // pluginEnv returns the STATUSLINE_* environment variables passed to every
 // plugin. The caller prepends os.Environ().
-func pluginEnv(def pluginDef, p payload) []string {
+func pluginEnv(def pluginDef, p payload.Payload) []string {
 	session := p.SessionName
 	if session == "" {
 		session = p.ConversationID
@@ -137,7 +141,7 @@ func pluginEnv(def pluginDef, p payload) []string {
 }
 
 // runPluginSync executes the plugin command and returns the full trimmed stdout.
-func runPluginSync(def pluginDef, p payload) string {
+func runPluginSync(def pluginDef, p payload.Payload) string {
 	timeout := time.Duration(def.TimeoutMS) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 200 * time.Millisecond
@@ -167,7 +171,7 @@ func expandPluginCommand(command string) string {
 // Tests stub this package variable to avoid real process spawning.
 var spawnRefresher = spawnRefresherReal
 
-func spawnRefresherReal(def pluginDef, p payload, cachePath, lockPath string) {
+func spawnRefresherReal(def pluginDef, p payload.Payload, cachePath, lockPath string) {
 	exe, err := os.Executable()
 	if err != nil {
 		_ = os.Remove(lockPath)
@@ -182,7 +186,7 @@ func spawnRefresherReal(def pluginDef, p payload, cachePath, lockPath string) {
 	)
 	c.Env = append(c.Env, pluginEnv(def, p)...)
 	c.Stdin, c.Stdout, c.Stderr = nil, nil, nil
-	applyDetachSysProcAttr(c)
+	sys.ApplyDetachSysProcAttr(c)
 	if err := c.Start(); err != nil {
 		_ = os.Remove(lockPath)
 		return
@@ -198,7 +202,7 @@ func pluginCacheKey(command string) string {
 
 // pluginCachePaths returns the cache, lock, and temp file paths for a command.
 func pluginCachePaths(command string) (cache, lock, tmp string) {
-	base := filepath.Join(pluginCacheDir(), pluginCacheKey(command))
+	base := filepath.Join(state.PluginCacheDir(), pluginCacheKey(command))
 	return base + ".out", base + ".lock", base + ".out.tmp"
 }
 
@@ -213,7 +217,7 @@ func needsRefresh(mtime time.Time, now time.Time, refresh time.Duration) bool {
 
 // readAsyncPlugin returns the cached plugin output, triggering a background
 // refresh when the cache is stale or missing.
-func readAsyncPlugin(def pluginDef, p payload) string {
+func readAsyncPlugin(def pluginDef, p payload.Payload) string {
 	cachePath, lockPath, _ := pluginCachePaths(def.Command)
 	data, _ := os.ReadFile(cachePath)
 	cached := strings.TrimSpace(string(data))
@@ -237,7 +241,7 @@ func readAsyncPlugin(def pluginDef, p payload) string {
 // trySpawnRefresher acquires the plugin lock and, if successful, starts a
 // background refresh. It silently ignores cache/lock errors so the render is
 // never delayed.
-func trySpawnRefresher(def pluginDef, p payload, cachePath, lockPath string) {
+func trySpawnRefresher(def pluginDef, p payload.Payload, cachePath, lockPath string) {
 	cacheDir := filepath.Dir(cachePath)
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		return

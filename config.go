@@ -10,6 +10,10 @@ import (
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/callmemorgan/claude-statusline/internal/palette"
+	"github.com/callmemorgan/claude-statusline/internal/state"
+	"github.com/callmemorgan/claude-statusline/internal/sys"
 )
 
 // ─── Config ──────────────────────────────────────────────────────────
@@ -49,7 +53,7 @@ type config struct {
 	Colors        map[string]string         `toml:"colors,omitempty"`
 	Settings      map[string]map[string]any `toml:"settings,omitempty"`
 	Style         styleConfig               `toml:"style,omitempty"`
-	State         stateConfig               `toml:"state,omitempty"`
+	State         state.StateConfig         `toml:"state,omitempty"`
 	ReleaseNotes  releaseNotesConfig        `toml:"release_notes,omitempty"`
 	Plugins       []pluginDef               `toml:"plugins,omitempty"`
 	Update        updateConfig              `toml:"update,omitempty"`
@@ -259,14 +263,14 @@ func validateConfig(cfg *config) []configWarning {
 	}
 	if cfg.Theme != "" {
 		found := cfg.Theme == "original" // alias for classic
-		for _, id := range themeIDs() {
+		for _, id := range palette.ThemeIDs() {
 			if id == cfg.Theme {
 				found = true
 				break
 			}
 		}
 		if !found {
-			warns = append(warns, configWarning{Path: "theme", Msg: fmt.Sprintf("%q is not a built-in theme (using classic); known: %s", cfg.Theme, strings.Join(themeIDs(), ", "))})
+			warns = append(warns, configWarning{Path: "theme", Msg: fmt.Sprintf("%q is not a built-in theme (using classic); known: %s", cfg.Theme, strings.Join(palette.ThemeIDs(), ", "))})
 			cfg.Theme = ""
 		}
 	}
@@ -278,7 +282,7 @@ func validateConfig(cfg *config) []configWarning {
 	}
 	for role, spec := range cfg.ThemeColors {
 		knownRole := false
-		for _, r := range themeRoles {
+		for _, r := range palette.ThemeRoles {
 			if r == role {
 				knownRole = true
 				break
@@ -289,7 +293,7 @@ func validateConfig(cfg *config) []configWarning {
 			delete(cfg.ThemeColors, role)
 			continue
 		}
-		if !validColorSpec(spec) {
+		if !palette.ValidColorSpec(spec) {
 			warns = append(warns, configWarning{Path: "theme_colors." + role, Msg: fmt.Sprintf("%q is not a hex value, 256 index, or color name (ignored)", spec)})
 			delete(cfg.ThemeColors, role)
 		}
@@ -301,7 +305,7 @@ func validateConfig(cfg *config) []configWarning {
 		}
 	}
 	for id, name := range cfg.Colors {
-		if !validColorSpec(name) {
+		if !palette.ValidColorSpec(name) {
 			warns = append(warns, configWarning{Path: "colors." + id, Msg: fmt.Sprintf("%q is not a known color, theme role, hex value, or 256 index (ignored)", name)})
 			delete(cfg.Colors, id)
 		}
@@ -442,28 +446,6 @@ func marshalConfigTOML(cfg config) ([]byte, error) {
 	return data, nil
 }
 
-// writeFileAtomic writes via a temp file in the same directory + rename.
-func writeFileAtomic(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
-	if err != nil {
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	if err := os.Chmod(tmp.Name(), 0o644); err != nil {
-		os.Remove(tmp.Name())
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
-}
-
 func saveConfig(cfg config) error {
 	path := configPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -473,5 +455,5 @@ func saveConfig(cfg config) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(path, data)
+	return sys.WriteFileAtomic(path, data)
 }

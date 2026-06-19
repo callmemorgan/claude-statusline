@@ -1,4 +1,4 @@
-package main
+package palette
 
 import (
 	"strings"
@@ -16,14 +16,14 @@ func TestDetectDepth(t *testing.T) {
 	cases := []struct {
 		name string
 		env  map[string]string
-		want colorDepth
+		want ColorDepth
 	}{
-		{"no_color", map[string]string{"NO_COLOR": "1", "COLORTERM": "truecolor"}, depthNone},
-		{"dumb", map[string]string{"TERM": "dumb"}, depthNone},
-		{"colorterm", map[string]string{"COLORTERM": "truecolor", "TERM": "xterm"}, depthTrue},
-		{"iterm", map[string]string{"TERM_PROGRAM": "iTerm.app", "TERM": "xterm"}, depthTrue},
-		{"256", map[string]string{"TERM": "xterm-256color"}, depth256},
-		{"plain", map[string]string{"TERM": "xterm"}, depth16},
+		{"no_color", map[string]string{"NO_COLOR": "1", "COLORTERM": "truecolor"}, DepthNone},
+		{"dumb", map[string]string{"TERM": "dumb"}, DepthNone},
+		{"colorterm", map[string]string{"COLORTERM": "truecolor", "TERM": "xterm"}, DepthTrue},
+		{"iterm", map[string]string{"TERM_PROGRAM": "iTerm.app", "TERM": "xterm"}, DepthTrue},
+		{"256", map[string]string{"TERM": "xterm-256color"}, Depth256},
+		{"plain", map[string]string{"TERM": "xterm"}, Depth16},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -41,17 +41,17 @@ func TestDetectDepth(t *testing.T) {
 func TestResolveDepthOverride(t *testing.T) {
 	clearColorEnv(t)
 	t.Setenv("TERM", "xterm")
-	if got := resolveDepth("truecolor"); got != depthTrue {
+	if got := resolveDepth("truecolor"); got != DepthTrue {
 		t.Errorf("override truecolor = %v", got)
 	}
-	if got := resolveDepth("none"); got != depthNone {
+	if got := resolveDepth("none"); got != DepthNone {
 		t.Errorf("override none = %v", got)
 	}
-	if got := resolveDepth(""); got != depth16 {
+	if got := resolveDepth(""); got != Depth16 {
 		t.Errorf("auto on plain xterm = %v", got)
 	}
 	t.Setenv("NO_COLOR", "1")
-	if got := resolveDepth("truecolor"); got != depthNone {
+	if got := resolveDepth("truecolor"); got != DepthNone {
 		t.Errorf("NO_COLOR must beat config override, got %v", got)
 	}
 }
@@ -85,16 +85,16 @@ func TestRgbTo256(t *testing.T) {
 }
 
 func TestHexEscapeDepths(t *testing.T) {
-	if esc, ok := hexEscape("#ff0000", depthTrue); !ok || esc != "\x1b[38;2;255;0;0m" {
+	if esc, ok := hexEscape("#ff0000", DepthTrue); !ok || esc != "\x1b[38;2;255;0;0m" {
 		t.Errorf("truecolor escape = %q %v", esc, ok)
 	}
-	if esc, ok := hexEscape("#ff0000", depth256); !ok || esc != "\x1b[38;5;196m" {
+	if esc, ok := hexEscape("#ff0000", Depth256); !ok || esc != "\x1b[38;5;196m" {
 		t.Errorf("256 escape = %q %v", esc, ok)
 	}
-	if esc, ok := hexEscape("#ff0000", depth16); !ok || esc != colorCodes["bright-red"] {
+	if esc, ok := hexEscape("#ff0000", Depth16); !ok || esc != colorCodes["bright-red"] {
 		t.Errorf("16-color quantization = %q %v", esc, ok)
 	}
-	if esc, ok := hexEscape("#ff0000", depthNone); !ok || esc != "" {
+	if esc, ok := hexEscape("#ff0000", DepthNone); !ok || esc != "" {
 		t.Errorf("none depth should be empty, got %q", esc)
 	}
 }
@@ -102,8 +102,8 @@ func TestHexEscapeDepths(t *testing.T) {
 // TestClassicThemeMatchesLegacyPalette is the back-compat gate: the default
 // theme must reproduce the pre-1.0 hardcoded escape codes exactly.
 func TestClassicThemeMatchesLegacyPalette(t *testing.T) {
-	for _, d := range []colorDepth{depth16, depth256, depthTrue} {
-		p := resolvePalette(themeByID("classic"), d)
+	for _, d := range []ColorDepth{Depth16, Depth256, DepthTrue} {
+		p := ResolvePalette(ThemeByID("classic"), d)
 		want := map[string]string{
 			"Model": "\x1b[35m", "Dir": "\x1b[36m", "Git": "\x1b[32m",
 			"Chg": "\x1b[33m", "Dur": "\x1b[34m", "Cost": "\x1b[33m",
@@ -131,42 +131,32 @@ func TestClassicThemeMatchesLegacyPalette(t *testing.T) {
 // "original" is an accepted alias for classic, for people who know the
 // pre-1.0 palette by that name.
 func TestOriginalThemeAlias(t *testing.T) {
-	if got := themeByID("original").ID; got != "classic" {
+	if got := ThemeByID("original").ID; got != "classic" {
 		t.Errorf(`themeByID("original").ID = %q, want "classic"`, got)
-	}
-	cfg := config{Theme: "original"}
-	warns := validateConfig(&cfg)
-	for _, w := range warns {
-		if w.Path == "theme" {
-			t.Errorf("theme=original warned: %s", w.Msg)
-		}
-	}
-	if cfg.Theme != "original" {
-		t.Errorf("validateConfig cleared theme=original to %q", cfg.Theme)
 	}
 }
 
 func TestThemedPaletteDepths(t *testing.T) {
-	nord := themeByID("nord")
-	pTrue := resolvePalette(nord, depthTrue)
+	nord := ThemeByID("nord")
+	pTrue := ResolvePalette(nord, DepthTrue)
 	if pTrue.Git != "\x1b[38;2;163;190;140m" { // #a3be8c
 		t.Errorf("nord truecolor git = %q", pTrue.Git)
 	}
-	p256 := resolvePalette(nord, depth256)
+	p256 := ResolvePalette(nord, Depth256)
 	if !strings.HasPrefix(p256.Git, "\x1b[38;5;") {
 		t.Errorf("nord 256 git = %q", p256.Git)
 	}
-	p16 := resolvePalette(nord, depth16)
+	p16 := ResolvePalette(nord, Depth16)
 	if !strings.HasPrefix(p16.Git, "\x1b[") || strings.Contains(p16.Git, ";") {
 		t.Errorf("nord 16-color git should be a basic escape, got %q", p16.Git)
 	}
-	if p := resolvePalette(nord, depthNone); p.Rst != "" {
+	if p := ResolvePalette(nord, DepthNone); p.Rst != "" {
 		t.Error("depthNone must yield an empty palette")
 	}
 }
 
 func TestResolveColorSpec(t *testing.T) {
-	p := resolvePalette(themeByID("nord"), depthTrue)
+	p := ResolvePalette(ThemeByID("nord"), DepthTrue)
 	cases := []struct {
 		spec string
 		want string
@@ -182,19 +172,19 @@ func TestResolveColorSpec(t *testing.T) {
 		{"999", "", false},
 	}
 	for _, tc := range cases {
-		got, ok := resolveColorSpec(tc.spec, p)
+		got, ok := ResolveColorSpec(tc.spec, p)
 		if got != tc.want || ok != tc.ok {
 			t.Errorf("resolveColorSpec(%q) = %q,%v want %q,%v", tc.spec, got, ok, tc.want, tc.ok)
 		}
 	}
 	// Disabled palette resolves nothing.
-	if _, ok := resolveColorSpec("#ff0000", palette{}); ok {
+	if _, ok := ResolveColorSpec("#ff0000", Palette{}); ok {
 		t.Error("disabled palette must not resolve specs")
 	}
 }
 
 func TestApplyThemeOverrides(t *testing.T) {
-	tm := applyThemeOverrides(themeByID("nord"), map[string]string{
+	tm := ApplyThemeOverrides(ThemeByID("nord"), map[string]string{
 		"git":   "#112233",
 		"cost":  "yellow",
 		"dim":   "245",
@@ -213,7 +203,7 @@ func TestApplyThemeOverrides(t *testing.T) {
 		t.Error("unknown role must not be added")
 	}
 	// Original untouched.
-	if themeByID("nord").Roles["git"].Hex != "#a3be8c" {
+	if ThemeByID("nord").Roles["git"].Hex != "#a3be8c" {
 		t.Error("applyThemeOverrides mutated the builtin theme")
 	}
 }
@@ -221,25 +211,11 @@ func TestApplyThemeOverrides(t *testing.T) {
 func TestCurrentPaletteConfig(t *testing.T) {
 	clearColorEnv(t)
 	t.Setenv("TERM", "xterm")
-	p := currentPalette(config{Theme: "dracula", ColorDepth: "truecolor"})
+	p := CurrentPalette("dracula", "truecolor", nil)
 	if p.RCrit != "\x1b[38;2;255;85;85m" { // #ff5555
 		t.Errorf("dracula crit = %q", p.RCrit)
 	}
-	if p := currentPalette(config{ColorDepth: "none"}); p.Rst != "" {
+	if p := CurrentPalette("", "none", nil); p.Rst != "" {
 		t.Error("color_depth none should disable colors")
-	}
-}
-
-func TestValidateConfigThemeKeys(t *testing.T) {
-	cfg := config{Theme: "vaporwave", ColorDepth: "8bit", ThemeColors: map[string]string{"git": "notacolor", "ghost": "#fff"}}
-	warns := validateConfig(&cfg)
-	if cfg.Theme != "" || cfg.ColorDepth != "" {
-		t.Errorf("bad theme/depth should reset: %+v", cfg)
-	}
-	if len(cfg.ThemeColors) != 0 {
-		t.Errorf("bad theme_colors entries should drop: %v", cfg.ThemeColors)
-	}
-	if len(warns) < 4 {
-		t.Errorf("expected 4+ warnings, got %v", warns)
 	}
 }

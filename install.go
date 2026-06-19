@@ -22,6 +22,9 @@ import (
 	"time"
 
 	"golang.org/x/term"
+
+	"github.com/callmemorgan/claude-statusline/internal/payload"
+	"github.com/callmemorgan/claude-statusline/internal/sys"
 )
 
 // ─── JSON splicing primitives ────────────────────────────────────────
@@ -353,7 +356,7 @@ func runInstall(args []string) {
 			fmt.Printf("✓ Backed up %s → %s\n", t.path, filepath.Base(bak))
 		}
 	}
-	if err := writeFileAtomic(t.path, updated); err != nil {
+	if err := sys.WriteFileAtomic(t.path, updated); err != nil {
 		fmt.Fprintf(os.Stderr, "✗ cannot write %s: %v\n", t.path, err)
 		os.Exit(1)
 	}
@@ -383,7 +386,7 @@ func verifyInstall(t installTarget) {
 	} else {
 		_ = json.Unmarshal([]byte(t.value), &cmdStr)
 	}
-	payload, err := json.Marshal(samplePayload())
+	samplePayload, err := json.Marshal(payload.SamplePayload())
 	if err != nil {
 		return
 	}
@@ -393,7 +396,7 @@ func verifyInstall(t installTarget) {
 	} else {
 		cmd = exec.Command("/bin/sh", "-c", cmdStr)
 	}
-	cmd.Stdin = bytes.NewReader(payload)
+	cmd.Stdin = bytes.NewReader(samplePayload)
 	out, err := cmd.Output()
 	if err != nil {
 		fmt.Printf("✗ Verification failed running %q: %v\n", cmdStr, err)
@@ -435,7 +438,7 @@ func runUninstall(args []string) {
 		}
 		data, err := os.ReadFile(bak)
 		if err == nil {
-			err = writeFileAtomic(t.path, data)
+			err = sys.WriteFileAtomic(t.path, data)
 		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "✗ restore failed: %v\n", err)
@@ -472,7 +475,7 @@ func runUninstall(args []string) {
 	if bak, err := backupFile(t.path); err == nil {
 		fmt.Printf("✓ Backed up %s → %s\n", t.path, filepath.Base(bak))
 	}
-	if err := writeFileAtomic(t.path, updated); err != nil {
+	if err := sys.WriteFileAtomic(t.path, updated); err != nil {
 		fmt.Fprintf(os.Stderr, "✗ cannot write %s: %v\n", t.path, err)
 		os.Exit(1)
 	}

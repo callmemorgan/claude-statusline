@@ -8,6 +8,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/callmemorgan/claude-statusline/internal/ansi"
+	"github.com/callmemorgan/claude-statusline/internal/payload"
+	"github.com/callmemorgan/claude-statusline/internal/version"
 )
 
 // ─── Segment Renderers ───────────────────────────────────────────────
@@ -40,7 +44,7 @@ func renderAgentName(ctx renderCtx) (string, bool) {
 func renderDirectory(ctx renderCtx) (string, bool) {
 	currentDir := firstNonEmpty(ctx.P.Workspace.CurrentDir, ctx.P.Cwd, "~")
 	projectDir := ctx.P.Workspace.ProjectDir
-	return ctx.C.Dir + formatPath(currentDir, projectDir) + ctx.C.Rst, true
+	return ctx.C.Dir + ansi.FormatPath(currentDir, projectDir) + ctx.C.Rst, true
 }
 
 func renderGitBranch(ctx renderCtx) (string, bool) {
@@ -128,7 +132,7 @@ func renderModel(ctx renderCtx) (string, bool) {
 		effortLevel = readEffortLevel()
 	}
 	modelLabel := modelName
-	badge := effortBadge(effortLevel)
+	badge := ansi.EffortBadge(effortLevel)
 	if badge != "" {
 		modelLabel += " " + badge
 	}
@@ -160,7 +164,7 @@ func updateHintFor(kind installKind) string {
 }
 
 func renderUpdate(ctx renderCtx) (string, bool) {
-	cur, _, _ := versionString()
+	cur, _, _ := version.VersionString()
 	// Confirmation comes first, before the mode==off guard: a manual
 	// `update` should still confirm even when auto-update is disabled. Show
 	// only when the running binary IS the one the update targeted (so a
@@ -211,7 +215,7 @@ func renderDuration(ctx renderCtx) (string, bool) {
 	if ctx.P.Cost.TotalDurationMS == 0 {
 		return "", false
 	}
-	elapsed := formatHHMMSS(ctx.P.Cost.TotalDurationMS)
+	elapsed := ansi.FormatHHMMSS(ctx.P.Cost.TotalDurationMS)
 	return ctx.C.Dur + elapsed + ctx.C.Rst, true
 }
 
@@ -223,8 +227,8 @@ func renderAPIEfficiency(ctx renderCtx) (string, bool) {
 }
 
 func renderTokens(ctx renderCtx) (string, bool) {
-	inStr := formatTokens(ctx.P.ContextWindow.TotalInputTokens)
-	outStr := formatTokens(ctx.P.ContextWindow.TotalOutputTokens)
+	inStr := ansi.FormatTokens(ctx.P.ContextWindow.TotalInputTokens)
+	outStr := ansi.FormatTokens(ctx.P.ContextWindow.TotalOutputTokens)
 	return ctx.C.Dim + "↑" + inStr + " ↓" + outStr + ctx.C.Rst, true
 }
 
@@ -456,17 +460,6 @@ func segmentByID(id string) (segmentInfo, bool) {
 
 // ─── Helpers ─────────────────────────────────────────────────────────
 
-func formatPath(current, project string) string {
-	display := filepath.Base(current)
-	if display == "." || display == string(filepath.Separator) || display == "" {
-		display = current
-	}
-	if project != "" && current != project && strings.HasPrefix(current, project+"/") {
-		return filepath.Base(project) + "→" + strings.TrimPrefix(current, project+"/")
-	}
-	return display
-}
-
 func gitBranch(dir string) string {
 	searchDir, err := filepath.Abs(dir)
 	if err != nil {
@@ -509,26 +502,7 @@ func gitBranch(dir string) string {
 	}
 }
 
-func formatHHMMSS(ms int64) string {
-	if ms < 0 {
-		ms = 0
-	}
-	totalSeconds := ms / 1000
-	return fmt.Sprintf("%02d:%02d:%02d", totalSeconds/3600, (totalSeconds%3600)/60, totalSeconds%60)
-}
-
-func formatTokens(n int64) string {
-	switch {
-	case n >= 1_000_000:
-		return fmt.Sprintf("%d.%dM", n/1_000_000, (n%1_000_000)/100_000)
-	case n >= 1_000:
-		return fmt.Sprintf("%d.%dk", n/1_000, (n%1_000)/100)
-	default:
-		return strconv.FormatInt(n, 10)
-	}
-}
-
-func rateLimitSegment(label string, window limitWindow, windowSecs int64, seriesKey string, ctx renderCtx) (string, bool) {
+func rateLimitSegment(label string, window payload.LimitWindow, windowSecs int64, seriesKey string, ctx renderCtx) (string, bool) {
 	if window.UsedPercentage == nil {
 		return "", false
 	}
@@ -538,7 +512,7 @@ func rateLimitSegment(label string, window limitWindow, windowSecs int64, series
 	countdown := "?"
 	timePct := -1
 	if window.ResetsAt != nil {
-		countdown = resetCountdown(*window.ResetsAt, ctx.Now)
+		countdown = ansi.ResetCountdown(*window.ResetsAt, ctx.Now)
 		if windowSecs > 0 {
 			remaining := *window.ResetsAt - ctx.Now.Unix()
 			if remaining >= 0 && remaining <= windowSecs {
@@ -565,7 +539,7 @@ func rateLimitSegment(label string, window limitWindow, windowSecs int64, series
 // →58% in dim, warn-colored past crit_at, crit-colored at or beyond 100%.
 // Renders nothing when usage is flat or falling, history is too short, or no
 // reset time is known.
-func rateLimitProjection(window limitWindow, seriesKey string, ctx renderCtx) string {
+func rateLimitProjection(window payload.LimitWindow, seriesKey string, ctx renderCtx) string {
 	if !ctx.S.Bool("show_projection") || ctx.State == nil || window.ResetsAt == nil {
 		return ""
 	}
@@ -599,43 +573,8 @@ func rateLimitProjection(window limitWindow, seriesKey string, ctx renderCtx) st
 	return color + "→" + strconv.Itoa(pct) + "%" + ctx.C.Rst
 }
 
-func resetCountdown(resetUnix int64, now time.Time) string {
-	remaining := resetUnix - now.Unix()
-	if remaining <= 0 {
-		return "now"
-	}
-	days := remaining / 86400
-	hours := (remaining % 86400) / 3600
-	minutes := (remaining % 3600) / 60
-	switch {
-	case days > 0:
-		return fmt.Sprintf("%dd%dh", days, hours)
-	case hours > 0:
-		return fmt.Sprintf("%dh%02dm", hours, minutes)
-	default:
-		return fmt.Sprintf("%dm", minutes)
-	}
-}
-
 func formatCost(v float64) string {
 	return fmt.Sprintf("%.2f", v)
-}
-
-func effortBadge(effort string) string {
-	switch strings.ToLower(effort) {
-	case "low":
-		return "⬇"
-	case "medium":
-		return "→"
-	case "high":
-		return "⬆"
-	case "xhigh":
-		return "⬆⬆"
-	case "max":
-		return "⬆⬆⬆"
-	default:
-		return ""
-	}
 }
 
 func readEffortLevel() string {

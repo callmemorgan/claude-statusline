@@ -1,4 +1,4 @@
-package main
+package palette
 
 // ─── Themes ──────────────────────────────────────────────────────────
 //
@@ -13,56 +13,56 @@ import (
 	"strings"
 )
 
-type themeColor struct {
+type ThemeColor struct {
 	Hex    string // "#cba6f7"; empty = ANSI-only role (classic theme)
 	Ansi16 string // explicit escape-code fallback; computed from Hex if empty
 }
 
-type theme struct {
+type Theme struct {
 	ID    string
 	Desc  string
-	Roles map[string]themeColor
+	Roles map[string]ThemeColor
 }
 
 // themeRoles is the canonical role list (and the names accepted in the
 // [theme_colors] config table and per-segment color overrides).
-var themeRoles = []string{
+var ThemeRoles = []string{
 	"model", "dir", "git", "changes", "duration", "cost", "dim",
 	"ok", "warn", "crit", "agent", "vim", "accent", "session", "sep",
 }
 
-func ansiRole(code string) themeColor { return themeColor{Ansi16: code} }
+func AnsiRole(code string) ThemeColor { return ThemeColor{Ansi16: code} }
 
 // builtinThemes — classic reproduces the pre-1.0 hardcoded palette exactly
 // and stays the default. Hex palettes follow each scheme's published spec.
-var builtinThemes = []theme{
+var BuiltinThemes = []Theme{
 	{
 		ID:   "classic",
 		Desc: "The original pre-1.0 16-color look — the default (alias: original)",
-		Roles: map[string]themeColor{
-			"model":    ansiRole("\x1b[35m"),
-			"dir":      ansiRole("\x1b[36m"),
-			"git":      ansiRole("\x1b[32m"),
-			"changes":  ansiRole("\x1b[33m"),
-			"duration": ansiRole("\x1b[34m"),
-			"cost":     ansiRole("\x1b[33m"),
-			"dim":      ansiRole("\x1b[90m"),
-			"ok":       ansiRole("\x1b[32m"),
-			"warn":     ansiRole("\x1b[33m"),
-			"crit":     ansiRole("\x1b[91m"),
-			"agent":    ansiRole("\x1b[95m"),
-			"vim":      ansiRole("\x1b[97m"),
-			"accent":   ansiRole("\x1b[35m"),
-			"session":  ansiRole("\x1b[96m"),
+		Roles: map[string]ThemeColor{
+			"model":    AnsiRole("\x1b[35m"),
+			"dir":      AnsiRole("\x1b[36m"),
+			"git":      AnsiRole("\x1b[32m"),
+			"changes":  AnsiRole("\x1b[33m"),
+			"duration": AnsiRole("\x1b[34m"),
+			"cost":     AnsiRole("\x1b[33m"),
+			"dim":      AnsiRole("\x1b[90m"),
+			"ok":       AnsiRole("\x1b[32m"),
+			"warn":     AnsiRole("\x1b[33m"),
+			"crit":     AnsiRole("\x1b[91m"),
+			"agent":    AnsiRole("\x1b[95m"),
+			"vim":      AnsiRole("\x1b[97m"),
+			"accent":   AnsiRole("\x1b[35m"),
+			"session":  AnsiRole("\x1b[96m"),
 			// Classic separators are uncolored — the pre-1.0 renderer joined
 			// segments with a plain " │ ", and classic stays byte-identical.
-			"sep": ansiRole(""),
+			"sep": AnsiRole(""),
 		},
 	},
 	{
 		ID:   "catppuccin-mocha",
 		Desc: "Soothing pastels on a dark base",
-		Roles: map[string]themeColor{
+		Roles: map[string]ThemeColor{
 			"model":    {Hex: "#cba6f7"}, // mauve
 			"dir":      {Hex: "#89dceb"}, // sky
 			"git":      {Hex: "#a6e3a1"}, // green
@@ -83,7 +83,7 @@ var builtinThemes = []theme{
 	{
 		ID:   "nord",
 		Desc: "Arctic, north-bluish palette",
-		Roles: map[string]themeColor{
+		Roles: map[string]ThemeColor{
 			"model":    {Hex: "#b48ead"},
 			"dir":      {Hex: "#88c0d0"},
 			"git":      {Hex: "#a3be8c"},
@@ -104,7 +104,7 @@ var builtinThemes = []theme{
 	{
 		ID:   "dracula",
 		Desc: "Dark theme with vivid accents",
-		Roles: map[string]themeColor{
+		Roles: map[string]ThemeColor{
 			"model":    {Hex: "#ff79c6"},
 			"dir":      {Hex: "#8be9fd"},
 			"git":      {Hex: "#50fa7b"},
@@ -125,7 +125,7 @@ var builtinThemes = []theme{
 	{
 		ID:   "gruvbox-dark",
 		Desc: "Retro groove, warm and dusty",
-		Roles: map[string]themeColor{
+		Roles: map[string]ThemeColor{
 			"model":    {Hex: "#d3869b"},
 			"dir":      {Hex: "#83a598"},
 			"git":      {Hex: "#b8bb26"},
@@ -146,7 +146,7 @@ var builtinThemes = []theme{
 	{
 		ID:   "tokyo-night",
 		Desc: "Neon-on-navy city lights",
-		Roles: map[string]themeColor{
+		Roles: map[string]ThemeColor{
 			"model":    {Hex: "#bb9af7"},
 			"dir":      {Hex: "#7dcfff"},
 			"git":      {Hex: "#9ece6a"},
@@ -167,7 +167,7 @@ var builtinThemes = []theme{
 	{
 		ID:   "newsprint",
 		Desc: "Aged newsprint: warm greys and sepia on dark stock",
-		Roles: map[string]themeColor{
+		Roles: map[string]ThemeColor{
 			"model":    {Hex: "#f0e6d8"}, // bright headline
 			"dir":      {Hex: "#c4b8a8"}, // body text
 			"git":      {Hex: "#d6c4b0"}, // warm grey
@@ -188,7 +188,7 @@ var builtinThemes = []theme{
 	{
 		ID:   "paper",
 		Desc: "High-contrast ink colors for light terminal backgrounds",
-		Roles: map[string]themeColor{
+		Roles: map[string]ThemeColor{
 			"model":    {Hex: "#1a1a2e"}, // deep ink
 			"dir":      {Hex: "#16213e"}, // dark navy
 			"git":      {Hex: "#1f5e1f"}, // dark forest green
@@ -209,7 +209,7 @@ var builtinThemes = []theme{
 	{
 		ID:   "solarized-light",
 		Desc: "The classic Solarized light palette",
-		Roles: map[string]themeColor{
+		Roles: map[string]ThemeColor{
 			"model":    {Hex: "#6c71c4"}, // violet
 			"dir":      {Hex: "#268bd2"}, // blue
 			"git":      {Hex: "#859900"}, // green
@@ -230,32 +230,32 @@ var builtinThemes = []theme{
 	{
 		ID:   "monochrome",
 		Desc: "Adaptive black-and-white: uses your terminal's foreground colour, no grey",
-		Roles: map[string]themeColor{
+		Roles: map[string]ThemeColor{
 			// Empty escapes mean "use the terminal's default foreground colour",
 			// so this theme adapts to both light and dark backgrounds and emits
 			// no colour at all — not even grey.
-			"model":    ansiRole(""),
-			"dir":      ansiRole(""),
-			"git":      ansiRole(""),
-			"changes":  ansiRole(""),
-			"duration": ansiRole(""),
-			"cost":     ansiRole(""),
-			"dim":      ansiRole(""),
-			"ok":       ansiRole(""),
-			"warn":     ansiRole(""),
-			"crit":     ansiRole(""),
-			"agent":    ansiRole(""),
-			"vim":      ansiRole(""),
-			"accent":   ansiRole(""),
-			"session":  ansiRole(""),
-			"sep":      ansiRole(""),
+			"model":    AnsiRole(""),
+			"dir":      AnsiRole(""),
+			"git":      AnsiRole(""),
+			"changes":  AnsiRole(""),
+			"duration": AnsiRole(""),
+			"cost":     AnsiRole(""),
+			"dim":      AnsiRole(""),
+			"ok":       AnsiRole(""),
+			"warn":     AnsiRole(""),
+			"crit":     AnsiRole(""),
+			"agent":    AnsiRole(""),
+			"vim":      AnsiRole(""),
+			"accent":   AnsiRole(""),
+			"session":  AnsiRole(""),
+			"sep":      AnsiRole(""),
 		},
 	},
 }
 
-func themeIDs() []string {
-	ids := make([]string, len(builtinThemes))
-	for i, t := range builtinThemes {
+func ThemeIDs() []string {
+	ids := make([]string, len(BuiltinThemes))
+	for i, t := range BuiltinThemes {
 		ids[i] = t.ID
 	}
 	return ids
@@ -264,25 +264,25 @@ func themeIDs() []string {
 // themeByID returns the named theme, defaulting to classic. "original" is an
 // accepted alias for classic — it is the pre-1.0 default palette, extracted
 // unchanged into the theme system.
-func themeByID(id string) theme {
+func ThemeByID(id string) Theme {
 	if id == "original" {
 		id = "classic"
 	}
-	for _, t := range builtinThemes {
+	for _, t := range BuiltinThemes {
 		if t.ID == id {
 			return t
 		}
 	}
-	return builtinThemes[0]
+	return BuiltinThemes[0]
 }
 
 // applyThemeOverrides layers [theme_colors] role overrides on a copy of the
 // theme. Values use the same grammar as resolveColorSpec minus role names.
-func applyThemeOverrides(t theme, overrides map[string]string) theme {
+func ApplyThemeOverrides(t Theme, overrides map[string]string) Theme {
 	if len(overrides) == 0 {
 		return t
 	}
-	roles := make(map[string]themeColor, len(t.Roles))
+	roles := make(map[string]ThemeColor, len(t.Roles))
 	for k, v := range t.Roles {
 		roles[k] = v
 	}
@@ -298,13 +298,13 @@ func applyThemeOverrides(t theme, overrides map[string]string) theme {
 		}
 		switch {
 		case strings.HasPrefix(spec, "#"):
-			roles[role] = themeColor{Hex: spec}
+			roles[role] = ThemeColor{Hex: spec}
 		default:
 			if code, ok := colorCodes[spec]; ok && code != "" {
-				roles[role] = themeColor{Ansi16: code}
+				roles[role] = ThemeColor{Ansi16: code}
 			} else if idx, err := strconv.Atoi(spec); err == nil && idx >= 0 && idx <= 255 {
-				r, g, b := index256ToRGB(idx)
-				roles[role] = themeColor{Hex: hexFromRGB(r, g, b)}
+				r, g, b := Index256ToRGB(idx)
+				roles[role] = ThemeColor{Hex: HexFromRGB(r, g, b)}
 			}
 		}
 	}
@@ -312,7 +312,7 @@ func applyThemeOverrides(t theme, overrides map[string]string) theme {
 	return t
 }
 
-func hexFromRGB(r, g, b int) string {
+func HexFromRGB(r, g, b int) string {
 	const digits = "0123456789abcdef"
 	return string([]byte{'#',
 		digits[r>>4], digits[r&15],
@@ -322,14 +322,14 @@ func hexFromRGB(r, g, b int) string {
 }
 
 // roleEscape renders one theme color at a depth.
-func roleEscape(tc themeColor, d colorDepth) string {
-	if d == depthNone {
+func roleEscape(tc ThemeColor, d ColorDepth) string {
+	if d == DepthNone {
 		return ""
 	}
 	if tc.Hex == "" {
 		return tc.Ansi16
 	}
-	if d == depth16 {
+	if d == Depth16 {
 		if tc.Ansi16 != "" {
 			return tc.Ansi16
 		}
@@ -345,12 +345,12 @@ func roleEscape(tc themeColor, d colorDepth) string {
 // resolvePalette renders a theme into the palette struct consumed by every
 // renderer. The palette also remembers its theme and depth so per-segment
 // color overrides can resolve hex/256/role specs later.
-func resolvePalette(t theme, d colorDepth) palette {
-	if d == depthNone {
-		return palette{}
+func ResolvePalette(t Theme, d ColorDepth) Palette {
+	if d == DepthNone {
+		return Palette{}
 	}
 	esc := func(role string) string { return roleEscape(t.Roles[role], d) }
-	p := palette{
+	p := Palette{
 		Model:   esc("model"),
 		Dir:     esc("dir"),
 		Git:     esc("git"),
@@ -367,7 +367,7 @@ func resolvePalette(t theme, d colorDepth) palette {
 		Purple:  esc("accent"),
 		Session: esc("session"),
 		Sep:     esc("sep"),
-		theme:   &t,
+		Theme:   &t,
 		depth:   d,
 	}
 	// When every role resolves to the empty escape, the theme is effectively
@@ -384,7 +384,7 @@ func resolvePalette(t theme, d colorDepth) palette {
 
 // validColorSpec reports whether a user-supplied color spec is syntactically
 // acceptable: hex, 256 index, theme role name, legacy color name, or default.
-func validColorSpec(spec string) bool {
+func ValidColorSpec(spec string) bool {
 	if spec == "" || spec == "default" {
 		return true
 	}
@@ -395,7 +395,7 @@ func validColorSpec(spec string) bool {
 	if _, ok := colorCodes[spec]; ok {
 		return true
 	}
-	for _, r := range themeRoles {
+	for _, r := range ThemeRoles {
 		if r == spec {
 			return true
 		}
@@ -414,7 +414,7 @@ func validColorSpec(spec string) bool {
 //	"accent", "dim", ... theme role names
 //	"magenta", ...       legacy 16-color names
 //	"" / "default"       no override (ok=false)
-func resolveColorSpec(spec string, c palette) (string, bool) {
+func ResolveColorSpec(spec string, c Palette) (string, bool) {
 	if spec == "" || spec == "default" {
 		return "", false
 	}
@@ -422,8 +422,8 @@ func resolveColorSpec(spec string, c palette) (string, bool) {
 		return "", false // colors disabled
 	}
 	d := c.depth
-	if d == depthNone {
-		d = depth16
+	if d == DepthNone {
+		d = Depth16
 	}
 	if strings.HasPrefix(spec, "#") {
 		if esc, ok := hexEscape(spec, d); ok {
@@ -434,14 +434,14 @@ func resolveColorSpec(spec string, c palette) (string, bool) {
 	if code, ok := colorCodes[spec]; ok && code != "" {
 		return code, true
 	}
-	if c.theme != nil {
-		if tc, ok := c.theme.Roles[spec]; ok {
+	if c.Theme != nil {
+		if tc, ok := c.Theme.Roles[spec]; ok {
 			return roleEscape(tc, d), true
 		}
 	}
 	if idx, err := strconv.Atoi(spec); err == nil && idx >= 0 && idx <= 255 {
-		if d == depth16 {
-			r, g, b := index256ToRGB(idx)
+		if d == Depth16 {
+			r, g, b := Index256ToRGB(idx)
 			return nearestAnsi16(r, g, b), true
 		}
 		return "\x1b[38;5;" + strconv.Itoa(idx) + "m", true

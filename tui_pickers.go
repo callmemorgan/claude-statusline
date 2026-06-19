@@ -11,6 +11,8 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+
+	"github.com/callmemorgan/claude-statusline/internal/palette"
 )
 
 // floatPicker wraps a primitive in spacer flexes so it floats centered over
@@ -97,8 +99,8 @@ func openThemePicker(app *tview.Application, pages *tview.Pages, current string,
 	if current == "" {
 		current = "classic"
 	}
-	items := make([][2]string, 0, len(builtinThemes))
-	for _, t := range builtinThemes {
+	items := make([][2]string, 0, len(palette.BuiltinThemes))
+	for _, t := range palette.BuiltinThemes {
 		items = append(items, [2]string{t.ID, t.Desc})
 	}
 	openListPicker(app, pages, "themepicker", "Theme", items, current, onHover, onDone)

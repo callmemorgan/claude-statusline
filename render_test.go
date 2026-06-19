@@ -7,6 +7,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/callmemorgan/claude-statusline/internal/ansi"
+	"github.com/callmemorgan/claude-statusline/internal/palette"
+
+	"github.com/callmemorgan/claude-statusline/internal/payload"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -16,13 +21,13 @@ var update = flag.Bool("update", false, "rewrite golden files")
 var testNow = time.Unix(1750000000, 0)
 
 // loadPayload reads and parses a fixture from testdata/payloads.
-func loadPayload(t *testing.T, name string) payload {
+func loadPayload(t *testing.T, name string) payload.Payload {
 	t.Helper()
 	data, err := os.ReadFile(filepath.Join("testdata", "payloads", name))
 	if err != nil {
 		t.Fatalf("read payload fixture: %v", err)
 	}
-	return parsePayload(data)
+	return payload.ParsePayload(data)
 }
 
 // checkGolden compares got against testdata/golden/<name>.txt, rewriting the
@@ -58,7 +63,7 @@ func TestBuildStatuslineGolden(t *testing.T) {
 
 	cases := []struct {
 		name    string
-		payload string
+		Payload string
 		cfg     config
 		columns int
 	}{
@@ -91,7 +96,7 @@ func TestBuildStatuslineGolden(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			p := loadPayload(t, tc.payload)
+			p := loadPayload(t, tc.Payload)
 			initSegments(tc.cfg.Plugins)
 			lines := buildStatusline(buildInput{P: p, Cfg: tc.cfg, Width: tc.columns, Now: testNow})
 			checkGolden(t, tc.name, strings.Join(lines, "\n")+"\n")
@@ -118,7 +123,7 @@ func TestBuildStatuslineColorCodes(t *testing.T) {
 	cfg := config{Segments: []string{"directory"}}
 	initSegments(nil)
 
-	colored := buildStatusline(buildInput{P: p, C: palette{Dir: "\x1b[36m", Rst: "\x1b[0m"}, Cfg: cfg, Now: testNow})
+	colored := buildStatusline(buildInput{P: p, C: palette.Palette{Dir: "\x1b[36m", Rst: "\x1b[0m"}, Cfg: cfg, Now: testNow})
 	plain := buildStatusline(buildInput{P: p, Cfg: cfg, Now: testNow})
 	if len(colored) != 1 || len(plain) != 1 {
 		t.Fatalf("expected 1 line, got %d / %d", len(colored), len(plain))
@@ -129,8 +134,8 @@ func TestBuildStatuslineColorCodes(t *testing.T) {
 	if strings.Contains(plain[0], "\x1b[") {
 		t.Errorf("unexpected ANSI escape in plain output: %q", plain[0])
 	}
-	if visibleWidth(colored[0]) != visibleWidth(plain[0]) {
-		t.Errorf("visibleWidth differs: %d vs %d", visibleWidth(colored[0]), visibleWidth(plain[0]))
+	if ansi.VisibleWidth(colored[0]) != ansi.VisibleWidth(plain[0]) {
+		t.Errorf("visibleWidth differs: %d vs %d", ansi.VisibleWidth(colored[0]), ansi.VisibleWidth(plain[0]))
 	}
 }
 
@@ -138,7 +143,7 @@ func TestBuildStatuslineColorCodes(t *testing.T) {
 func TestNewPayloadSegments(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	initSegments(nil)
-	render := func(p payload, id string) (string, bool) {
+	render := func(p payload.Payload, id string) (string, bool) {
 		seg, ok := segmentByID(id)
 		if !ok {
 			t.Fatalf("segment %q not registered", id)
@@ -146,7 +151,7 @@ func TestNewPayloadSegments(t *testing.T) {
 		return seg.render(renderCtx{P: p, Now: testNow})
 	}
 
-	var p payload
+	var p payload.Payload
 	if _, show := render(p, "output-style"); show {
 		t.Error("output-style should hide with no payload data")
 	}

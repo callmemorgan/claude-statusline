@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/callmemorgan/claude-statusline/internal/sys"
 )
 
 type gitStatusInfo struct {
@@ -123,7 +125,7 @@ func saveGitCache(cache map[string]gitStatusInfo, now time.Time) {
 	if err != nil {
 		return
 	}
-	_ = writeFileAtomic(gitCachePath(), data)
+	_ = sys.WriteFileAtomic(gitCachePath(), data)
 }
 
 // gitStatusPreview, when non-nil, short-circuits gitStatusFor. The configure
@@ -221,7 +223,7 @@ func saveGitStashCache(cache map[string]gitStashInfo, now time.Time) {
 	if err != nil {
 		return
 	}
-	_ = writeFileAtomic(gitStashCachePath(), data)
+	_ = sys.WriteFileAtomic(gitStashCachePath(), data)
 }
 
 // gitStashPreview, when non-nil, short-circuits gitStashFor so the configure

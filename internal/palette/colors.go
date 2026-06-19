@@ -1,10 +1,10 @@
-package main
+package palette
 
-// palette holds the resolved escape string for every semantic role. An empty
-// palette (Rst == "") means colors are disabled. The unexported theme/depth
+// Palette holds the resolved escape string for every semantic role. An empty
+// Palette (Rst == "") means colors are disabled. The unexported theme/depth
 // fields let color-spec resolution (per-segment overrides, bar threshold
 // colors) honor the active theme and terminal capability.
-type palette struct {
+type Palette struct {
 	Model   string
 	Dir     string
 	Git     string
@@ -22,27 +22,27 @@ type palette struct {
 	Session string
 	Sep     string // separator color between segments
 
-	theme *theme
-	depth colorDepth
+	Theme *Theme
+	depth ColorDepth
 }
 
 // ─── Palette ─────────────────────────────────────────────────────────
 
-// currentPalette resolves the configured theme at the detected (or
+// CurrentPalette resolves the configured theme at the detected (or
 // configured) color depth. NO_COLOR / TERM=dumb yield an empty palette.
-func currentPalette(cfg config) palette {
-	d := resolveDepth(cfg.ColorDepth)
-	if d == depthNone {
-		return palette{}
+func CurrentPalette(themeID, colorDepth string, themeColors map[string]string) Palette {
+	d := resolveDepth(colorDepth)
+	if d == DepthNone {
+		return Palette{}
 	}
-	t := applyThemeOverrides(themeByID(cfg.Theme), cfg.ThemeColors)
-	return resolvePalette(t, d)
+	t := ApplyThemeOverrides(ThemeByID(themeID), themeColors)
+	return ResolvePalette(t, d)
 }
 
 // colorCycle is the ordered list of color names cycled by the TUI and offered
 // in flyout color sub-features. Includes both the 8 standard and 8 bright
 // variants to match the documented "Supported names" surface in the README.
-var colorCycle = []string{
+var ColorCycle = []string{
 	"default",
 	"red", "green", "yellow", "blue", "magenta", "cyan", "white",
 	"bright-red", "bright-green", "bright-yellow", "bright-blue",
@@ -71,8 +71,8 @@ var colorCodes = map[string]string{
 // paletteWithOverride returns a copy of c with the named primary color field
 // replaced by the resolved color spec (hex, 256-index, theme role, or legacy
 // 16-color name).
-func paletteWithOverride(c palette, primaryColor, colorName string) palette {
-	code, ok := resolveColorSpec(colorName, c)
+func PaletteWithOverride(c Palette, primaryColor, colorName string) Palette {
+	code, ok := ResolveColorSpec(colorName, c)
 	if !ok || code == "" {
 		return c
 	}
@@ -115,11 +115,11 @@ func paletteWithOverride(c palette, primaryColor, colorName string) palette {
 // the "no code found" case inline. When colors are disabled (NO_COLOR /
 // TERM=dumb, signalled by an empty palette), it returns "" so settings-driven
 // bar colors respect the disable too.
-func resolveColor(name string, c palette) string {
+func ResolveColor(name string, c Palette) string {
 	if c.Rst == "" {
 		return ""
 	}
-	if code, ok := resolveColorSpec(name, c); ok && code != "" {
+	if code, ok := ResolveColorSpec(name, c); ok && code != "" {
 		return code
 	}
 	return c.ROK

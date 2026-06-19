@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/callmemorgan/claude-statusline/internal/palette"
 )
 
 // useTempConfigDir points configDir at a temp dir for the duration of a test.
@@ -335,7 +337,7 @@ func TestPresetSegmentIDsExist(t *testing.T) {
 				t.Errorf("presetByID broken for %q", p.ID)
 			}
 			ok := false
-			for _, id := range themeIDs() {
+			for _, id := range palette.ThemeIDs() {
 				if id == p.Theme {
 					ok = true
 				}

@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/rivo/tview"
+
+	"github.com/callmemorgan/claude-statusline/internal/payload"
 )
 
 // ─── Flyout Helpers ──────────────────────────────────────────────────
@@ -162,7 +164,7 @@ func syncSettingsToAllBars(cfg *config, sourceID string) {
 // If stress test is active, it overrides the percentage fields so the preview
 // animates through all threshold states; rate-limit resets wind down with the
 // bar so the countdown animates too.
-func flyoutPreviewPayload(segID string, base payload) payload {
+func flyoutPreviewPayload(segID string, base payload.Payload) payload.Payload {
 	if !stressTestActive[segID] {
 		return base
 	}
@@ -190,7 +192,7 @@ func flyoutPreviewPayload(segID string, base payload) payload {
 // stress test, driving the TUI's demo mode (d): every percentage sweeps 0→100
 // together, countdowns wind down with the bars, and cost and lines-changed
 // grow, so threshold colors and width changes are visible across the line.
-func demoPreviewPayload(base payload, now time.Time) payload {
+func demoPreviewPayload(base payload.Payload, now time.Time) payload.Payload {
 	p := base
 	pct := int((now.UnixMilli() % 5000) * 100 / 5000)
 	resetIn := func(windowSecs int64) *int64 {
