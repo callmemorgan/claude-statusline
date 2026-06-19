@@ -1,16 +1,16 @@
 # claude-statusline
 
-A fast statusline renderer for [Claude Code](https://claude.ai/code), [Antigravity](https://antigravity.dev) (`agy`), and [Pi](https://pi.dev).
+A fast, themeable statusline for [Claude Code](https://claude.ai/code), [Antigravity](https://antigravity.google/product/antigravity-cli) (`agy`), and [Pi](https://pi.dev) — your session's cost, context, and limits at a glance.
 
 ![claude-statusline rendering a live session with the Tokyo Night theme — git branch, lines changed, cost, burn rate, context-window trend, and rate-limit projections](assets/claude-tokyo-night.png)
 
-Each supported tool pipes a JSON payload to this binary on every turn. The renderer turns it into a colored, multi-line summary in your terminal:
+Each tool pipes a JSON payload to the binary on every turn; it renders a compact, color-coded readout in your terminal:
 
 - **Ten built-in themes** — classic, Catppuccin Mocha, Nord, Dracula, Gruvbox Dark, Tokyo Night, Newsprint, Paper, Solarized Light, and Monochrome — in truecolor with automatic 256/16-color fallback. Paper, Solarized Light, and Monochrome are tuned for light terminal backgrounds.
 - **Burn-rate intelligence** — rate-limit projections (`→58%` at reset), cost per hour (`$1.84/h`), and time-to-compact estimates (`↗ ~35m`), computed from your session's own history.
 - **One-command setup** — `claude-statusline install` wires everything up and verifies it.
 - **A real configuration TUI** — live width-aware preview, theme and preset pickers, a color swatch picker, per-segment settings, search, an animated demo mode, and a render-in-your-terminal view for honest theme checking.
-- **24 built-in segments + plugins** — assigned to lines 1–9, empty lines collapse, segments hide automatically when their data is missing.
+- **26 built-in segments + plugins** — assigned to lines 1–9; empty lines collapse, and segments hide automatically when their data is missing.
 
 The core renderer is a single static binary (one TOML dependency); the interactive TUI uses [tview](https://github.com/rivo/tview).
 
@@ -129,7 +129,7 @@ Antigravity — add to your `agy` config:
 If the binary isn't on your `$PATH`, use the full path instead.
 </details>
 
-The binary auto-detects which tool is calling it via the `product` field in the payload and hides segments that aren't applicable (e.g. rate limits are hidden under Antigravity, plan tier is hidden under Claude Code).
+The binary auto-detects which tool is calling it via the `product` field in the payload and hides segments that don't apply — rate limits under Antigravity, say, or plan tier under Claude Code.
 
 ### Pi configuration
 
