@@ -86,6 +86,25 @@ JSON
 
 Expect: UUID trimmed to `fbce29fe`, `file://` stripped, plan tier and agent state visible; no cost/duration/rate limits.
 
+### Full pi payload
+
+```bash
+cat <<'JSON' | ./claude-statusline
+{
+  "cwd": "/Users/me/code/my-project",
+  "session_id": "pi:manual-test",
+  "model": {"id": "claude-sonnet-4", "display_name": "Claude Sonnet"},
+  "workspace": {"current_dir": "/Users/me/code/my-project", "project_dir": "/Users/me/code/my-project"},
+  "context_window": {"used_percentage": 42.5, "remaining_percentage": 57.5, "context_window_size": 200000, "current_usage": null},
+  "cost": {"total_cost_usd": null},
+  "version": null,
+  "output_style": {"name": "default"}
+}
+JSON
+```
+
+Expect: directory, model, and context bar; no cost, rate limits, or burn-rate projections (pi does not expose those fields).
+
 ### Themes at each depth
 
 ```bash

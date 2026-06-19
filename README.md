@@ -1,6 +1,6 @@
 # claude-statusline
 
-A fast statusline renderer for [Claude Code](https://claude.ai/code) and [Antigravity CLI](https://antigravity.dev) (`agy`).
+A fast statusline renderer for [Claude Code](https://claude.ai/code), [Antigravity CLI](https://antigravity.dev) (`agy`), and [pi](https://pi.dev).
 
 ![claude-statusline rendering a live session with the Tokyo Night theme — git branch, lines changed, cost, burn rate, context-window trend, and rate-limit projections](assets/claude-tokyo-night.png)
 
@@ -47,6 +47,27 @@ claude-statusline install
 Requires Node 14+. npm installs a small JS shim that `spawnSync`s the correct per-platform binary from `optionalDependencies`; Homebrew and manual installs remain the low-latency recommendation because each render pays the cost of one Node process spawn. If you already have another `claude-statusline` on your `$PATH` (for example a Go install at `$(go env GOPATH)/bin/claude-statusline` or `~/.local/bin/claude-statusline`), npm may not be the one executed — check with `which claude-statusline`.
 
 > npm packages are built and published automatically with each GitHub release.
+
+**pi:**
+
+```bash
+pi install npm:@morgan.rebrand/claude-statusline
+```
+
+This installs the package as a pi extension. The extension wires the renderer into pi's footer and refreshes on session/turn/model events. No separate `claude-statusline install` step is needed inside pi.
+
+> The pi extension resolves the Go binary from the same `@morgan.rebrand/claude-statusline` npm package (via its per-platform `optionalDependencies`). Because pi owns the files, the binary's own self-swapper leaves pi installs alone and points you at `pi update` instead. If you want to use a local build while developing, set `CLAUDE_STATUSLINE_BIN` to the absolute path of a `claude-statusline` binary before launching pi.
+
+Upgrade later with pi's own package manager:
+
+```bash
+# update this package only
+pi update --extension npm:@morgan.rebrand/claude-statusline
+# update pi and all packages (skips pinned specs)
+pi update
+# update packages only, without touching pi itself
+pi update --extensions
+```
 
 **Prebuilt binaries:**
 
@@ -110,6 +131,22 @@ If the binary isn't on your `$PATH`, use the full path instead.
 
 The binary auto-detects which tool is calling it via the `product` field in the payload and hides segments that aren't applicable (e.g. rate limits are hidden under agy, plan tier is hidden under Claude Code).
 
+### pi configuration
+
+After `pi install npm:@morgan.rebrand/claude-statusline`, the extension is active immediately. It uses the same config file as the other tools:
+
+```bash
+claude-statusline configure   # edit themes, segments, and settings
+```
+
+Changes are picked up on the next pi render. The extension builds a Claude-compatible payload from pi's live context (cwd, model, context usage) and passes it to the binary, so segments that depend on Claude Code-only fields — `rate-limit-5h`, `rate-limit-7d`, `cost`, `lines-changed`, `api-efficiency`, `cost-rate`, and the context-window trend — stay hidden because pi does not expose those values. Everything else (model, directory, git, context bar, tokens, duration, vim mode, etc.) renders normally.
+
+To remove the statusline from pi:
+
+```bash
+pi remove npm:@morgan.rebrand/claude-statusline
+```
+
 ---
 
 ## What it looks like
@@ -121,6 +158,10 @@ The binary auto-detects which tool is calling it via the `product` field in the 
 **agy (default config):**
 
 ![agy statusline: conversation ID, agent state, directory, artifact count, plan tier, model, version, tokens, and context-window bar](assets/agy-classic.png)
+
+**pi (Tokyo Night):**
+
+![pi statusline with the Tokyo Night theme: session name, project directory, git branch, cache percentage, model, output style, duration, tokens, and context-window bar](assets/pi-tokyo-night.png)
 
 Segments that receive no data from the active tool hide themselves automatically — no configuration needed. The burn rate (`$1.44/h`), context trend (`↗ ~13m`), and rate-limit projections (`→79%`, `→125%`) above are computed from the session's own history — see [Burn rates, projections, and trends](#burn-rates-projections-and-trends).
 
@@ -579,7 +620,7 @@ mode = "notify"   # default: show segment only
 check_hours = 24  # 1..168, default 24
 ```
 
-`auto` mode **crosses MAJOR versions** — it's a one-way door that downloads, verifies the cosign signature on `checksums.txt` against the embedded public key, sha256-verifies the asset against it, smoke-tests the staged binary, and atomically swaps the on-disk exe. Homebrew installs run `brew upgrade claude-statusline` instead of touching the binary directly (Cellar bookkeeping fights self-swap); npm installs are ignored entirely by `auto` because npm owns the file (update with `npm update -g @morgan.rebrand/claude-statusline` instead). The tap's git checkout is refreshed first (a targeted `git pull`, not a global `brew update`) so brew sees the newly-published formula despite `HOMEBREW_NO_AUTO_UPDATE`. Failures are silent on the next interval retries; an invalid signature, a checksum mismatch, or a failed smoke-test leaves the old binary in place (it fails closed).
+`auto` mode **crosses MAJOR versions** — it's a one-way door that downloads, verifies the cosign signature on `checksums.txt` against the embedded public key, sha256-verifies the asset against it, smoke-tests the staged binary, and atomically swaps the on-disk exe. Homebrew installs run `brew upgrade claude-statusline` instead of touching the binary directly (Cellar bookkeeping fights self-swap); npm installs are ignored entirely by `auto` because npm owns the file (update with `npm update -g @morgan.rebrand/claude-statusline` instead). pi installs are also ignored by the binary's self-swapper because pi's package manager owns the files — update them with `pi update --extension npm:@morgan.rebrand/claude-statusline` or `pi update`. The tap's git checkout is refreshed first (a targeted `git pull`, not a global `brew update`) so brew sees the newly-published formula despite `HOMEBREW_NO_AUTO_UPDATE`. Failures are silent on the next interval retries; an invalid signature, a checksum mismatch, or a failed smoke-test leaves the old binary in place (it fails closed).
 
 `mode = "off"` is the right choice for air-gapped or centrally-managed deployments — it produces zero spawns and zero reads beyond the config.
 
@@ -629,4 +670,4 @@ MIT
 
 ## AI use
 
-This project was developed primarily with [Moonshot AI's Kimi Code](https://www.moonshot.cn/), with contributions from [Warp.dev GLM 5.1](https://www.warp.dev/) and [Claude Code](https://claude.ai/code) for code review. The 1.0.0 overhaul was built with [Claude Code](https://claude.ai/code).
+This project was developed primarily in the [Warp.dev](https://www.warp.dev/) terminal with [Moonshot AI's Kimi Code](https://www.moonshot.ai/) and [Zhipu AI's GLM 5.2](https://www.z.ai/), with [Claude Code](https://claude.ai/code) for code review. The 1.0.0 overhaul was built with [Claude Code](https://claude.ai/code).

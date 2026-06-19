@@ -1,8 +1,9 @@
 {
   "name": "@morgan.rebrand/claude-statusline",
   "version": "0.0.0",
-  "description": "Statusline renderer for Claude Code and Antigravity CLI",
+  "description": "Statusline renderer for Claude Code, Antigravity CLI, and pi",
   "license": "MIT",
+  "keywords": ["pi-package", "pi", "pi-coding-agent", "extension", "statusline"],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/callmemorgan/claude-statusline.git"
@@ -12,10 +13,17 @@
     "claude-statusline": "bin/claude-statusline.js"
   },
   "files": [
-    "bin/"
+    "bin/",
+    "extensions/"
   ],
   "engines": {
     "node": ">=14"
+  },
+  "pi": {
+    "extensions": ["./extensions/pi-statusline.ts"]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
   },
   "optionalDependencies": {
     "@morgan.rebrand/claude-statusline-darwin-arm64": "0.0.0",

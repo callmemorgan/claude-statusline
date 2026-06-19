@@ -7,6 +7,10 @@ much larger values (e.g. 99999) to force top placement. Bullets without a
 marker default to importance 0.
 -->
 
+## v1.5.2 — 2026-06-18
+- [5] **pi extension.** `pi install npm:@morgan.rebrand/claude-statusline` now wires the renderer into pi's footer as a first-class extension. The TypeScript extension refreshes on session/turn/model events, requires no separate `claude-statusline install` step inside pi, and resolves the Go binary from the same per-platform npm optional dependencies. Update it with `pi update --extension npm:@morgan.rebrand/claude-statusline` or alongside pi with `pi update`.
+- [2] Added a CI smoke test for the pi TypeScript extension.
+
 ## v1.5.1 — 2026-06-18
 - [4] **Configurable takeover height.** The post-upgrade announcement now expands up to `[release_notes].max_lines` (default 10), so typical minor-version updates fit without truncation. Set `max_lines = 0` or `max_lines = "status-line"` to keep the announcement at your statusline's normal height.
 

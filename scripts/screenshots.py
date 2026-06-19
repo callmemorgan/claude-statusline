@@ -120,6 +120,33 @@ agy_payload = {
     "plan_tier": "Google AI Pro",
 }
 
+pi_payload = {
+    "session_id": "pi-screenshot-demo",
+    "session_name": "refactor-auth",
+    "model": {"display_name": "Claude Sonnet 4.6", "id": "claude-sonnet-4-6"},
+    "output_style": {"name": "Explanatory"},
+    "workspace": {
+        "current_dir": "/Users/me/code/my-project",
+        "project_dir": "/Users/me/code/my-project",
+        "git_worktree": "my-project",
+    },
+    "cost": {"total_cost_usd": 0, "total_duration_ms": 3661000},
+    "context_window": {
+        "total_input_tokens": 1234567,
+        "total_output_tokens": 89012,
+        "context_window_size": 200000,
+        "used_percentage": 72.5,
+        "current_usage": {
+            "input_tokens": 1200000,
+            "output_tokens": 89012,
+            "cache_creation_input_tokens": 10000,
+            "cache_read_input_tokens": 50000,
+        },
+    },
+    "worktree": {"name": "my-project", "branch": "feature/sparkle"},
+    "effort": {"level": "high"},
+}
+
 
 def build_state():
     """One hour of rising history ending at the payload's current values."""
@@ -288,6 +315,8 @@ def main():
     for theme in THEMES:
         screenshot(f"claude-{theme}", render(theme, claude_payload, True), BG[theme])
     screenshot("agy-classic", render("classic", agy_payload, False), BG["classic"])
+    screenshot("pi-classic", render("classic", pi_payload, False), BG["classic"])
+    screenshot("pi-tokyo-night", render("tokyo-night", pi_payload, False), BG["tokyo-night"])
 
 
 if __name__ == "__main__":

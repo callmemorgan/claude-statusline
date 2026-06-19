@@ -63,7 +63,10 @@ update-check: resolve latest tag (one HTTPS request, no GitHub API quota)
   takes no install action. Both the segment hint and `claude-statusline
   update` point at **`npm update -g @morgan.rebrand/claude-statusline`**
   instead. Detected by a `node_modules` path component, matched **before**
-  brew (a global npm prefix can sit under a Homebrew-managed node).
+  brew (a global npm prefix can sit under a Homebrew-managed node). pi
+  installs use the same npm package, so they are covered by the same rule;
+  update them with `pi update --extension npm:@morgan.rebrand/claude-statusline`
+  or `pi update`.
 - **`dev` builds disable the whole feature** (no check, no segment, no
   subcommand action beyond an explanatory message). Source builds have no
   comparable version, and this also keeps tests/goldens inert for free —

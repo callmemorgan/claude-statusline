@@ -64,6 +64,7 @@ func TestBuildStatuslineGolden(t *testing.T) {
 	}{
 		{"claude-full__default", "claude-full.json", defaultConfig(), 0},
 		{"agy-full__default", "agy-full.json", defaultConfig(), 0},
+		{"pi-full__default", "pi-full.json", defaultConfig(), 0},
 		{"minimal__default", "minimal.json", defaultConfig(), 0},
 		{"claude-full__default-60", "claude-full.json", defaultConfig(), 60},
 		{"claude-full__cascade-60", "claude-full.json", func() config {

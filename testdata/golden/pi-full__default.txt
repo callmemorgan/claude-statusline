@@ -1,0 +1,3 @@
+ my-project
+ [Claude Sonnet] │ ↑0 ↓0
+ ctx ########------------ 42%

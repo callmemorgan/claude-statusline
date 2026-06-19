@@ -66,3 +66,7 @@ jobs:
         run: |
           echo '{"model":{"display_name":"Claude"},"workspace":{"current_dir":"~"}}' |
           CLAUDE_STATUSLINE_BIN=/tmp/claude-statusline node npm/claude-statusline/bin/claude-statusline.js
+
+      - name: Test pi extension
+        run: |
+          CLAUDE_STATUSLINE_BIN=/tmp/claude-statusline npx --yes tsx scripts/test-pi-extension.mjs
