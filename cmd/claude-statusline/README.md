@@ -1,16 +1,16 @@
 # claude-statusline
 
-A fast statusline renderer for [Claude Code](https://claude.ai/code), [Antigravity](https://antigravity.dev) (`agy`), and [Pi](https://pi.dev).
+A fast, themeable statusline for [Claude Code](https://claude.ai/code), [Antigravity](https://antigravity.google/product/antigravity-cli) (`agy`), and [Pi](https://pi.dev) — your session's cost, context, and limits at a glance.
 
 ![claude-statusline rendering a live session with the Tokyo Night theme — git branch, lines changed, cost, burn rate, context-window trend, and rate-limit projections](assets/claude-tokyo-night.png)
 
-Each supported tool pipes a JSON payload to this binary on every turn. The renderer turns it into a colored, multi-line summary in your terminal:
+Each tool pipes a JSON payload to the binary on every turn; it renders a compact, color-coded readout in your terminal:
 
 - **Ten built-in themes** — classic, Catppuccin Mocha, Nord, Dracula, Gruvbox Dark, Tokyo Night, Newsprint, Paper, Solarized Light, and Monochrome — in truecolor with automatic 256/16-color fallback. Paper, Solarized Light, and Monochrome are tuned for light terminal backgrounds.
 - **Burn-rate intelligence** — rate-limit projections (`→58%` at reset), cost per hour (`$1.84/h`), and time-to-compact estimates (`↗ ~35m`), computed from your session's own history.
 - **One-command setup** — `claude-statusline install` wires everything up and verifies it.
 - **A real configuration TUI** — live width-aware preview, theme and preset pickers, a color swatch picker, per-segment settings, search, an animated demo mode, and a render-in-your-terminal view for honest theme checking.
-- **24 built-in segments + plugins** — assigned to lines 1–9, empty lines collapse, segments hide automatically when their data is missing.
+- **26 built-in segments + plugins** — assigned to lines 1–9; empty lines collapse, and segments hide automatically when their data is missing.
 
 The core renderer is a single static binary (one TOML dependency); the interactive TUI uses [tview](https://github.com/rivo/tview).
 
@@ -129,7 +129,7 @@ Antigravity — add to your `agy` config:
 If the binary isn't on your `$PATH`, use the full path instead.
 </details>
 
-The binary auto-detects which tool is calling it via the `product` field in the payload and hides segments that aren't applicable (e.g. rate limits are hidden under Antigravity, plan tier is hidden under Claude Code).
+The binary auto-detects which tool is calling it via the `product` field in the payload and hides segments that don't apply — rate limits under Antigravity, say, or plan tier under Claude Code.
 
 ### Pi configuration
 
@@ -139,7 +139,7 @@ After `pi install npm:@morgan.rebrand/claude-statusline`, the extension is activ
 claude-statusline configure   # edit themes, segments, and settings
 ```
 
-Changes are picked up on the next Pi render. The extension builds a Claude-compatible payload from Pi's live context (cwd, model, context usage) and passes it to the binary, so segments that depend on Claude Code-only fields — `rate-limit-5h`, `rate-limit-7d`, `cost`, `lines-changed`, `api-efficiency`, `cost-rate`, and the context-window trend — stay hidden because Pi does not expose those values. Everything else (model, directory, git, context bar, tokens, duration, vim mode, etc.) renders normally.
+Changes are picked up on the next Pi render. The extension builds a Claude-compatible payload from Pi's live context — working directory, model, and context-window usage — so a focused set of segments shows up under Pi: `directory`, `model`, the `context-window` bar, `git-branch`, `git-stash`, and the `update` notice. The Claude- and Antigravity-specific segments don't render, because Pi doesn't send their data. See the [harness support](#harness-support) matrix for the exact per-segment breakdown (including one rough edge — `tokens` currently shows `↑0 ↓0` under Pi instead of hiding).
 
 To remove the statusline from Pi:
 
@@ -175,7 +175,7 @@ Segments that receive no data from the active tool hide themselves automatically
 |---------|-------------|--------|-------------|
 | `vim-mode` | 1 | Claude Code | Vim mode indicator, e.g. `[normal]` or `[INSERT]` |
 | `sandbox` | 1 | Antigravity | `[SANDBOX]` indicator when sandbox mode is enabled |
-| `session-name` | 1 | all three | Session name (Claude Code) or conversation ID (Antigravity). UUIDs are truncated to 8 chars |
+| `session-name` | 1 | Claude Code, Antigravity | Session name (Claude Code) or conversation ID (Antigravity). UUIDs are truncated to 8 chars |
 | `agent-state` | 1 | Antigravity | Agent working status, e.g. `[working]` — green when active |
 | `agent-name` | 1 | Claude Code | Agent name when running with `--agent` |
 | `directory` | 1 | all three | Current / project directory. Shows `project→subdir` when inside a project subdirectory |
@@ -190,15 +190,50 @@ Segments that receive no data from the active tool hide themselves automatically
 | `model` | 2 | all three | Model name with effort badge (⬇ → ⬆ ⬆⬆ ⬆⬆⬆) |
 | `output-style` | 2 | Claude Code | Output style, e.g. `✎ Explanatory` — hidden when default |
 | `email` | 2 | Antigravity | Account email, user part only (`morgan@…`) — **off by default** |
-| `version` | 2 | both | Tool version |
+| `version` | 2 | Claude Code, Antigravity | Tool version |
 | `update` | 1 | all three | `⬆ vX.Y.Z` when behind, hides when current. Self-hides on dev builds. |
 | `duration` | 2 | Claude Code | Elapsed session wall-clock time in `HH:MM:SS` |
 | `cost-rate` | 2 | Claude Code | Cost burn rate over recent history, e.g. `$1.84/h` |
 | `api-efficiency` | 2 | Claude Code | Percentage of time spent in API calls vs. total elapsed |
-| `tokens` | 2 | all three | Input/output token counts in compact notation (`↑1.2M ↓89k`) |
+| `tokens` | 2 | Claude Code, Antigravity | Input/output token counts in compact notation (`↑1.2M ↓89k`) |
 | `context-window` | 3 | all three | Usage bar with color-coded %, growth trend arrow, and time-to-compact estimate (`↗ ~35m`) |
 | `rate-limit-5h` | 3 | Claude Code | 5-hour rate limit bar with countdown and burn-rate projection (`→58%`) (Pro/Max only) |
 | `rate-limit-7d` | 3 | Claude Code | 7-day rate limit bar with countdown and burn-rate projection (Pro/Max only) |
+
+### Harness support
+
+No segment is gated by tool name — each one renders when the active harness sends its data and self-hides otherwise, so the grid below is really "which tool provides the field." (`git-branch` and `git-stash` fall back to live `git`, so they work wherever you have a repo; plugins run under any harness.)
+
+| Segment | Claude Code | Antigravity | Pi |
+|---------|:---:|:---:|:---:|
+| `vim-mode` | ✓ | ✗ | ✗ |
+| `sandbox` | ✗ | ✓ | ✗ |
+| `session-name` | ✓ | ✓ | ✗ |
+| `agent-state` | ✗ | ✓ | ✗ |
+| `agent-name` | ✓ | ✗ | ✗ |
+| `directory` | ✓ | ✓ | ✓ |
+| `added-dirs` | ✓ | ✗ | ✗ |
+| `git-branch` | ✓ | ✓ | ✓ |
+| `git-stash` | ✓ | ✓ | ✓ |
+| `artifact-count` | ✗ | ✓ | ✗ |
+| `lines-changed` | ✓ | ✗ | ✗ |
+| `cache-percent` | ✓ | ✗ | ✗ |
+| `plan-tier` | ✗ | ✓ | ✗ |
+| `cost` | ✓ | ✗ | ✗ |
+| `model` | ✓ | ✓ | ✓ |
+| `output-style` | ✓ | ✗ | ✗ |
+| `email` | ✗ | ✓ | ✗ |
+| `version` | ✓ | ✓ | ✗ |
+| `update` | ✓ | ✓ | ✓ |
+| `duration` | ✓ | ✗ | ✗ |
+| `cost-rate` | ✓ | ✗ | ✗ |
+| `api-efficiency` | ✓ | ✗ | ✗ |
+| `tokens` | ✓ | ✓ | ✗ † |
+| `context-window` | ✓ | ✓ | ✓ |
+| `rate-limit-5h` | ✓ | ✗ | ✗ |
+| `rate-limit-7d` | ✓ | ✗ | ✗ |
+
+✓ renders · ✗ no data, stays hidden. **†** Under Pi, `tokens` doesn't self-hide yet: Pi reports context-window % but no token counts, so the segment shows `↑0 ↓0` — marked ✗ here because it carries no real data.
 
 ### Burn rates, projections, and trends
 
