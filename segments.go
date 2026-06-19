@@ -153,7 +153,7 @@ func updateHintFor(kind installKind) string {
 	case kindNpm:
 		return "npm update -g @morgan.rebrand/claude-statusline"
 	case kindBrew:
-		return "brew upgrade claude-statusline"
+		return "claude-statusline update"
 	default:
 		return "claude-statusline update"
 	}

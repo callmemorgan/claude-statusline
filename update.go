@@ -217,6 +217,18 @@ func detectInstallKind(exePath, version string) installKind {
 	return kindManual
 }
 
+// isBrewFormula reports whether a Homebrew-installed binary is still coming
+// from a Formula (Cellar) rather than a Cask (Caskroom). Used during the
+// v1.5.3 → v1.6.0 migration to switch formula installs to the new cask.
+func isBrewFormula(exePath string) bool {
+	return strings.Contains(strings.ToLower(filepath.ToSlash(exePath)), "/cellar/")
+}
+
+// shellquote returns s quoted for a POSIX shell.
+func shellquote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 // currentExePath resolves the running binary's path, following symlinks when
 // possible. On a symlink-resolution error it falls back to the unresolved
 // os.Executable() path rather than discarding it: filepath.EvalSymlinks
@@ -378,7 +390,7 @@ const updateStaleLockTolerance = updateBrewTimeout + 2*time.Minute
 // smoke-test). Behavior:
 //
 //	kindDev        → hint to go install; exit 0.
-//	kindBrew       → brew upgrade (live output); missing brew → exit 1.
+//	kindBrew       → brew formula→cask migration or cask upgrade (live output); missing brew → exit 1.
 //	newer exists   → download + swap, share the worker's pipeline.
 //	already current → "up to date"; exit 0.
 //	--check        → resolve + report; never install.
@@ -460,11 +472,26 @@ func runUpdateFor(args []string, checkOnly bool, current string, kind installKin
 			osExit(1)
 			return
 		}
-		// Refresh our tap first so brew sees a freshly-published formula
+		// Refresh our tap first so brew sees a freshly-published package
 		// despite HOMEBREW_NO_AUTO_UPDATE.
 		refreshBrewTapFn(brewPath)
-		// The subcommand path uses the same runner the worker uses (with
-		// live output) so tests can stub one seam for both call sites.
+		if isBrewFormula(currentExePath()) {
+			// This is a legacy Formula install. The v1.6.0+ distribution is a
+			// Cask, so migrate by uninstalling the formula and installing the
+			// cask. This runs outside of Homebrew's install flow, so it can
+			// safely call brew itself.
+			_, err := brewMigrateRunner(brewPath, true, 0)
+			if err != nil {
+				releaseLock()
+				fmt.Fprintf(os.Stderr, "claude-statusline update: brew formula→cask migration failed: %v\n", err)
+				osExit(1)
+				return
+			}
+			recordUpdateResult(current, latest, "brew-formula-to-cask", false)
+			fmt.Printf("Migrated v%s → cask v%s. Run `claude-statusline release-notes` to see what changed.\n", current, latest)
+			return
+		}
+		// Already a Cask install: upgrade it.
 		_, err := brewRunner(brewPath, true, 0)
 		if err != nil {
 			releaseLock()
@@ -472,8 +499,6 @@ func runUpdateFor(args []string, checkOnly bool, current string, kind installKin
 			osExit(1)
 			return
 		}
-		// Verified=false: Homebrew runs its own bottle integrity check; our
-		// embedded-key cosign verifier doesn't gate this path.
 		recordUpdateResult(current, latest, "brew", false)
 	case kindManual:
 		if err := downloadAndSwapFn(latest, current); err != nil {
@@ -1038,7 +1063,7 @@ var findBrewExe = resolveBrew
 // updateBrewTapTimeout bounds the pre-upgrade tap refresh.
 const updateBrewTapTimeout = 30 * time.Second
 
-// refreshBrewTap pulls the latest formula for our tap before `brew upgrade`.
+// refreshBrewTap pulls the latest package for our tap before `brew upgrade --cask`.
 // Because the upgrade runs with HOMEBREW_NO_AUTO_UPDATE=1 (so brew doesn't
 // refresh every tap on the system), a stale local tap would make `brew upgrade`
 // report "already installed" against an outdated formula — exactly what hides a
@@ -1069,7 +1094,7 @@ func refreshBrewTap(brewPath string) {
 // shelling out to brew/git.
 var refreshBrewTapFn = refreshBrewTap
 
-// brewRunner runs `brew upgrade claude-statusline` with rails that keep
+// brewRunner runs `brew upgrade --cask claude-statusline` with rails that keep
 // the worker polite to the user's system. live=true streams output to the
 // caller's terminal; live=false discards it. timeout=0 means no timeout
 // (used by the foreground subcommand); otherwise a context with that timeout
@@ -1087,7 +1112,38 @@ var brewRunner = func(brewPath string, live bool, timeout time.Duration) ([]stri
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	c := exec.CommandContext(ctx, brewPath, "upgrade", "claude-statusline")
+	c := exec.CommandContext(ctx, brewPath, "upgrade", "--cask", "claude-statusline")
+	c.Env = append(os.Environ(),
+		"HOMEBREW_NO_AUTO_UPDATE=1",
+		"HOMEBREW_NO_INSTALL_CLEANUP=1",
+	)
+	if live {
+		c.Stdout = os.Stdout
+		c.Stderr = os.Stderr
+	} else {
+		c.Stdout = io.Discard
+		c.Stderr = io.Discard
+	}
+	return c.Env, c.Run()
+}
+
+// brewMigrateRunner uninstalls the old Homebrew formula and installs the new
+// cask. It mirrors brewRunner's live/output behaviour and is a package var so
+// tests can stub it. The actual brew invocation runs outside of Homebrew's
+// install flow, so it doesn't hold any brew locks.
+var brewMigrateRunner = func(brewPath string, live bool, timeout time.Duration) ([]string, error) {
+	ctx := context.Background()
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	// Run through the shell so we can chain the uninstall and cask install.
+	// This executes outside of Homebrew's own install flow, so it doesn't hold
+	// brew's internal locks.
+	script := fmt.Sprintf("%s uninstall --force claude-statusline && %s install --cask %s/claude-statusline",
+		shellquote(brewPath), shellquote(brewPath), updateBrewTap)
+	c := exec.CommandContext(ctx, "sh", "-c", script)
 	c.Env = append(os.Environ(),
 		"HOMEBREW_NO_AUTO_UPDATE=1",
 		"HOMEBREW_NO_INSTALL_CLEANUP=1",
@@ -1323,13 +1379,18 @@ func runUpdateCheck() {
 		if brewPath == "" {
 			return
 		}
-		// Refresh our tap first so brew sees a freshly-published formula
+		// Refresh our tap first so brew sees a freshly-published package
 		// despite HOMEBREW_NO_AUTO_UPDATE.
 		refreshBrewTapFn(brewPath)
-		// Brew upgrade is slow; the runner discards output. Failure is
-		// silent — the next interval retries.
+		if isBrewFormula(exe) {
+			// Legacy Formula install: silently migrate to the v1.6.0+ Cask.
+			if _, err := brewMigrateRunner(brewPath, false, updateBrewTimeout); err == nil {
+				recordUpdateResult(current, latest, "brew-formula-to-cask", false)
+			}
+			return
+		}
+		// Already a Cask install: normal upgrade.
 		if _, err := brewRunner(brewPath, false, updateBrewTimeout); err == nil {
-			// Verified=false: Homebrew does its own integrity check.
 			recordUpdateResult(current, latest, "brew", false)
 		}
 	case kindManual:

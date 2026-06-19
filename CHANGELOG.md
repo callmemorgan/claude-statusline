@@ -7,6 +7,9 @@ much larger values (e.g. 99999) to force top placement. Bullets without a
 marker default to importance 0.
 -->
 
+## v1.5.3 — 2026-06-18
+- [5] **Automatic Homebrew migration to Cask.** The v1.6.0 release switches Homebrew distribution from a Formula to a Cask. v1.5.3 detects legacy Formula installs and, on the next auto-update check or explicit `claude-statusline update`, runs `brew uninstall claude-statusline && brew install --cask callmemorgan/tap/claude-statusline` to migrate them. Cask installs already use `brew upgrade --cask`.
+
 ## v1.5.2 — 2026-06-18
 - [5] **pi extension.** `pi install npm:@morgan.rebrand/claude-statusline` now wires the renderer into pi's footer as a first-class extension. The TypeScript extension refreshes on session/turn/model events, requires no separate `claude-statusline install` step inside pi, and resolves the Go binary from the same per-platform npm optional dependencies. Update it with `pi update --extension npm:@morgan.rebrand/claude-statusline` or alongside pi with `pi update`.
 - [2] Added a CI smoke test for the pi TypeScript extension.
