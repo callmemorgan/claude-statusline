@@ -7,6 +7,9 @@ much larger values (e.g. 99999) to force top placement. Bullets without a
 marker default to importance 0.
 -->
 
+## v1.7.0 — 2026-06-21
+- [3] **Dedicated npm READMEs.** Every published npm package — the main `@morgan.rebrand/claude-statusline` package and all seven per-platform optional dependencies — now ships with its own README. The build script verifies each README exists before packing, so the matrix can't drift.
+
 ## v1.6.1 — 2026-06-18
 - [5] **Revert Homebrew distribution to a Formula.** The v1.6.0 cask collided with the existing `claude-statusline` formula in the tap, which broke `brew upgrade` and auto-update for existing installs. We're going back to the `brews` formula in GoReleaser; install and upgrade with `brew install claude-statusline` and `brew upgrade claude-statusline` as before. A cask under a different token (`agents-statusline`) will be introduced separately later.
 - [2] Fixed remaining Biome lint/format errors in the npm shim and `scripts/build-npm.mjs` so `make lint-js` is green.

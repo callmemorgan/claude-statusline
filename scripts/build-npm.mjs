@@ -13,6 +13,7 @@ import {
 import { join } from "node:path";
 
 const pkgFamily = "@morgan.rebrand/claude-statusline";
+const readmesDir = "npm/readmes";
 
 const targets = [
 	{ goos: "darwin", goarch: "arm64", os: "darwin", cpu: "arm64" },
@@ -80,6 +81,32 @@ function platformPackageName(os, cpu) {
 	return `${pkgFamily}-${os}-${cpu}`;
 }
 
+function platformReadmePath(os, cpu) {
+	return join(readmesDir, `README.${os}-${cpu}.md`);
+}
+
+function mainReadmePath() {
+	return join(readmesDir, "README.md");
+}
+
+function validateReadmes() {
+	const missing = [];
+	if (!existsSync(mainReadmePath())) {
+		missing.push(mainReadmePath());
+	}
+	for (const t of targets) {
+		const p = platformReadmePath(t.os, t.cpu);
+		if (!existsSync(p)) {
+			missing.push(p);
+		}
+	}
+	if (missing.length > 0) {
+		throw new Error(
+			`missing npm README files:\n${missing.map((m) => `  - ${m}`).join("\n")}`,
+		);
+	}
+}
+
 function smokeTest(binPath, version) {
 	const r = spawnSync(binPath, ["version"], { encoding: "utf8", shell: false });
 	if (r.error)
@@ -101,6 +128,8 @@ function main() {
 		console.error(`dist directory not found: ${distDir}`);
 		process.exit(1);
 	}
+
+	validateReadmes();
 
 	const outRoot = "npm";
 	mkdirSync(outRoot, { recursive: true });
@@ -154,12 +183,13 @@ function main() {
 			},
 			os: [t.os],
 			cpu: [t.cpu],
-			files: ["bin/"],
+			files: ["bin/", "README.md"],
 		};
 		writeFileSync(
 			join(pkgDir, "package.json"),
 			`${JSON.stringify(pkgJson, null, 2)}\n`,
 		);
+		cpSync(platformReadmePath(t.os, t.cpu), join(pkgDir, "README.md"));
 
 		optionalDependencies[name] = version;
 	}
@@ -200,6 +230,9 @@ function main() {
 	const extSrc = "npm/claude-statusline/extensions";
 	const extDst = join(mainDir, "extensions");
 	cpSync(extSrc, extDst, { recursive: true });
+
+	// Copy the README so the npm package page has rendered documentation.
+	cpSync(mainReadmePath(), join(mainDir, "README.md"));
 
 	writeFileSync(
 		join(mainDir, "package.json"),
