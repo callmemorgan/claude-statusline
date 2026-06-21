@@ -38,6 +38,11 @@ const (
 	exitAltScreen  = csi + "?1049l"
 )
 
+// colorDepths is the ordered list of color-depth choices the wizard offers.
+// The selected index is resolved against this slice in newWizard and the same
+// slice is rendered in showColorDepth, so the two never drift.
+var colorDepths = []string{"auto", "truecolor", "256", "16", "none"}
+
 // wizardColors holds the small set of SGR escapes used by the wizard. All
 // fields are empty when colors are disabled so output stays plain text.
 type wizardColors struct {
@@ -97,10 +102,24 @@ func hasHelpFlag() bool {
 	return false
 }
 
-func cleanupTerminal() {
-	// Best-effort cleanup if we exit in raw mode. Exit the alternate screen
-	// buffer (no-op if we never entered it) and show the cursor again.
-	fmt.Print(exitAltScreen + showCursor)
+// restore leaves the alternate screen, shows the cursor, and returns the
+// terminal to cooked mode so any final output (the saved-config confirmation,
+// the install subprocess) renders on the user's primary screen with normal
+// newline handling instead of being discarded when the alt screen exits. It
+// is idempotent and a no-op when raw mode was never entered (line mode).
+func (w *wizard) restore() {
+	if w.restored {
+		return
+	}
+	w.restored = true
+	if !w.raw {
+		return
+	}
+	fmt.Fprint(w.out, exitAltScreen+showCursor)
+	term.Restore(int(os.Stdin.Fd()), w.oldState)
+	// Back in cooked mode the terminal translates "\n" itself, so drop the
+	// CRLF-translating wrapper and write straight to stdout.
+	w.out = os.Stdout
 }
 
 // crlfWriter wraps an io.Writer and converts lone LF bytes into CRLF. This
@@ -171,6 +190,12 @@ type wizard struct {
 	out    io.Writer
 	colors wizardColors
 
+	// raw, oldState, and restored track the raw-mode/alt-screen terminal
+	// lifecycle so final output can be flushed to the primary screen.
+	raw      bool
+	oldState *term.State
+	restored bool
+
 	// lineMode is true when stdin is not a terminal; input is read a line at a
 	// time and mapped to the same actions as the raw-mode key parser.
 	lineMode bool
@@ -189,8 +214,7 @@ func newWizard() *wizard {
 		themeIdx = 0
 	}
 
-	depths := []string{"auto", "truecolor", "256", "16", "none"}
-	depthIdx := indexOf(depths, firstNonEmpty(cfg.ColorDepth, "auto"))
+	depthIdx := indexOf(colorDepths, firstNonEmpty(cfg.ColorDepth, "auto"))
 	if depthIdx < 0 {
 		depthIdx = 0
 	}
@@ -228,7 +252,8 @@ func (w *wizard) run() error {
 		if err != nil {
 			return fmt.Errorf("cannot set raw mode: %w", err)
 		}
-		defer term.Restore(int(os.Stdin.Fd()), old)
+		w.raw = true
+		w.oldState = old
 		// Raw mode does not translate LF to CRLF, so plain "\n" leaves the
 		// cursor hanging at the previous column and produces staggered lines
 		// in terminals like Claude Code's. Wrap stdout so every "\n" becomes
@@ -238,7 +263,7 @@ func (w *wizard) run() error {
 	} else {
 		fmt.Fprint(w.out, clearScreen+cursorHome)
 	}
-	defer cleanupTerminal()
+	defer w.restore()
 
 	for w.step >= 0 && w.step <= 5 {
 		switch w.step {
@@ -453,7 +478,7 @@ func (w *wizard) showTheme() error {
 // ─── Color depth ──────────────────────────────────────────────────────
 
 func (w *wizard) showColorDepth() error {
-	depths := []string{"auto", "truecolor", "256", "16", "none"}
+	depths := colorDepths
 	for {
 		w.clearAndHome()
 		w.header("Choose color depth")
@@ -610,10 +635,13 @@ func (w *wizard) showSummary() error {
 }
 
 func (w *wizard) save() error {
+	// Leave the alt screen and raw mode first so the confirmation and the
+	// install subprocess output land on the primary screen and are not erased
+	// when the wizard exits.
+	w.restore()
 	if err := config.SaveConfig(w.cfg); err != nil {
 		return fmt.Errorf("could not save config: %w", err)
 	}
-	w.clearAndHome()
 	fmt.Fprintf(w.out, "%s✓ Configuration saved to %s%s\n", w.colors.OK, config.ConfigPath(), w.colors.Reset)
 
 	if w.install {
@@ -635,7 +663,7 @@ func (w *wizard) save() error {
 
 func (w *wizard) cancel(msg string) error {
 	w.step = -1
-	w.clearAndHome()
+	w.restore()
 	fmt.Fprintf(w.out, "%s%s%s\n", w.colors.Warn, msg, w.colors.Reset)
 	return nil
 }
