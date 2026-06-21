@@ -16,7 +16,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"golang.org/x/term"
 
@@ -26,12 +28,14 @@ import (
 )
 
 const (
-	esc         = "\x1b"
-	csi         = esc + "["
-	clearScreen = csi + "2J"
-	cursorHome  = csi + "H"
-	hideCursor  = csi + "?25l"
-	showCursor  = csi + "?25h"
+	esc            = "\x1b"
+	csi            = esc + "["
+	clearScreen    = csi + "2J"
+	cursorHome     = csi + "H"
+	hideCursor     = csi + "?25l"
+	showCursor     = csi + "?25h"
+	enterAltScreen = csi + "?1049h"
+	exitAltScreen  = csi + "?1049l"
 )
 
 // wizardColors holds the small set of SGR escapes used by the wizard. All
@@ -94,8 +98,61 @@ func hasHelpFlag() bool {
 }
 
 func cleanupTerminal() {
-	// Best-effort cleanup if we exit in raw mode.
-	fmt.Print(showCursor)
+	// Best-effort cleanup if we exit in raw mode. Exit the alternate screen
+	// buffer (no-op if we never entered it) and show the cursor again.
+	fmt.Print(exitAltScreen + showCursor)
+}
+
+// crlfWriter wraps an io.Writer and converts lone LF bytes into CRLF. This
+// keeps raw-mode terminal output left-aligned because the terminal driver is
+// no longer translating newlines for us.
+type crlfWriter struct {
+	w io.Writer
+}
+
+func (c *crlfWriter) Write(p []byte) (n int, err error) {
+	var buf []byte
+	lastCR := false
+	for _, b := range p {
+		if b == '\n' && !lastCR {
+			buf = append(buf, '\r', '\n')
+		} else {
+			buf = append(buf, b)
+		}
+		lastCR = b == '\r'
+	}
+	_, err = c.w.Write(buf)
+	if err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+// detectTerminalWidth returns a sensible terminal width for wrapping wizard
+// output. It prefers the $COLUMNS environment variable, falls back to the
+// kernel winsize, and clamps the result to a safe range. Embedded terminals
+// (e.g. Claude Code's panel) sometimes report 0 or an absurd value, so the
+// clamping prevents the ugly soft-wrapping seen when we trust a bogus width.
+func detectTerminalWidth() int {
+	if v := os.Getenv("COLUMNS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 20 {
+			return clampWidth(n)
+		}
+	}
+	if n, _, err := term.GetSize(int(os.Stdin.Fd())); err == nil && n >= 20 {
+		return clampWidth(n)
+	}
+	return 80
+}
+
+func clampWidth(n int) int {
+	if n < 40 {
+		return 40
+	}
+	if n > 200 {
+		return 200
+	}
+	return n
 }
 
 // wizard holds the wizard state and I/O primitives.
@@ -117,6 +174,10 @@ type wizard struct {
 	// lineMode is true when stdin is not a terminal; input is read a line at a
 	// time and mapped to the same actions as the raw-mode key parser.
 	lineMode bool
+
+	// width is the terminal width used for wrapping output. It defaults to 80
+	// when the terminal size cannot be detected.
+	width int
 }
 
 func newWizard() *wizard {
@@ -157,6 +218,7 @@ func newWizard() *wizard {
 		out:        os.Stdout,
 		colors:     newWizardColors(),
 		lineMode:   !term.IsTerminal(int(os.Stdin.Fd())),
+		width:      detectTerminalWidth(),
 	}
 }
 
@@ -167,10 +229,16 @@ func (w *wizard) run() error {
 			return fmt.Errorf("cannot set raw mode: %w", err)
 		}
 		defer term.Restore(int(os.Stdin.Fd()), old)
+		// Raw mode does not translate LF to CRLF, so plain "\n" leaves the
+		// cursor hanging at the previous column and produces staggered lines
+		// in terminals like Claude Code's. Wrap stdout so every "\n" becomes
+		// "\r\n" while ANSI sequences pass through untouched.
+		w.out = &crlfWriter{w.out}
+		fmt.Fprint(w.out, enterAltScreen+hideCursor+clearScreen+cursorHome)
+	} else {
+		fmt.Fprint(w.out, clearScreen+cursorHome)
 	}
 	defer cleanupTerminal()
-
-	fmt.Fprint(w.out, hideCursor+clearScreen+cursorHome)
 
 	for w.step >= 0 && w.step <= 5 {
 		switch w.step {
@@ -225,19 +293,111 @@ func (w *wizard) println(format string, args ...any) {
 	fmt.Fprintf(w.out, format+"\n", args...)
 }
 
+// printWrapped prints text wrapped to the wizard's terminal width.
+func (w *wizard) printWrapped(text string) {
+	for _, line := range wrapText(text, w.width) {
+		w.println(line)
+	}
+}
+
+// visibleWidth returns the number of visible runes in s, skipping ANSI CSI
+// SGR escape sequences so wrapping calculations don't over-count.
+func visibleWidth(s string) int {
+	w := 0
+	inEsc := false
+	for i := 0; i < len(s); {
+		b := s[i]
+		if inEsc {
+			if b == 'm' {
+				inEsc = false
+			}
+			i++
+			continue
+		}
+		if b == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			inEsc = true
+			i += 2
+			continue
+		}
+		// Count runes instead of bytes so multi-byte characters are one column.
+		_, size := utf8.DecodeRuneInString(s[i:])
+		w++
+		i += size
+	}
+	return w
+}
+
+// wrapText wraps text into lines no longer than width visible columns. It
+// breaks at spaces when possible and preserves existing newlines.
+func wrapText(text string, width int) []string {
+	if width < 1 {
+		return []string{text}
+	}
+	var lines []string
+	for _, raw := range strings.Split(text, "\n") {
+		line := strings.TrimRight(raw, " \t")
+		if visibleWidth(line) <= width {
+			lines = append(lines, line)
+			continue
+		}
+		words := strings.Fields(line)
+		if len(words) == 0 {
+			lines = append(lines, "")
+			continue
+		}
+		current := words[0]
+		for _, word := range words[1:] {
+			candidate := current + " " + word
+			if visibleWidth(candidate) <= width {
+				current = candidate
+				continue
+			}
+			lines = append(lines, current)
+			current = word
+		}
+		lines = append(lines, current)
+	}
+	return lines
+}
+
+// wrapTextIndent wraps text with a hanging indent: the first line starts at
+// column 0, subsequent lines are indented by indent spaces.
+func wrapTextIndent(text string, width, indent int) []string {
+	inner := width - indent
+	if inner < 1 {
+		inner = 1
+	}
+	wrapped := wrapText(text, inner)
+	if len(wrapped) == 0 {
+		return wrapped
+	}
+	pad := strings.Repeat(" ", indent)
+	for i := 1; i < len(wrapped); i++ {
+		wrapped[i] = pad + wrapped[i]
+	}
+	return wrapped
+}
+
 // ─── Welcome ──────────────────────────────────────────────────────────
 
 func (w *wizard) showWelcome() error {
 	w.clearAndHome()
 	w.header("Welcome to claude-statusline")
-	w.println("This wizard will set up your statusline in a few steps:")
+	w.printWrapped("This wizard will set up your statusline in a few steps:")
 	w.println("")
-	w.println("  1. Pick a theme")
-	w.println("  2. Pick a color depth")
-	w.println("  3. Choose which segments to show")
-	w.println("  4. Decide whether to wire into Claude Code")
+	items := []string{
+		"1. Pick a theme",
+		"2. Pick a color depth",
+		"3. Choose which segments to show",
+		"4. Decide whether to wire into Claude Code",
+	}
+	for _, item := range items {
+		for _, line := range wrapTextIndent(item, w.width-2, 4) {
+			w.println("  " + line)
+		}
+	}
 	w.println("")
-	w.println("You can cancel at any time with q or Ctrl-C.")
+	w.printWrapped("You can cancel at any time with q or Ctrl-C.")
 	w.footer()
 
 	for {
@@ -246,7 +406,7 @@ func (w *wizard) showWelcome() error {
 			return err
 		}
 		switch k {
-		case "enter", " ":
+		case "enter", "space":
 			w.step = 1
 			return nil
 		case "q", "ctrl-c":
@@ -364,7 +524,7 @@ func (w *wizard) showSegments() error {
 			if w.segCursor < len(ids)-1 {
 				w.segCursor++
 			}
-		case " ":
+		case "space":
 			id := ids[w.segCursor]
 			w.segChecked[id] = !w.segChecked[id]
 		case "enter":
@@ -389,8 +549,8 @@ func (w *wizard) showInstall() error {
 	for {
 		w.clearAndHome()
 		w.header("Install into Claude Code?")
-		w.println("Wire this binary into ~/.claude/settings.json so Claude Code")
-		w.println("uses it as the statusline command.\n")
+		w.printWrapped("Wire this binary into ~/.claude/settings.json so Claude Code uses it as the statusline command.")
+		w.println("")
 
 		w.drawYesNo(w.yesNoIdx == 0, w.yesNoIdx == 1)
 		w.footer()
@@ -429,9 +589,9 @@ func (w *wizard) showSummary() error {
 		w.println("")
 
 		if w.install {
-			w.println("Config will be saved and Claude Code will be wired.")
+			w.printWrapped("Config will be saved and Claude Code will be wired.")
 		} else {
-			w.println("Config will be saved. Run 'claude-statusline install' later.")
+			w.printWrapped("Config will be saved. Run 'claude-statusline install' later.")
 		}
 		w.println("")
 		fmt.Fprintf(w.out, "%s[y/Enter] save  [n/q] cancel%s\n", c.Dim, c.Reset)
