@@ -263,9 +263,6 @@ func TestAnnounceLines(t *testing.T) {
 		if !strings.Contains(got[0], "v1.1.0") || !strings.Contains(got[0], "first bullet") {
 			t.Errorf("missing version or first bullet: %q", got[0])
 		}
-		if !strings.Contains(got[0], "release-notes") {
-			t.Errorf("missing subcommand hint: %q", got[0])
-		}
 		if strings.ContainsRune(got[0], 0x1b) {
 			t.Errorf("empty palette should produce no escapes: %q", got[0])
 		}
@@ -273,7 +270,7 @@ func TestAnnounceLines(t *testing.T) {
 			t.Errorf("line should start with single-space pad, got %q", got[0])
 		}
 	})
-	t.Run("n=3 header/bullet/hint", func(t *testing.T) {
+	t.Run("n=3 header/bullet/bullet", func(t *testing.T) {
 		got := announceLines(note, 3, noBudgets(3), emptyPalette, 1)
 		if len(got) != 3 {
 			t.Fatalf("len = %d, want 3", len(got))
@@ -284,44 +281,40 @@ func TestAnnounceLines(t *testing.T) {
 		if !strings.Contains(got[1], "first bullet") {
 			t.Errorf("line 1 should be first bullet: %q", got[1])
 		}
-		if !strings.Contains(got[2], "config.toml") {
-			t.Errorf("line 2 should be the hint: %q", got[2])
+		if !strings.Contains(got[2], "second bullet") {
+			t.Errorf("line 2 should be second bullet: %q", got[2])
 		}
 	})
-	t.Run("n=8 with 3 bullets pads middle to keep hint last", func(t *testing.T) {
+	t.Run("n=8 with 3 bullets pads empties after them", func(t *testing.T) {
 		got := announceLines(note, 8, noBudgets(8), emptyPalette, 1)
 		if len(got) != 8 {
 			t.Fatalf("len = %d, want 8", len(got))
 		}
-		// 1 header (0) + 3 bullets (1,2,3) + 3 empty middle pads (4,5,6)
-		// + hint last (7).
-		if !strings.Contains(got[7], "config.toml") {
-			t.Errorf("line 7 should be hint, got %q", got[7])
-		}
+		// 1 header (0) + 3 bullets (1,2,3) + 4 empty pads (4,5,6,7).
 		if !strings.Contains(got[1], "first bullet") {
 			t.Errorf("line 1 should be first bullet, got %q", got[1])
 		}
-		// Middle pads should be empty visible content (just the pad space).
-		for i := 4; i <= 6; i++ {
+		// Pads should be empty visible content (just the pad space).
+		for i := 4; i <= 7; i++ {
 			if got[i] != " " {
 				t.Errorf("line %d should be a single pad space, got %q", i, got[i])
 			}
 		}
 	})
-	t.Run("n=4 truncates trailing bullets", func(t *testing.T) {
+	t.Run("n=4 shows all bullets", func(t *testing.T) {
 		got := announceLines(note, 4, noBudgets(4), emptyPalette, 1)
 		if len(got) != 4 {
 			t.Fatalf("len = %d, want 4", len(got))
 		}
-		// header + 2 bullets + hint
+		// header + 3 bullets
+		if !strings.Contains(got[1], "first bullet") {
+			t.Errorf("line 1 should be first bullet: %q", got[1])
+		}
 		if !strings.Contains(got[2], "second bullet") {
 			t.Errorf("line 2 should be second bullet: %q", got[2])
 		}
-		if !strings.Contains(got[3], "config.toml") {
-			t.Errorf("line 3 should be the hint: %q", got[3])
-		}
-		if strings.Contains(got[2], "third bullet") {
-			t.Errorf("line 2 should not contain third bullet: %q", got[2])
+		if !strings.Contains(got[3], "third bullet") {
+			t.Errorf("line 3 should be third bullet: %q", got[3])
 		}
 	})
 	t.Run("long bullet truncated at budget", func(t *testing.T) {
@@ -353,7 +346,7 @@ func TestAnnounceLines(t *testing.T) {
 			t.Errorf("line 0 missing accent color: %q", got[0])
 		}
 	})
-	t.Run("no bullets still produces header+hint", func(t *testing.T) {
+	t.Run("no bullets pads with empties", func(t *testing.T) {
 		empty := releaseNote{Version: "1.1.0"}
 		got := announceLines(empty, 2, noBudgets(2), emptyPalette, 1)
 		if len(got) != 2 {
@@ -362,8 +355,8 @@ func TestAnnounceLines(t *testing.T) {
 		if !strings.Contains(got[0], "v1.1.0") {
 			t.Errorf("line 0 should have version: %q", got[0])
 		}
-		if !strings.Contains(got[1], "config.toml") {
-			t.Errorf("line 1 should be the hint: %q", got[1])
+		if got[1] != " " {
+			t.Errorf("line 1 should be a single pad space, got %q", got[1])
 		}
 	})
 	t.Run("padding=3 indents all lines by 3", func(t *testing.T) {

@@ -475,32 +475,26 @@ func announceLines(note releaseNote, n int, budgets []int, c palette.Palette, pa
 	dim := c.Dim
 	rst := c.Rst
 
-	hint := "↳ claude-statusline release-notes · configure: [release_notes] in config.toml"
-
-	// Slot layout: line 0 = header, line n-1 = hint (when n>=2), the rest
-	// are bullets (as many as fit), padded with empties to keep the hint
-	// last. The n=1 form packs everything into a single header line.
+	// Slot layout: line 0 = header, the rest are bullets (as many as fit).
+	// The n=1 form packs the first bullet into the header line so a single-
+	// line statusline still shows something useful.
 	var out []string
 	if n == 1 {
 		hdr := "✨ claude-statusline v" + note.Version
 		if len(note.Bullets) > 0 {
 			hdr += " — " + bulletDisplayText(note.Bullets[0])
 		}
-		hdr += " · claude-statusline release-notes"
 		out = []string{hdr}
 	} else {
 		hdr := "✨ claude-statusline updated to v" + note.Version
-		mid := n - 2 // slots between header and hint
-		bullets := min(mid, len(note.Bullets))
 		out = make([]string, 0, n)
 		out = append(out, hdr)
-		for i := range bullets {
+		for i := range min(n-1, len(note.Bullets)) {
 			out = append(out, " • "+bulletDisplayText(note.Bullets[i]))
 		}
-		for len(out) < n-1 {
+		for len(out) < n {
 			out = append(out, "")
 		}
-		out = append(out, hint)
 	}
 
 	pad := strings.Repeat(" ", padding)

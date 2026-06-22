@@ -7,6 +7,9 @@ much larger values (e.g. 99999) to force top placement. Bullets without a
 marker default to importance 0.
 -->
 
+## v1.7.2 — 2026-06-22
+- [5] **Post-upgrade takeover now shows actual release notes.** The announcement no longer wastes lines on a configuration hint; every available line is used for the version header and CHANGELOG bullets.
+
 ## v1.7.1 — 2026-06-22
 - [4] **Plugins are now visible in the TUI assembler.** Plugin segments are marked with a 📌 indicator, and the footer shows a matching legend. Plugins can also declare a `preview` value that is rendered in the assembler, flyout preview, demo mode, and terminal view instead of running the real command against synthetic data.
 
