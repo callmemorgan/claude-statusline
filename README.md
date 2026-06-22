@@ -442,12 +442,26 @@ Each field ID is an independent segment — independently togglable, positionabl
 - `command` — path to the executable; `~` is expanded
 - `line` — default line (1–9); overridable via TUI or `[lines]`
 - `desc` — shown in the TUI description panel
+- `preview` — sample value shown in the TUI assembler/preview so the segment is visible even when the real command needs live environment data
 - `timeout_ms` — kill the process after this many ms (default: 200 sync, 10000 async); hidden if it times out or exits non-zero
 - `async` — opt into stale-while-revalidate caching (default: `false`)
 - `refresh_ms` — how stale the cache may get before a background refresh (default: 5000; minimum: 500); ignored when `async = false`
-- `fields` — multi-field mode; output must use `key:value` lines; mutually exclusive with top-level `id`
+- `fields` — multi-field mode; output must use `key:value` lines; mutually exclusive with top-level `id`; each field can also set `preview`. When `fields` is used, set `preview` on each field — the top-level plugin `preview` is ignored.
 
 Plugin IDs are **auto-appended** to `segments` if not already present, so they appear immediately without editing the list manually.
+
+### Preview / TUI visualization
+
+Plugins usually depend on live environment data (`STATUSLINE_DIR`, git state, network APIs, etc.), so they often render empty in the TUI's synthetic preview. Add a `preview` value to make the segment visible while you arrange lines and colors:
+
+```toml
+[[plugins]]
+id = "open-pr"
+command = "~/.config/claude-statusline/plugins/open-pr.sh"
+preview = "⛓ #123: fix typo"
+```
+
+The `preview` string is used only in TUI preview surfaces (the segment assembler, per-segment preview, demo mode, and the `v` terminal view). The real `command` still runs during normal renders. Multi-field plugins can set `preview` on each field independently.
 
 ### Async plugins
 

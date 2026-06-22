@@ -47,12 +47,18 @@ func Load(plugins []config.PluginDef) {
 				if desc == "" {
 					desc = field.ID
 				}
+				preview := field.Preview
 				segments.Register(segments.Info{
 					ID:           field.ID,
 					Line:         line,
 					Desc:         desc + " [plugin]",
 					PrimaryColor: "Dim",
+					Plugin:       true,
+					Preview:      preview,
 					Render: func(ctx segments.RenderCtx) (string, bool) {
+						if ctx.Preview && preview != "" {
+							return preview, true
+						}
 						out := RunPluginField(def, ctx.P, field.ID)
 						return out, out != ""
 					},
@@ -68,12 +74,18 @@ func Load(plugins []config.PluginDef) {
 			if desc == "" {
 				desc = def.ID
 			}
+			preview := def.Preview
 			segments.Register(segments.Info{
 				ID:           def.ID,
 				Line:         line,
 				Desc:         desc + " [plugin]",
 				PrimaryColor: "Dim",
+				Plugin:       true,
+				Preview:      preview,
 				Render: func(ctx segments.RenderCtx) (string, bool) {
+					if ctx.Preview && preview != "" {
+						return preview, true
+					}
 					out := RunPluginRaw(def, ctx.P)
 					return out, out != ""
 				},

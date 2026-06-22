@@ -40,12 +40,13 @@ func LineBudget(columns int, first bool) int {
 
 // Input is the top-level input to Statusline.
 type Input struct {
-	P     payload.Payload
-	C     palette.Palette
-	Cfg   config.Config
-	State *state.SessionState
-	Width int
-	Now   time.Time
+	P       payload.Payload
+	C       palette.Palette
+	Cfg     config.Config
+	State   *state.SessionState
+	Width   int
+	Now     time.Time
+	Preview bool // true when rendering for the TUI assembler/preview
 }
 
 // separators maps style names to glyphs (all single-cell wide).
@@ -99,12 +100,13 @@ func Statusline(in Input) []string {
 				}
 			}
 			ctx := segments.RenderCtx{
-				P:     in.P,
-				C:     segPalette,
-				S:     config.SettingsFor(in.Cfg, s.ID, s.Settings),
-				Cfg:   in.Cfg,
-				Width: in.Width,
-				Now:   in.Now,
+				P:       in.P,
+				C:       segPalette,
+				S:       config.SettingsFor(in.Cfg, s.ID, s.Settings),
+				Cfg:     in.Cfg,
+				Width:   in.Width,
+				Now:     in.Now,
+				Preview: in.Preview,
 			}
 			if s.NeedsState {
 				ctx.State = in.State

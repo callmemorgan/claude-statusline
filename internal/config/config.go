@@ -34,9 +34,10 @@ const DefaultMaxLines = 10
 const SameAsStatusLineSentinel = -1
 
 type PluginField struct {
-	ID   string `json:"id" toml:"id"`
-	Line int    `json:"line" toml:"line,omitempty"`
-	Desc string `json:"desc" toml:"desc,omitempty"`
+	ID      string `json:"id" toml:"id"`
+	Line    int    `json:"line" toml:"line,omitempty"`
+	Desc    string `json:"desc" toml:"desc,omitempty"`
+	Preview string `json:"preview" toml:"preview,omitempty"`
 }
 
 type PluginDef struct {
@@ -44,6 +45,7 @@ type PluginDef struct {
 	Command   string        `json:"command" toml:"command"`
 	Line      int           `json:"line" toml:"line,omitempty"`
 	Desc      string        `json:"desc" toml:"desc,omitempty"`
+	Preview   string        `json:"preview" toml:"preview,omitempty"`
 	TimeoutMS int           `json:"timeout_ms" toml:"timeout_ms,omitempty"`
 	Async     bool          `json:"async" toml:"async,omitempty"`
 	RefreshMS int           `json:"refresh_ms" toml:"refresh_ms,omitempty"`

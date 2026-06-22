@@ -44,12 +44,16 @@ var keymap = []keyBinding{
 }
 
 // footerText renders the footer hint line for a context.
-func footerText(context string) string {
+func footerText(context string, hasPlugin bool) string {
 	var parts []string
 	for _, kb := range keymap {
 		if kb.Context == context && kb.Footer {
 			parts = append(parts, kb.Keys+" "+kb.Action)
 		}
 	}
-	return " " + strings.Join(parts, " • ")
+	s := " " + strings.Join(parts, " • ")
+	if context == "main" && hasPlugin {
+		s += " • 📌 plugin"
+	}
+	return s
 }

@@ -93,6 +93,14 @@ func Run(readme string) {
 	plugins.Load(cfg.Plugins)
 	segments.UpdateRenderer = update.RenderSegment
 
+	hasPlugin := false
+	for _, s := range segments.All() {
+		if s.Plugin {
+			hasPlugin = true
+			break
+		}
+	}
+
 	// Synthetic data so every feature previews: an hour of session history
 	// for the state-derived segments, and a fake rich-git result (the sample
 	// payload's workspace isn't a real repo). Both are preview-only.
@@ -199,7 +207,7 @@ func Run(readme string) {
 		SetTextAlign(tview.AlignCenter).
 		SetWrap(true).
 		SetWordWrap(true).
-		SetText(footerText("main"))
+		SetText(footerText("main", hasPlugin))
 
 	// Help overlay — generated from the keymap table.
 	helpView := tview.NewTextView().
@@ -243,7 +251,7 @@ func Run(readme string) {
 		SetTextAlign(tview.AlignCenter).
 		SetWrap(true).
 		SetWordWrap(true).
-		SetText(footerText("flyout"))
+		SetText(footerText("flyout", hasPlugin))
 
 	var currentFlyoutSegment string
 
@@ -282,12 +290,13 @@ func Run(readme string) {
 		}
 		if s, ok := segments.ByID(currentFlyoutSegment); ok {
 			ctx := segments.RenderCtx{
-				P:     p,
-				C:     segPalette,
-				S:     config.SettingsFor(cfg, s.ID, s.Settings),
-				Cfg:   cfg,
-				State: pvState,
-				Now:   time.Now(),
+				P:       p,
+				C:       segPalette,
+				S:       config.SettingsFor(cfg, s.ID, s.Settings),
+				Cfg:     cfg,
+				State:   pvState,
+				Now:     time.Now(),
+				Preview: true,
 			}
 			if rendered, show := s.Render(ctx); show {
 				flyoutPreview.SetText(ansi.AnsiToTview(strings.TrimLeft(rendered, " ")))
@@ -506,7 +515,7 @@ func Run(readme string) {
 		if demoActive {
 			p = demoPreviewPayload(p, time.Now())
 		}
-		lines := render.Statusline(render.Input{P: p, C: palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors), Cfg: cfg, State: pvState, Width: width, Now: time.Now()})
+		lines := render.Statusline(render.Input{P: p, C: palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors), Cfg: cfg, State: pvState, Width: width, Now: time.Now(), Preview: true})
 		var previewText string
 		if previewWidth > 0 {
 			for i, l := range lines {
@@ -587,14 +596,19 @@ func Run(readme string) {
 			if len(s.Settings) > 0 {
 				arrow = " →"
 			}
+			pluginTag := ""
+			if s.Plugin {
+				pluginTag = " 📌"
+			}
 			mainText := fmt.Sprintf("%s%s%s%s", mark, s.ID, lineStr, colorStr)
-			if arrow != "" {
+			suffix := pluginTag + arrow
+			if suffix != "" {
 				_, _, innerWidth, _ := list.GetInnerRect()
-				pad := innerWidth - tview.TaggedStringWidth(mainText) - tview.TaggedStringWidth(arrow)
+				pad := innerWidth - tview.TaggedStringWidth(mainText) - tview.TaggedStringWidth(suffix)
 				if pad < 0 {
 					pad = 0
 				}
-				mainText += strings.Repeat(" ", pad) + arrow
+				mainText += strings.Repeat(" ", pad) + suffix
 			}
 			list.AddItem(mainText, "", 0, nil)
 		}
@@ -1003,7 +1017,7 @@ func Run(readme string) {
 					if err != nil || w <= 0 {
 						w = 80
 					}
-					lines := render.Statusline(render.Input{P: payload.SamplePayload(), C: palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors), Cfg: cfg, State: pvState, Width: w, Now: time.Now()})
+					lines := render.Statusline(render.Input{P: payload.SamplePayload(), C: palette.CurrentPalette(cfg.Theme, cfg.ColorDepth, cfg.ThemeColors), Cfg: cfg, State: pvState, Width: w, Now: time.Now(), Preview: true})
 					themeName := cfg.Theme
 					if themeName == "" {
 						themeName = "classic"
@@ -1160,8 +1174,8 @@ func Run(readme string) {
 		}
 		if sw, _ := screen.Size(); sw != lastScreenWidth {
 			lastScreenWidth = sw
-			flex.ResizeItem(help, ansi.FooterRows(footerText("main"), sw), 0)
-			flyoutFlex.ResizeItem(flyoutHelp, ansi.FooterRows(footerText("flyout"), sw), 0)
+			flex.ResizeItem(help, ansi.FooterRows(footerText("main", hasPlugin), sw), 0)
+			flyoutFlex.ResizeItem(flyoutHelp, ansi.FooterRows(footerText("flyout", hasPlugin), sw), 0)
 		}
 		return false
 	})

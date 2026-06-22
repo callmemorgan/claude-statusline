@@ -38,7 +38,9 @@ func buildHelpText() string {
 	b.WriteString("               classic (alias: original) is the pre-1.0 default look — v shows\n")
 	b.WriteString("               any theme against your real terminal\n")
 	b.WriteString("  [::b]presets[-:-:-]      named layouts — applying one replaces segments, lines, settings\n")
-	b.WriteString("  [::b]plugins[-:-:-]      executable segments defined in config.toml ([[plugins]])\n")
+	b.WriteString("  [::b]plugins[-:-:-]      executable segments defined in config.toml ([[plugins]]);\n")
+	b.WriteString("               marked with 📌 in the segment list; set preview = \"...\" to make\n")
+	b.WriteString("               them visible in the TUI preview\n")
 	b.WriteString("  [::b]projections[-:-:-]  →58% burn-rate forecasts appear after ~5 minutes of session\n")
 	b.WriteString("               history (the preview here fakes that history so you can see them)\n")
 

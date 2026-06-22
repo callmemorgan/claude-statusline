@@ -4,11 +4,13 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/callmemorgan/claude-statusline/internal/config"
 	"github.com/callmemorgan/claude-statusline/internal/payload"
+	"github.com/callmemorgan/claude-statusline/internal/segments"
 )
 
 // writeScript drops an executable shell script into a temp dir.
@@ -40,6 +42,131 @@ func TestPluginMultiField(t *testing.T) {
 	}
 	if got := RunPluginField(def, payload.Payload{}, "mem"); got != "73%" {
 		t.Errorf("mem = %q, want %q", got, "73%")
+	}
+}
+
+func TestLoadMarksSegmentsAsPlugins(t *testing.T) {
+	segments.Init()
+	script := writeScript(t, `echo hello`)
+	Load([]config.PluginDef{{ID: "hello", Command: script}})
+
+	seg, ok := segments.ByID("hello")
+	if !ok {
+		t.Fatal("expected plugin segment to be registered")
+	}
+	if !seg.Plugin {
+		t.Errorf("plugin segment Plugin = %v, want true", seg.Plugin)
+	}
+	if !strings.HasSuffix(seg.Desc, " [plugin]") {
+		t.Errorf("plugin segment Desc = %q, want [plugin] suffix", seg.Desc)
+	}
+
+	builtIn, ok := segments.ByID("model")
+	if !ok {
+		t.Fatal("expected built-in segment")
+	}
+	if builtIn.Plugin {
+		t.Errorf("built-in segment Plugin = %v, want false", builtIn.Plugin)
+	}
+}
+
+func TestPluginPreviewSingleField(t *testing.T) {
+	segments.Init()
+	script := writeScript(t, `echo "real output"`)
+	Load([]config.PluginDef{{ID: "demo", Command: script, Preview: "preview output"}})
+
+	seg, ok := segments.ByID("demo")
+	if !ok {
+		t.Fatal("expected plugin segment to be registered")
+	}
+	if seg.Preview != "preview output" {
+		t.Errorf("Preview = %q, want %q", seg.Preview, "preview output")
+	}
+
+	out, show := seg.Render(segments.RenderCtx{P: payload.Payload{}, Preview: false})
+	if !show || out != "real output" {
+		t.Errorf("normal render = %q, show=%v, want %q shown", out, show, "real output")
+	}
+
+	out, show = seg.Render(segments.RenderCtx{P: payload.Payload{}, Preview: true})
+	if !show || out != "preview output" {
+		t.Errorf("preview render = %q, show=%v, want %q shown", out, show, "preview output")
+	}
+}
+
+func TestPluginPreviewMultiField(t *testing.T) {
+	segments.Init()
+	script := writeScript(t, "echo cpu:real-cpu\necho mem:real-mem")
+	Load([]config.PluginDef{{
+		Command: script,
+		Fields: []config.PluginField{
+			{ID: "cpu", Preview: "preview-cpu"},
+			{ID: "mem", Preview: "preview-mem"},
+		},
+	}})
+
+	cpu, ok := segments.ByID("cpu")
+	if !ok {
+		t.Fatal("expected cpu segment")
+	}
+	out, show := cpu.Render(segments.RenderCtx{P: payload.Payload{}, Preview: true})
+	if !show || out != "preview-cpu" {
+		t.Errorf("cpu preview = %q, show=%v, want %q", out, show, "preview-cpu")
+	}
+
+	mem, ok := segments.ByID("mem")
+	if !ok {
+		t.Fatal("expected mem segment")
+	}
+	out, show = mem.Render(segments.RenderCtx{P: payload.Payload{}, Preview: true})
+	if !show || out != "preview-mem" {
+		t.Errorf("mem preview = %q, show=%v, want %q", out, show, "preview-mem")
+	}
+
+	// Non-preview mode still runs the real command.
+	out, show = cpu.Render(segments.RenderCtx{P: payload.Payload{}, Preview: false})
+	if !show || out != "real-cpu" {
+		t.Errorf("cpu normal = %q, show=%v, want %q", out, show, "real-cpu")
+	}
+}
+
+func TestPluginEmptyPreviewFallsBackToRealCommand(t *testing.T) {
+	segments.Init()
+	script := writeScript(t, `echo "real output"`)
+	Load([]config.PluginDef{{ID: "demo", Command: script, Preview: ""}})
+
+	seg, ok := segments.ByID("demo")
+	if !ok {
+		t.Fatal("expected plugin segment")
+	}
+	out, show := seg.Render(segments.RenderCtx{P: payload.Payload{}, Preview: true})
+	if !show || out != "real output" {
+		t.Errorf("empty preview should fall back to real command, got %q show=%v", out, show)
+	}
+}
+
+func TestAsyncPluginPreviewShortCircuits(t *testing.T) {
+	segments.Init()
+	calls := stubSpawnRefresher(t)
+	Load([]config.PluginDef{{
+		ID:        "async-demo",
+		Command:   "/nonexistent",
+		Async:     true,
+		RefreshMS: 5000,
+		TimeoutMS: 500,
+		Preview:   "async-preview",
+	}})
+
+	seg, ok := segments.ByID("async-demo")
+	if !ok {
+		t.Fatal("expected plugin segment")
+	}
+	out, show := seg.Render(segments.RenderCtx{P: payload.Payload{}, Preview: true})
+	if !show || out != "async-preview" {
+		t.Errorf("preview = %q, show=%v, want %q shown", out, show, "async-preview")
+	}
+	if len(*calls) != 0 {
+		t.Errorf("preview should not spawn background refresher, got %d calls", len(*calls))
 	}
 }
 

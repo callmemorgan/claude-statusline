@@ -97,6 +97,12 @@ func TestSaveConfigRoundTrip(t *testing.T) {
 		Colors:   map[string]string{"model": "cyan"},
 		Reflow:   "group",
 		Settings: map[string]map[string]any{"context-window": {"bar_width": 30}},
+		Plugins: []PluginDef{{
+			ID:      "demo",
+			Command: "echo demo",
+			Preview: "demo preview",
+			Fields:  []PluginField{{ID: "cpu", Preview: "cpu preview"}},
+		}},
 	}
 	if err := SaveConfig(in); err != nil {
 		t.Fatal(err)
@@ -107,6 +113,12 @@ func TestSaveConfigRoundTrip(t *testing.T) {
 	}
 	if out.Lines["cost"] != 2 || out.Colors["model"] != "cyan" || out.Reflow != "group" {
 		t.Errorf("fields not round-tripped: %+v", out)
+	}
+	if len(out.Plugins) != 1 || out.Plugins[0].Preview != "demo preview" {
+		t.Errorf("plugin preview not round-tripped: %+v", out.Plugins)
+	}
+	if len(out.Plugins[0].Fields) != 1 || out.Plugins[0].Fields[0].Preview != "cpu preview" {
+		t.Errorf("field preview not round-tripped: %+v", out.Plugins[0].Fields)
 	}
 }
 

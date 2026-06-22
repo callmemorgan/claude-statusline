@@ -370,6 +370,8 @@ type Info struct {
 	PrimaryColor string
 	Settings     []config.SettingSpec // nil → no flyout, no settings entry
 	NeedsState   bool                 // renderer reads the session state store
+	Plugin       bool                 // registered from a [[plugins]] entry
+	Preview      string               // sample value used in the TUI assembler
 	Render       func(ctx RenderCtx) (string, bool)
 }
 
@@ -737,11 +739,12 @@ func pctColorWithSettings(pct int, c palette.Palette, s config.Settings) string 
 // has the per-segment color override applied, and S holds the segment's own
 // resolved settings. Now is injected so countdowns and rates are testable.
 type RenderCtx struct {
-	P     payload.Payload
-	C     palette.Palette
-	S     config.Settings
-	State *state.SessionState // nil unless the segment declares NeedsState
-	Cfg   config.Config       // resolved config, rarely needed (e.g. update segment)
-	Width int
-	Now   time.Time
+	P       payload.Payload
+	C       palette.Palette
+	S       config.Settings
+	State   *state.SessionState // nil unless the segment declares NeedsState
+	Cfg     config.Config       // resolved config, rarely needed (e.g. update segment)
+	Width   int
+	Now     time.Time
+	Preview bool // true when rendering for the TUI assembler/preview
 }

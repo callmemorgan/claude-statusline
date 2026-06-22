@@ -109,6 +109,7 @@ id = "memory"
 command = "~/.config/claude-statusline/plugins/memory.sh"
 line = 1
 desc = "RAM usage"
+preview = "mem 4.2G"  # sample value shown in the TUI preview surfaces
 timeout_ms = 200
 
 # Multi-field plugin — stdout is parsed as "key:value" lines, the command
@@ -122,11 +123,13 @@ timeout_ms = 200
 #   id = "cpu"
 #   line = 1
 #   desc = "CPU usage"
+#   preview = "cpu 12%"
 #
 #   [[plugins.fields]]
 #   id = "swap"
 #   line = 2
 #   desc = "Swap usage"
+#   preview = "swap 0%"
 
 # Async plugin — never blocks the render; shows the last cached value and
 # refreshes it in the background at most every refresh_ms. The cache is shared

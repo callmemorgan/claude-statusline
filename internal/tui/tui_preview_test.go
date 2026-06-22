@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -8,8 +10,10 @@ import (
 	"time"
 
 	"github.com/callmemorgan/claude-statusline/internal/config"
+	"github.com/callmemorgan/claude-statusline/internal/palette"
 	"github.com/callmemorgan/claude-statusline/internal/payload"
 	"github.com/callmemorgan/claude-statusline/internal/plugins"
+	"github.com/callmemorgan/claude-statusline/internal/render"
 	"github.com/callmemorgan/claude-statusline/internal/segments"
 	"github.com/callmemorgan/claude-statusline/internal/state"
 	"github.com/callmemorgan/claude-statusline/internal/update"
@@ -118,5 +122,39 @@ func TestDemoPreviewPayload(t *testing.T) {
 	}
 	if p.Cost.TotalLinesAdded != 270 || p.Cost.TotalLinesRemoved != 90 {
 		t.Errorf("lines = +%d/-%d, want +270/-90", p.Cost.TotalLinesAdded, p.Cost.TotalLinesRemoved)
+	}
+}
+
+func TestPluginPreviewRendersInAssembler(t *testing.T) {
+	segments.Init()
+
+	// Drop a script that would produce "real" output when actually executed.
+	dir := t.TempDir()
+	script := filepath.Join(dir, "plugin.sh")
+	if err := os.WriteFile(script, []byte("#!/bin/sh\necho real-output\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	plugins.Load([]config.PluginDef{{
+		ID:      "demo-plugin",
+		Command: script,
+		Preview: "preview-output",
+	}})
+
+	cfg := config.Config{Segments: []string{"demo-plugin"}}
+	lines := render.Statusline(render.Input{
+		P:       payload.SamplePayload(),
+		C:       palette.CurrentPalette("classic", "", nil),
+		Cfg:     cfg,
+		Now:     time.Now(),
+		Preview: true,
+	})
+
+	joined := strings.Join(lines, " ")
+	if !strings.Contains(joined, "preview-output") {
+		t.Errorf("assembler output = %q, want substring %q", joined, "preview-output")
+	}
+	if strings.Contains(joined, "real-output") {
+		t.Errorf("assembler output should not execute plugin, got %q", joined)
 	}
 }
