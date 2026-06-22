@@ -78,7 +78,7 @@ Releases are cut by pushing a `vX.Y.Z` git tag — `.github/workflows/release.ym
 
 Before tagging, **update `CHANGELOG.md` (new `## vX.Y.Z` section at the top)** — the release-notes feature embeds it at build time, so anything you forget won't be reachable from `claude-statusline release-notes`. Keep the existing section format (`## vX.Y.Z — YYYY-MM-DD` header, `- ` bullets, newest first). Bullets may carry a leading `[N]` importance marker: ordinary items use 0–5, critical/pinned items can use much larger values (e.g. 99999) to force top placement. Bullets without a marker default to importance 0.
 
-Pushing a tag also triggers `.github/workflows/ci.yml`, which runs `go test ./...`, `golangci-lint`, and Node checks: it syntax-checks `npm/claude-statusline/bin/claude-statusline.js` and `scripts/build-npm.mjs`, builds the Go binary, exercises the npm shim with a real payload via `CLAUDE_STATUSLINE_BIN`, and smoke-tests the Pi TypeScript extension via `scripts/test-pi-extension.mjs`. Push the branch and tag separately to avoid double-triggering the workflows.
+Pushing a tag triggers `.github/workflows/release.yml`. The workflow first runs `go test ./...`, `golangci-lint`, and Node checks (syntax-checks `npm/claude-statusline/bin/claude-statusline.js` and `scripts/build-npm.mjs`, builds the Go binary, exercises the npm shim with a real payload via `CLAUDE_STATUSLINE_BIN`, and smoke-tests the Pi TypeScript extension via `scripts/test-pi-extension.mjs`) before GoReleaser builds and publishes the release.
 
 ### npm distribution
 
