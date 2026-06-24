@@ -64,6 +64,9 @@ func dispatch() {
 		case "update-check":
 			update.Check()
 			return
+		case "wizard":
+			runWizard()
+			return
 		default:
 			fmt.Fprintf(os.Stderr, "unknown command %q (try: claude-statusline --help)\n", os.Args[1])
 			os.Exit(2)
