@@ -37,6 +37,8 @@ Commands:
                Flags: --check (resolve + report only, never install).
                Subcommand: verify (check the latest release's signature
                against the embedded key, then exit; installs nothing).
+  wizard       Interactive first-time setup: theme, color depth,
+               segments, and optional Claude Code wiring.
   help         Show this message.
   (none)       Read the JSON payload from stdin and print the statusline —
                this is how Claude Code invokes the binary.
