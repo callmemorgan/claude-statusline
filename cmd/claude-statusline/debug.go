@@ -32,6 +32,7 @@ func printDebugSchema(raw []byte, p payload.Payload) {
 	rows := []row{
 		// Claude Code fields
 		{"session_name", "✓", "✗", present("session_name")},
+		{"prompt_id", "✓", "✗", present("prompt_id")},
 		{"cost", "✓", "✗", present("cost")},
 		{"rate_limits", "✓", "✗", present("rate_limits")},
 		{"agent.name", "✓", "✗", func() string {
@@ -40,9 +41,11 @@ func printDebugSchema(raw []byte, p payload.Payload) {
 			}
 			return "✗"
 		}()},
+		{"pr", "✓", "✗", present("pr")},
 		{"worktree", "✓", "✗", present("worktree")},
 		{"vim", "✓", "✗", present("vim")},
 		{"effort", "✓", "✗", present("effort")},
+		{"thinking", "✓", "✗", present("thinking")},
 		// agy fields
 		{"conversation_id", "✗", "✓", present("conversation_id")},
 		{"product", "✗", "✓", present("product")},
@@ -74,10 +77,13 @@ func printDebugSchema(raw []byte, p payload.Payload) {
 	fmt.Printf("parsed values:\n")
 	fmt.Printf("  product        = %q\n", p.Product)
 	fmt.Printf("  session_name   = %q\n", p.SessionName)
+	fmt.Printf("  prompt_id      = %q\n", p.PromptID)
 	fmt.Printf("  conversation_id= %q\n", p.ConversationID)
 	fmt.Printf("  model          = %q\n", p.Model.DisplayName)
 	fmt.Printf("  workspace.cur  = %q\n", p.Workspace.CurrentDir)
 	fmt.Printf("  workspace.proj = %q\n", p.Workspace.ProjectDir)
+	fmt.Printf("  workspace.repo = %q\n", fmt.Sprintf("%s/%s/%s", p.Workspace.Repo.Host, p.Workspace.Repo.Owner, p.Workspace.Repo.Name))
+	fmt.Printf("  pr             = #%d %s\n", p.PR.Number, p.PR.ReviewState)
 	fmt.Printf("  agent_state    = %q\n", p.AgentState)
 	fmt.Printf("  plan_tier      = %q\n", p.PlanTier)
 	fmt.Printf("  sandbox        = %v\n", p.Sandbox.Enabled)
@@ -85,6 +91,7 @@ func printDebugSchema(raw []byte, p payload.Payload) {
 	fmt.Printf("  cost_usd       = %.4f\n", p.Cost.TotalCostUSD)
 	fmt.Printf("  vim_mode       = %q\n", p.Vim.Mode)
 	fmt.Printf("  effort         = %q\n", p.Effort.Level)
+	fmt.Printf("  thinking       = %v\n", p.Thinking.Enabled != nil && *p.Thinking.Enabled)
 }
 
 // printConfigWarnings lists config validation warnings in --debug output.

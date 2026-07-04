@@ -10,7 +10,7 @@ Each tool pipes a JSON payload to the binary on every turn; it renders a compact
 - **Burn-rate intelligence** — rate-limit projections (`→58%` at reset), cost per hour (`$1.84/h`), and time-to-compact estimates (`↗ ~35m`), computed from your session's own history.
 - **One-command setup** — `claude-statusline install` wires everything up and verifies it.
 - **A real configuration TUI** — live width-aware preview, theme and preset pickers, a color swatch picker, per-segment settings, search, an animated demo mode, and a render-in-your-terminal view for honest theme checking.
-- **26 built-in segments + plugins** — assigned to lines 1–9; empty lines collapse, and segments hide automatically when their data is missing.
+- **31 built-in segments + plugins** — assigned to lines 1–9; empty lines collapse, and segments hide automatically when their data is missing.
 
 The core renderer is a single static binary (one TOML dependency); the interactive TUI uses [tview](https://github.com/rivo/tview).
 
@@ -104,6 +104,28 @@ claude-statusline install
 
 This backs up `~/.claude/settings.json` (honoring `$CLAUDE_CONFIG_DIR` when set), splices in the `statusLine` key **without reformatting the rest of the file**, and verifies the wiring by rendering a sample payload through the exact command Claude Code will run. Flags: `--dry-run` to preview, `--force` to overwrite an existing entry, `--target agy` for Antigravity, `--settings-path` for non-standard locations. `claude-statusline uninstall` removes the wiring (`--restore` swaps the backup back).
 
+Optional Claude Code `statusLine` fields can be set at install time and are written only when their flag is passed:
+
+- `--refresh-interval N` — re-run the command every N seconds (N >= 1).
+- `--hide-vim-mode-indicator` — suppress Claude Code's built-in `-- INSERT --` indicator.
+- `--statusline-padding N` — add N extra cells of horizontal padding (N >= 0).
+
+For example:
+
+```bash
+claude-statusline install --refresh-interval 30 --hide-vim-mode-indicator --statusline-padding 2
+```
+
+### Subagent status line
+
+Claude Code can also render a per-task status line for subagents and long-running tools via the `subagentStatusLine` hook. To wire it up alongside the main status line:
+
+```bash
+claude-statusline install --subagent-statusline
+```
+
+This adds a `subagentStatusLine` key to `settings.json` that invokes `claude-statusline subagent-statusline`. The hook receives JSON with base payload fields plus `columns` and a `tasks` array; the command emits one `{"id":"<task id>","content":"<ANSI string>"}` JSON line per task. Empty `id`s keep the default rendering, and empty `content` hides the row. Pass `--dry-run` to preview the change.
+
 <details>
 <summary>Manual wiring (fallback)</summary>
 
@@ -180,8 +202,10 @@ Segments that receive no data from the active tool hide themselves automatically
 | `agent-name` | 1 | Claude Code | Agent name when running with `--agent` |
 | `directory` | 1 | all three | Current / project directory. Shows `project→subdir` when inside a project subdirectory |
 | `added-dirs` | 1 | Claude Code | Count of extra directories added with `/add-dir`, e.g. `+2 dirs` |
-| `git-branch` | 1 | all three | Git branch and worktree name. Optional rich status (settings): dirty marker and ahead/behind counts, e.g. `main* ↑1↓2` |
+| `git-branch` | 1 | all three | Git branch and worktree name. Optional rich status (settings): dirty marker, ahead/behind counts, worktree path, original branch, e.g. `main* ↑1↓2` |
 | `git-stash` | 1 | all three | Git stash count (`⚑N`), hidden when there are no stashes. Off by default (runs a cached, bounded `git`); add it in `configure` |
+| `repo` | 1 | Claude Code | Repository `owner/name` from the payload. Optional host prefix |
+| `pr` | 1 | Claude Code | Pull request `#N` with optional review state, or full URL when `show_url` is set |
 | `artifact-count` | 1 | Antigravity | Number of generated artifacts |
 | `lines-changed` | 1 | Claude Code | Session cumulative lines added/removed, e.g. `+128/-45` |
 | `cache-percent` | 1 | Claude Code | Cache read percentage from `context_window.current_usage` |
@@ -189,6 +213,7 @@ Segments that receive no data from the active tool hide themselves automatically
 | `cost` | 1 | Claude Code | Estimated session cost in USD, e.g. `$1.23` |
 | `model` | 2 | all three | Model name with effort badge (⬇ → ⬆ ⬆⬆ ⬆⬆⬆) |
 | `output-style` | 2 | Claude Code | Output style, e.g. `✎ Explanatory` — hidden when default |
+| `thinking` | 2 | Claude Code | Thinking indicator, `🗘 thinking` or `[thinking]` when reasoning is enabled |
 | `email` | 2 | Antigravity | Account email, user part only (`morgan@…`) — **off by default** |
 | `version` | 2 | Claude Code, Antigravity | Tool version |
 | `update` | 1 | all three | `⬆ vX.Y.Z` when behind, hides when current. Self-hides on dev builds. |
@@ -196,6 +221,7 @@ Segments that receive no data from the active tool hide themselves automatically
 | `cost-rate` | 2 | Claude Code | Cost burn rate over recent history, e.g. `$1.84/h` |
 | `api-efficiency` | 2 | Claude Code | Percentage of time spent in API calls vs. total elapsed |
 | `tokens` | 2 | Claude Code, Antigravity | Input/output token counts in compact notation (`↑1.2M ↓89k`) |
+| `prompt-id` | 2 | Claude Code | Prompt ID, UUIDs truncated to 8 chars |
 | `context-window` | 3 | all three | Usage bar with color-coded %, growth trend arrow, and time-to-compact estimate (`↗ ~35m`) |
 | `rate-limit-5h` | 3 | Claude Code | 5-hour rate limit bar with countdown and burn-rate projection (`→58%`) (Pro/Max only) |
 | `rate-limit-7d` | 3 | Claude Code | 7-day rate limit bar with countdown and burn-rate projection (Pro/Max only) |
@@ -215,6 +241,8 @@ No segment is gated by tool name — each one renders when the active harness se
 | `added-dirs` | ✓ | ✗ | ✗ |
 | `git-branch` | ✓ | ✓ | ✓ |
 | `git-stash` | ✓ | ✓ | ✓ |
+| `repo` | ✓ | ✗ | ✗ |
+| `pr` | ✓ | ✗ | ✗ |
 | `artifact-count` | ✗ | ✓ | ✗ |
 | `lines-changed` | ✓ | ✗ | ✗ |
 | `cache-percent` | ✓ | ✗ | ✗ |
@@ -222,6 +250,7 @@ No segment is gated by tool name — each one renders when the active harness se
 | `cost` | ✓ | ✗ | ✗ |
 | `model` | ✓ | ✓ | ✓ |
 | `output-style` | ✓ | ✗ | ✗ |
+| `thinking` | ✓ | ✗ | ✗ |
 | `email` | ✗ | ✓ | ✗ |
 | `version` | ✓ | ✓ | ✗ |
 | `update` | ✓ | ✓ | ✓ |
@@ -229,6 +258,7 @@ No segment is gated by tool name — each one renders when the active harness se
 | `cost-rate` | ✓ | ✗ | ✗ |
 | `api-efficiency` | ✓ | ✗ | ✗ |
 | `tokens` | ✓ | ✓ | ✗ |
+| `prompt-id` | ✓ | ✗ | ✗ |
 | `context-window` | ✓ | ✓ | ✓ |
 | `rate-limit-5h` | ✓ | ✗ | ✗ |
 | `rate-limit-7d` | ✓ | ✗ | ✗ |
@@ -392,8 +422,11 @@ retention_hours = 48
   - projections (`rate-limit-*`): `show_projection`, `projection_window_min`
   - context trend: `show_trend`, `compact_at`
   - `cost-rate`: `window_min`
-  - `git-branch`: `git_status` (off by default), `git_status_ttl_sec`, `git_timeout_ms`
+  - `git-branch`: `git_status` (off by default), `git_status_ttl_sec`, `git_timeout_ms`, `show_worktree_path`, `show_original_branch`
   - `git-stash`: `git_stash_ttl_sec`, `git_timeout_ms`
+  - `pr`: `show_url`, `show_review_state`
+  - `repo`: `show_host`
+  - `thinking`: `icon` (`emoji` or `text`)
 - `reflow` — line wrapping on narrow terminals is **opt-in**. `"off"` (default: no wrapping; a too-wide line is left for the terminal to soft-wrap), `"cascade"` (segments spill greedily across line boundaries), or `"group"` (each logical line wraps independently).
 - Invalid values never break rendering — they're normalized with warnings, visible in `debug` output and the TUI.
 
@@ -507,6 +540,7 @@ Claude Code sends this JSON structure via stdin:
   "cwd": "/current/working/directory",
   "session_id": "abc123...",
   "session_name": "my-session",
+  "prompt_id": "550e8400-e29b-41d4-a716-446655440000",
   "transcript_path": "/path/to/transcript.jsonl",
   "version": "2.1.90",
   "model": {
@@ -518,7 +552,12 @@ Claude Code sends this JSON structure via stdin:
     "current_dir": "/current/working/directory",
     "project_dir": "/original/project/directory",
     "added_dirs": [],
-    "git_worktree": "feature-xyz"
+    "git_worktree": "feature-xyz",
+    "repo": {
+      "host": "github.com",
+      "owner": "anthropics",
+      "name": "claude-code"
+    }
   },
   "cost": {
     "total_cost_usd": 0.01234,
@@ -549,17 +588,32 @@ Claude Code sends this JSON structure via stdin:
   },
   "vim": { "mode": "NORMAL" },
   "agent": { "name": "security-reviewer" },
-  "worktree": { "name": "my-feature", "branch": "worktree-my-feature" }
+  "pr": {
+    "number": 1234,
+    "url": "https://github.com/anthropics/claude-code/pull/1234",
+    "review_state": "pending"
+  },
+  "worktree": {
+    "name": "my-feature",
+    "path": "/path/to/.claude/worktrees/my-feature",
+    "branch": "worktree-my-feature",
+    "original_cwd": "/path/to/project",
+    "original_branch": "main"
+  }
 }
 ```
 
 **Fields that may be absent:**
 - `session_name` — only when set via `--name` or `/rename`
+- `prompt_id` — only after the first user input
 - `workspace.git_worktree` — only inside a linked git worktree
+- `workspace.repo` — only inside a git repository with an origin remote configured
 - `effort` — only when the model supports reasoning effort
+- `thinking` — only when the model supports extended thinking
 - `output_style` — only when an output style is set
 - `vim` — only when vim mode is enabled
 - `agent` — only when running with `--agent`
+- `pr` — only while an open PR is found for the current branch
 - `worktree` — only during `--worktree` sessions
 - `rate_limits` — only for Claude Pro/Max subscribers after the first API response
 

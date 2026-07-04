@@ -21,7 +21,10 @@ Commands:
                original, splices the statusLine key without reformatting,
                and verifies with a sample render.
                Flags: --target claude|agy · --settings-path PATH · --force
-                      --dry-run · --yes
+                      --dry-run · --yes · --subagent-statusline
+                      --refresh-interval N (>= 1)
+                      --hide-vim-mode-indicator
+                      --statusline-padding N (>= 0)
   uninstall    Remove the statusline wiring (--restore swaps the backup back).
   configure    Interactive TUI: toggle/order segments, themes, presets,
                colors, per-segment settings, live width-aware preview,
@@ -30,6 +33,8 @@ Commands:
                segment shows the calling tool's version, not this binary's.)
   debug        Read JSON from stdin and print a schema-comparison table plus
                any config warnings.
+  subagent-statusline  Read subagent task JSON from stdin and emit one
+                       {"id":"...","content":"..."} JSON line per task.
   release-notes  Show what changed in this version (also: vX.Y.Z,
                  vX.Y.Z..vA.B.C, --all).
   update       Check for a new release and install it. Foreground,
@@ -81,8 +86,12 @@ Line 1 segments — Session & workspace:
   agent-name    Agent name when using --agent (Claude Code only)
   directory     Current / project directory (both)
   added-dirs    Count of /add-dir directories +2 dirs (Claude Code only)
+  repo          Repository owner/name from the payload (Claude Code only)
+  pr            Pull request #N and optional review state or URL
+                (Claude Code only)
   git-branch    Git branch and worktree; optional dirty marker and
-                ahead/behind counts, e.g. main* ↑1↓2 (both)
+                ahead/behind counts, worktree path, and original branch
+                (both)
   git-stash     Git stash count ⚑N, hidden at zero; off by default (both)
   artifact-count  Number of artifacts (agy only)
   lines-changed   Lines added/removed in the session +N/-M (Claude Code only)
@@ -93,12 +102,14 @@ Line 1 segments — Session & workspace:
 Line 2 segments — Model & metrics:
   model         Model name with effort badge (both)
   output-style  Output style ✎ Explanatory, hidden when default (Claude Code only)
+  thinking      Thinking indicator 🗘 thinking or [thinking] (Claude Code only)
   email         Account email, user part only — off by default (agy only)
   version       Tool version (both)
   duration      Elapsed session time HH:MM:SS (Claude Code only)
   cost-rate     Cost burn rate $1.84/h from session history (Claude Code only)
   api-efficiency  API time / total time % (Claude Code only)
   tokens        Input/output token counts ↑N ↓M (both)
+  prompt-id     Prompt ID, UUIDs truncated to 8 chars (Claude Code only)
 
 Line 3 segments — Usage bars:
   context-window  Usage bar with growth trend and time-to-compact ↗ ~35m (both)

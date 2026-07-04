@@ -35,6 +35,8 @@ segments = [
   "agent-state",
   "directory",
   "added-dirs",
+  "repo",
+  "pr",
   "git-branch",
   "artifact-count",
   "lines-changed",
@@ -42,6 +44,7 @@ segments = [
   "cost",
   "model",
   "output-style",
+  "thinking",
   "version",
   "update",
   "duration",
@@ -52,6 +55,7 @@ segments = [
   "rate-limit-5h",
   "rate-limit-7d",
   "plan-tier",
+  "prompt-id",
 ]
 
 # Separator and padding between segments.
@@ -87,9 +91,24 @@ cost = "green"
 bar_width = 30
 iconset = "smooth"
 
-# Rich git status (dirty marker + ahead/behind counts) is opt-in:
+# Rich git status (dirty marker, ahead/behind counts, worktree path, original branch) is opt-in:
 #[settings.git-branch]
 #git_status = true
+#show_worktree_path = false
+#show_original_branch = false
+
+# Pull request segment settings:
+#[settings.pr]
+#show_url = false
+#show_review_state = true
+
+# Repository segment settings:
+#[settings.repo]
+#show_host = false
+
+# Thinking indicator style:
+#[settings.thinking]
+#icon = "emoji"  # "emoji" or "text"
 
 # Git stash count (⚑N) is an opt-in segment — add "git-stash" to segments above:
 #[settings.git-stash]
