@@ -4,6 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build and test
 
+The `Makefile` wraps the common gates; prefer it over raw commands when running the whole suite:
+
+```bash
+make build       # go build -o claude-statusline ./cmd/claude-statusline
+make check       # full pre-commit gate: lint (Go + JS/TS) + vet + test
+make lint        # golangci-lint ./... AND biome check on npm/ + scripts/
+make fmt         # gofmt + goimports, and biome format on npm/ + scripts/
+make install-tools  # golangci-lint (brew) + biome (npm install)
+```
+
+Go is the primary language; the JS/TS (npm shim, `scripts/*.mjs`, Pi extension) is linted/formatted with Biome, not gofmt. The release workflow runs both, so `make check` before tagging.
+
 ```bash
 go build -o claude-statusline ./cmd/claude-statusline
 go test ./...                      # full suite (golden, migration, state, install splicer…)

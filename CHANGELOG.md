@@ -7,6 +7,11 @@ much larger values (e.g. 99999) to force top placement. Bullets without a
 marker default to importance 0.
 -->
 
+## v1.8.0 — 2026-07-04
+- [5] **Claude Code statusline integration v2.** The payload now accepts Claude Code's newer statusline fields — `prompt_id`, `pr`, `repo`, `worktree`, `thinking`, and the `statusLine` / `subagentStatusLine` install options — and exposes them as new built-in segments.
+- [4] **New built-in segments:** `prompt-id`, `pr`, `repo`, and `thinking` join the segment list, plus the `dir` segment now renders a `worktree` suffix when one is present in the payload.
+- [3] **Install hook coverage.** `claude-statusline install` now writes both the existing `mcpStatusLine` hook and the newer `statusLine` / `subagentStatusLine` settings shapes used by current Claude Code versions.
+
 ## v1.7.2 — 2026-06-22
 - [5] **Post-upgrade takeover now shows actual release notes.** The announcement no longer wastes lines on a configuration hint; every available line is used for the version header and CHANGELOG bullets.
 - [4] **Plugin `preview` values are now prominent in the TUI assembler.** Custom plugin segments display their configured `preview` sample in the assembler, flyout, demo mode, and terminal view, so you can see exactly how a plugin will look before it runs a real command.
