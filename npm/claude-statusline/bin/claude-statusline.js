@@ -50,9 +50,7 @@ function main() {
 	} catch (e) {
 		if (e && e.code === "MODULE_NOT_FOUND") {
 			console.error(
-				`claude-statusline: optional dependency ${pkg} is missing. ` +
-					`Re-run "npm install -g @morgan.rebrand/claude-statusline", ` +
-					`or set CLAUDE_STATUSLINE_BIN to the absolute path of a claude-statusline binary.`,
+				`claude-statusline: optional dependency ${pkg} is missing. Re-run "npm install -g @morgan.rebrand/claude-statusline", or set CLAUDE_STATUSLINE_BIN to the absolute path of a claude-statusline binary.`,
 			);
 			process.exit(1);
 		}

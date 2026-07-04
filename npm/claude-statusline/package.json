@@ -18,18 +18,12 @@
 	"bin": {
 		"claude-statusline": "bin/claude-statusline.js"
 	},
-	"files": [
-		"bin/",
-		"extensions/",
-		"README.md"
-	],
+	"files": ["bin/", "extensions/", "README.md"],
 	"engines": {
 		"node": ">=14"
 	},
 	"pi": {
-		"extensions": [
-			"./extensions/pi-statusline.ts"
-		]
+		"extensions": ["./extensions/pi-statusline.ts"]
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*"
