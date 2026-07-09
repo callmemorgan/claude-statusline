@@ -137,7 +137,9 @@ jobs:
       - name: Upgrade npm for trusted publishing
         # setup-node's bundled npm (10.x) predates OIDC trusted publishing;
         # the tokenless `npm publish` below needs npm >= 11.5.1.
-        run: npm install -g npm@latest
+        # Pin to 11.x: npm@latest is 12.0.0, which ships without bundled
+        # sigstore and breaks `npm publish --provenance` (npm/cli#9722).
+        run: npm install -g npm@11
 
       - name: Download dist artifact
         uses: actions/download-artifact@v8
