@@ -42,6 +42,9 @@ func dispatch() {
 		case "configure":
 			tui.Run(readmeContent)
 			return
+		case "wizard":
+			runWizard()
+			return
 		case "install":
 			install.Run(os.Args[2:])
 			return
