@@ -582,7 +582,7 @@ func rateLimitSegment(label string, window payload.LimitWindow, windowSecs int64
 	c, s := ctx.C, ctx.S
 	pct := int(*window.UsedPercentage)
 	color := pctColorWithSettings(pct, c, s)
-	countdown := "?"
+	countdown := ""
 	timePct := -1
 	if window.ResetsAt != nil {
 		countdown = ansi.ResetCountdown(*window.ResetsAt, ctx.Now)
@@ -598,7 +598,7 @@ func rateLimitSegment(label string, window payload.LimitWindow, windowSecs int64
 		result += ProgressBarWithTimeAndIconset(pct, timePct, color, c.Dim, c, s.Int("bar_width"), s.Str("iconset")) + " "
 	}
 	result += color + strconv.Itoa(pct) + "%" + c.Dim
-	if s.Bool("show_countdown") {
+	if s.Bool("show_countdown") && countdown != "" {
 		result += " (" + countdown + ")"
 	}
 	result += c.Rst
