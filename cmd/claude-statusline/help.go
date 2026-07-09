@@ -113,9 +113,12 @@ Line 2 segments — Model & metrics:
 
 Line 3 segments — Usage bars:
   context-window  Usage bar with growth trend and time-to-compact ↗ ~35m (both)
-  rate-limit-5h   5-hour quota bar, countdown, burn-rate projection →58%
-  rate-limit-7d   7-day quota bar, countdown, burn-rate projection
-                  (rate limits: Claude Code Pro/Max only)
+  rate-limit-5h     5-hour quota bar, countdown, burn-rate projection →58%
+  rate-limit-7d     7-day weekly quota bar, countdown, burn-rate projection
+  rate-limit-fable  Fable 5 weekly included-quota bar (when Claude sends it)
+  rate-limit-sonnet Sonnet weekly quota bar (when Claude sends it)
+  rate-limit-opus   Opus weekly quota bar (when Claude sends it)
+                    (rate limits: Claude Code Pro/Max only)
 
 Segments hide automatically when their source data is missing or zero.
 Burn rates, projections, and trends appear after ~5 minutes of session

@@ -54,7 +54,7 @@ cat <<'JSON' | ./claude-statusline
   "workspace": {"current_dir": "/Users/me/code/my-project", "project_dir": "/Users/me/code/my-project", "git_worktree": "my-project", "added_dirs": ["/tmp/lib-a"]},
   "cost": {"total_cost_usd": 1.23, "total_lines_added": 100, "total_lines_removed": 50, "total_duration_ms": 3661000, "total_api_duration_ms": 2400000},
   "context_window": {"total_input_tokens": 1234567, "total_output_tokens": 89012, "context_window_size": 200000, "used_percentage": 72.5, "current_usage": {"input_tokens": 1200000, "output_tokens": 89012, "cache_creation_input_tokens": 10000, "cache_read_input_tokens": 50000}},
-  "rate_limits": {"five_hour": {"used_percentage": 45, "resets_at": 9999999999}, "seven_day": {"used_percentage": 12, "resets_at": 9999999999}},
+  "rate_limits": {"five_hour": {"used_percentage": 45, "resets_at": 9999999999}, "seven_day": {"used_percentage": 12, "resets_at": 9999999999}, "seven_day_sonnet": {"used_percentage": 22, "resets_at": 9999999999}, "seven_day_opus": {"used_percentage": 8, "resets_at": 9999999999}, "seven_day_overage_included": {"used_percentage": 67, "resets_at": 9999999999}},
   "agent": {"name": "ReviewBot"},
   "worktree": {"name": "my-project", "branch": "feature/test"},
   "vim": {"mode": "normal"},

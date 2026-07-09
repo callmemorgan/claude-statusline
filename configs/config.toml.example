@@ -2,7 +2,7 @@
 # Copy to ~/.config/claude-statusline/config.toml and edit, or run
 # `claude-statusline configure` to edit interactively.
 
-schema_version = 1
+schema_version = 2
 
 # theme: built-in color palette.
 #   classic (default) | catppuccin-mocha | nord | dracula | gruvbox-dark |
@@ -54,6 +54,9 @@ segments = [
   "context-window",
   "rate-limit-5h",
   "rate-limit-7d",
+  "rate-limit-fable",
+  "rate-limit-sonnet",
+  "rate-limit-opus",
   "plan-tier",
   "prompt-id",
 ]

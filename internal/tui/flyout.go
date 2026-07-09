@@ -186,6 +186,15 @@ func flyoutPreviewPayload(segID string, base payload.Payload) payload.Payload {
 	case "rate-limit-7d":
 		p.RateLimits.SevenDay.UsedPercentage = ptrFloat64(float64(pct))
 		p.RateLimits.SevenDay.ResetsAt = resetIn(7 * 24 * 3600)
+	case "rate-limit-fable":
+		p.RateLimits.SevenDayOverageIncluded.UsedPercentage = ptrFloat64(float64(pct))
+		p.RateLimits.SevenDayOverageIncluded.ResetsAt = resetIn(7 * 24 * 3600)
+	case "rate-limit-sonnet":
+		p.RateLimits.SevenDaySonnet.UsedPercentage = ptrFloat64(float64(pct))
+		p.RateLimits.SevenDaySonnet.ResetsAt = resetIn(7 * 24 * 3600)
+	case "rate-limit-opus":
+		p.RateLimits.SevenDayOpus.UsedPercentage = ptrFloat64(float64(pct))
+		p.RateLimits.SevenDayOpus.ResetsAt = resetIn(7 * 24 * 3600)
 	}
 	return p
 }
@@ -207,6 +216,12 @@ func demoPreviewPayload(base payload.Payload, now time.Time) payload.Payload {
 	p.RateLimits.FiveHour.ResetsAt = resetIn(5 * 3600)
 	p.RateLimits.SevenDay.UsedPercentage = ptrFloat64(float64(pct))
 	p.RateLimits.SevenDay.ResetsAt = resetIn(7 * 24 * 3600)
+	p.RateLimits.SevenDayOverageIncluded.UsedPercentage = ptrFloat64(float64(pct))
+	p.RateLimits.SevenDayOverageIncluded.ResetsAt = resetIn(7 * 24 * 3600)
+	p.RateLimits.SevenDaySonnet.UsedPercentage = ptrFloat64(float64(pct))
+	p.RateLimits.SevenDaySonnet.ResetsAt = resetIn(7 * 24 * 3600)
+	p.RateLimits.SevenDayOpus.UsedPercentage = ptrFloat64(float64(pct))
+	p.RateLimits.SevenDayOpus.ResetsAt = resetIn(7 * 24 * 3600)
 	p.Cost.TotalCostUSD = 2.5 * float64(pct) / 100
 	p.Cost.TotalLinesAdded = int64(3 * pct)
 	p.Cost.TotalLinesRemoved = int64(pct)

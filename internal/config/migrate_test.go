@@ -16,6 +16,116 @@ const legacyJSON = `{
   "reflow": "group"
 }`
 
+func TestMigrateSchemaV2AddsFableAfter7d(t *testing.T) {
+	dir := useTempConfigDir(t)
+	// Explicit v1 layout with 7d but no Fable included bar.
+	writeConfigFile(t, dir, `
+schema_version = 1
+segments = ["model", "rate-limit-5h", "rate-limit-7d", "cost"]
+[lines]
+"rate-limit-7d" = 3
+[settings."rate-limit-7d"]
+bar_width = 30
+iconset = "smooth"
+`)
+	cfg, warns := LoadConfigWarn()
+
+	// Fable inserted right after 7d.
+	want := []string{"model", "rate-limit-5h", "rate-limit-7d", "rate-limit-fable", "cost"}
+	if len(cfg.Segments) != len(want) {
+		t.Fatalf("segments = %v, want %v", cfg.Segments, want)
+	}
+	for i, id := range want {
+		if cfg.Segments[i] != id {
+			t.Fatalf("segments = %v, want %v", cfg.Segments, want)
+		}
+	}
+	if cfg.Lines["rate-limit-fable"] != 3 {
+		t.Errorf("fable line = %d, want 3 (copied from 7d)", cfg.Lines["rate-limit-fable"])
+	}
+	s := SettingsFor(cfg, "rate-limit-fable", BarSettingSpecs(true, false, true, 20, []string{"default", "smooth"}, ProjectionSpecs(180)...))
+	if s.Int("bar_width") != 30 || s.Str("iconset") != "smooth" {
+		t.Errorf("fable settings bar_width=%d iconset=%q, want 30/smooth", s.Int("bar_width"), s.Str("iconset"))
+	}
+	if cfg.SchemaVersion != currentSchemaVersion {
+		t.Errorf("SchemaVersion = %d, want %d", cfg.SchemaVersion, currentSchemaVersion)
+	}
+	found := false
+	for _, w := range warns {
+		if strings.Contains(w.String(), "rate-limit-fable") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected migration warning, got %v", warns)
+	}
+}
+
+func TestMigrateSchemaV2SkipsWhenFablePresentOrNo7d(t *testing.T) {
+	dir := useTempConfigDir(t)
+
+	// Already has fable — leave order alone, no insert warning.
+	writeConfigFile(t, dir, `
+schema_version = 1
+segments = ["rate-limit-7d", "rate-limit-fable", "model"]
+`)
+	cfg, warns := LoadConfigWarn()
+	if len(cfg.Segments) != 3 || cfg.Segments[0] != "rate-limit-7d" || cfg.Segments[1] != "rate-limit-fable" {
+		t.Errorf("segments should be unchanged: %v", cfg.Segments)
+	}
+	for _, w := range warns {
+		if strings.Contains(w.String(), "added rate-limit-fable") {
+			t.Errorf("should not re-add fable when already present: %v", warns)
+		}
+	}
+
+	// No 7d — do not add fable.
+	writeConfigFile(t, dir, `
+schema_version = 1
+segments = ["model", "cost"]
+`)
+	cfg, warns = LoadConfigWarn()
+	for _, id := range cfg.Segments {
+		if id == "rate-limit-fable" {
+			t.Errorf("should not add fable without 7d: %v", cfg.Segments)
+		}
+	}
+	for _, w := range warns {
+		if strings.Contains(w.String(), "added rate-limit-fable") {
+			t.Errorf("unexpected fable migration: %v", warns)
+		}
+	}
+}
+
+func TestMigrateSchemaV2DoesNotReaddAfterSave(t *testing.T) {
+	dir := useTempConfigDir(t)
+	writeConfigFile(t, dir, `
+schema_version = 1
+segments = ["rate-limit-7d", "model"]
+`)
+	cfg := LoadConfig()
+	// User removes fable and saves (schema bumps to current).
+	filtered := cfg.Segments[:0]
+	for _, id := range cfg.Segments {
+		if id != "rate-limit-fable" {
+			filtered = append(filtered, id)
+		}
+	}
+	cfg.Segments = filtered
+	if err := SaveConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg2 := LoadConfig()
+	for _, id := range cfg2.Segments {
+		if id == "rate-limit-fable" {
+			t.Fatalf("fable re-added after user removed and saved: %v", cfg2.Segments)
+		}
+	}
+	if cfg2.SchemaVersion != currentSchemaVersion {
+		t.Errorf("SchemaVersion = %d, want %d", cfg2.SchemaVersion, currentSchemaVersion)
+	}
+}
+
 func TestMigrateLegacyJSON(t *testing.T) {
 	dir := useTempConfigDir(t)
 	jsonPath := filepath.Join(dir, "config.json")

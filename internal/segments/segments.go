@@ -297,6 +297,18 @@ func renderRateLimit7d(ctx RenderCtx) (string, bool) {
 	return rateLimitSegment("7d", ctx.P.RateLimits.SevenDay, 7*24*3600, "rl7d", ctx)
 }
 
+func renderRateLimitFable(ctx RenderCtx) (string, bool) {
+	return rateLimitSegment("Fable", ctx.P.RateLimits.Fable(), 7*24*3600, "rl_fable", ctx)
+}
+
+func renderRateLimitSonnet(ctx RenderCtx) (string, bool) {
+	return rateLimitSegment("Sonnet", ctx.P.RateLimits.Sonnet(), 7*24*3600, "rl_sonnet", ctx)
+}
+
+func renderRateLimitOpus(ctx RenderCtx) (string, bool) {
+	return rateLimitSegment("Opus", ctx.P.RateLimits.Opus(), 7*24*3600, "rl_opus", ctx)
+}
+
 func renderCostRate(ctx RenderCtx) (string, bool) {
 	if ctx.State == nil {
 		return "", false
@@ -472,6 +484,9 @@ func allSegmentInfos() []Info {
 		{ID: "context-window", Line: 3, Desc: "Context window usage bar with growth trend and time-to-compact estimate", PrimaryColor: "Dim", Settings: config.BarSettingSpecs(false, true, true, barWidth, IconsetNames(), config.TrendSpecs()...), NeedsState: true, Render: renderContextWindow},
 		{ID: "rate-limit-5h", Line: 3, Desc: "5-hour quota bar with reset countdown and burn-rate projection", PrimaryColor: "Dim", Settings: config.BarSettingSpecs(true, false, true, barWidth, IconsetNames(), config.ProjectionSpecs(30)...), NeedsState: true, Render: renderRateLimit5h},
 		{ID: "rate-limit-7d", Line: 3, Desc: "7-day quota bar with reset countdown and burn-rate projection", PrimaryColor: "Dim", Settings: config.BarSettingSpecs(true, false, true, barWidth, IconsetNames(), config.ProjectionSpecs(180)...), NeedsState: true, Render: renderRateLimit7d},
+		{ID: "rate-limit-fable", Line: 3, Desc: "Fable 5 weekly included-quota bar with countdown and projection", PrimaryColor: "Dim", Settings: config.BarSettingSpecs(true, false, true, barWidth, IconsetNames(), config.ProjectionSpecs(180)...), NeedsState: true, Render: renderRateLimitFable},
+		{ID: "rate-limit-sonnet", Line: 3, Desc: "Sonnet weekly quota bar with countdown and projection", PrimaryColor: "Dim", Settings: config.BarSettingSpecs(true, false, true, barWidth, IconsetNames(), config.ProjectionSpecs(180)...), NeedsState: true, Render: renderRateLimitSonnet},
+		{ID: "rate-limit-opus", Line: 3, Desc: "Opus weekly quota bar with countdown and projection", PrimaryColor: "Dim", Settings: config.BarSettingSpecs(true, false, true, barWidth, IconsetNames(), config.ProjectionSpecs(180)...), NeedsState: true, Render: renderRateLimitOpus},
 	}
 }
 

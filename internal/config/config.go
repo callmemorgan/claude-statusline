@@ -20,7 +20,10 @@ import (
 
 // currentSchemaVersion is written into saved configs; bump on breaking
 // config-schema changes so future migrations have an anchor.
-const currentSchemaVersion = 1
+//
+//	1 — initial TOML schema
+//	2 — auto-insert rate-limit-fable next to rate-limit-7d (Fable weekly included quota)
+const currentSchemaVersion = 2
 
 // DefaultAnnounceSeconds is the takeover window when release_notes.duration_seconds is
 // unset (ValidateConfig also resets out-of-range values to this default).
@@ -149,7 +152,8 @@ func DefaultConfig() Config {
 			"vim-mode", "sandbox", "session-name", "agent-state", "directory",
 			"added-dirs", "repo", "pr", "git-branch", "artifact-count", "lines-changed", "cache-percent", "cost", "update",
 			"model", "output-style", "thinking", "version", "duration", "cost-rate", "api-efficiency", "tokens", "prompt-id",
-			"context-window", "rate-limit-5h", "rate-limit-7d", "plan-tier",
+			"context-window", "rate-limit-5h", "rate-limit-7d",
+			"rate-limit-fable", "rate-limit-sonnet", "rate-limit-opus", "plan-tier",
 		},
 		Lines: nil,
 	}
@@ -199,7 +203,10 @@ func LoadConfig() Config {
 func LoadConfigWarn() (Config, []ConfigWarning) {
 	if migrated, ok := migrateLegacyJSON(); ok {
 		cfg := MergeWithDefaults(migrated)
-		return cfg, ValidateConfig(&cfg)
+		var warns []ConfigWarning
+		warns = append(warns, migrateConfigSchema(&cfg)...)
+		warns = append(warns, ValidateConfig(&cfg)...)
+		return cfg, warns
 	}
 
 	data, err := os.ReadFile(ConfigPath())
@@ -230,6 +237,7 @@ func LoadConfigWarn() (Config, []ConfigWarning) {
 	}
 
 	cfg := MergeWithDefaults(loaded)
+	warns = append(warns, migrateConfigSchema(&cfg)...)
 	warns = append(warns, ValidateConfig(&cfg)...)
 	return cfg, warns
 }

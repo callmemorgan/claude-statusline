@@ -96,6 +96,55 @@ func TestRateLimitProjection(t *testing.T) {
 	}
 }
 
+func TestModelClassRateLimitSegments(t *testing.T) {
+	now := time.Unix(1750000000, 0)
+	resetAt := now.Add(48 * time.Hour).Unix()
+	pct := 40.0
+	var p payload.Payload
+	p.RateLimits.SevenDayOverageIncluded = payload.LimitWindow{UsedPercentage: &pct, ResetsAt: &resetAt}
+	p.RateLimits.SevenDaySonnet = payload.LimitWindow{UsedPercentage: &pct, ResetsAt: &resetAt}
+	p.RateLimits.SevenDayOpus = payload.LimitWindow{UsedPercentage: &pct, ResetsAt: &resetAt}
+
+	// Rising history on each model-class series → projections.
+	st := &state.SessionState{}
+	const n = 10
+	span := 3 * time.Hour
+	for i := 0; i <= n; i++ {
+		frac := float64(i) / n
+		ts := now.Add(-time.Duration((1 - frac) * float64(span)))
+		hoursBack := (1 - frac) * span.Hours()
+		rl := pct - 5*hoursBack // 5%/h climb ending at 40%
+		st.Samples = append(st.Samples, state.Sample{
+			T: ts.Unix(), RLFable: &rl, RLSonnet: &rl, RLOpus: &rl,
+		})
+	}
+
+	for _, tc := range []struct{ id, label string }{
+		{"rate-limit-fable", "Fable"},
+		{"rate-limit-sonnet", "Sonnet"},
+		{"rate-limit-opus", "Opus"},
+	} {
+		out := RenderWithState(t, tc.id, p, st, now, nil)
+		if !strings.Contains(out, tc.label) {
+			t.Errorf("%s missing label %q: %q", tc.id, tc.label, out)
+		}
+		if !strings.Contains(out, "40%") {
+			t.Errorf("%s missing 40%%: %q", tc.id, out)
+		}
+		if !strings.Contains(out, "→") {
+			t.Errorf("%s missing projection: %q", tc.id, out)
+		}
+	}
+
+	// Absent windows hide.
+	empty := payload.Payload{}
+	for _, id := range []string{"rate-limit-fable", "rate-limit-sonnet", "rate-limit-opus"} {
+		if out := RenderWithState(t, id, empty, nil, now, nil); out != "" {
+			t.Errorf("%s with empty payload = %q, want hidden", id, out)
+		}
+	}
+}
+
 func TestCostRateSegment(t *testing.T) {
 	now := time.Unix(1750000000, 0)
 	st := rlState(now, 30*time.Minute, 0, 0, 1.50, 2.0)

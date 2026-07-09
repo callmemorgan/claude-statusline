@@ -92,3 +92,74 @@ func normalizeSettingsNumbers(settings map[string]map[string]any) map[string]map
 	}
 	return settings
 }
+
+// migrateConfigSchema applies forward-only in-memory upgrades for configs
+// whose schema_version lags currentSchemaVersion. Migrations are idempotent
+// on a single load; after the user saves (SaveConfig writes currentSchemaVersion),
+// they do not re-run. In particular v2 does not re-insert rate-limit-fable if
+// the user later removes it and saves.
+func migrateConfigSchema(cfg *Config) []ConfigWarning {
+	if cfg == nil || cfg.SchemaVersion >= currentSchemaVersion {
+		return nil
+	}
+	var warns []ConfigWarning
+	// v1 → v2: anyone with the weekly 7d bar also gets Fable's weekly included
+	// quota bar (rate-limit-fable / seven_day_overage_included), placed right
+	// after rate-limit-7d and inheriting its line + bar settings when unset.
+	if cfg.SchemaVersion < 2 {
+		if insertSegmentAfter(cfg, "rate-limit-7d", "rate-limit-fable") {
+			if cfg.Lines != nil {
+				if line, ok := cfg.Lines["rate-limit-7d"]; ok {
+					if _, has := cfg.Lines["rate-limit-fable"]; !has {
+						cfg.Lines["rate-limit-fable"] = line
+					}
+				}
+			}
+			if cfg.Settings != nil {
+				if src, ok := cfg.Settings["rate-limit-7d"]; ok {
+					if _, has := cfg.Settings["rate-limit-fable"]; !has {
+						dst := make(map[string]any, len(src))
+						for k, v := range src {
+							dst[k] = v
+						}
+						cfg.Settings["rate-limit-fable"] = dst
+					}
+				}
+			}
+			warns = append(warns, ConfigWarning{
+				Path: "segments",
+				Msg:  "added rate-limit-fable next to rate-limit-7d (Fable weekly included quota)",
+			})
+		}
+	}
+	cfg.SchemaVersion = currentSchemaVersion
+	return warns
+}
+
+// insertSegmentAfter inserts newID immediately after afterID in cfg.Segments
+// when afterID is present and newID is not. Returns true when it inserted.
+func insertSegmentAfter(cfg *Config, afterID, newID string) bool {
+	if cfg == nil || afterID == "" || newID == "" || afterID == newID {
+		return false
+	}
+	hasAfter, hasNew := false, false
+	afterIdx := -1
+	for i, id := range cfg.Segments {
+		if id == afterID {
+			hasAfter = true
+			afterIdx = i
+		}
+		if id == newID {
+			hasNew = true
+		}
+	}
+	if !hasAfter || hasNew {
+		return false
+	}
+	out := make([]string, 0, len(cfg.Segments)+1)
+	out = append(out, cfg.Segments[:afterIdx+1]...)
+	out = append(out, newID)
+	out = append(out, cfg.Segments[afterIdx+1:]...)
+	cfg.Segments = out
+	return true
+}
