@@ -126,6 +126,59 @@ segments = ["rate-limit-7d", "model"]
 	}
 }
 
+func TestMigrateLegacyJSONInsertsFableBeforeWrite(t *testing.T) {
+	// Codex P2: schema v2 must run before MarshalConfigTOML so the written
+	// config.toml already has rate-limit-fable and schema_version = current.
+	// Otherwise the file is stamped current without fable and never upgrades.
+	dir := useTempConfigDir(t)
+	jsonPath := filepath.Join(dir, "config.json")
+	legacy := `{
+  "segments": ["model", "rate-limit-5h", "rate-limit-7d", "cost"],
+  "lines": {"rate-limit-7d": 3},
+  "settings": {"rate-limit-7d": {"bar_width": 30, "iconset": "smooth"}}
+}`
+	if err := os.WriteFile(jsonPath, []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := LoadConfig()
+	want := []string{"model", "rate-limit-5h", "rate-limit-7d", "rate-limit-fable", "cost"}
+	if len(cfg.Segments) != len(want) {
+		t.Fatalf("in-memory segments = %v, want %v", cfg.Segments, want)
+	}
+	for i, id := range want {
+		if cfg.Segments[i] != id {
+			t.Fatalf("in-memory segments = %v, want %v", cfg.Segments, want)
+		}
+	}
+	if cfg.Lines["rate-limit-fable"] != 3 {
+		t.Errorf("fable line = %d, want 3", cfg.Lines["rate-limit-fable"])
+	}
+
+	tomlData, err := os.ReadFile(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(tomlData)
+	if !strings.Contains(text, "rate-limit-fable") {
+		t.Errorf("written config.toml must include rate-limit-fable:\n%s", text)
+	}
+	// MarshalConfigTOML stamps currentSchemaVersion after migrateConfigSchema.
+	if !strings.Contains(text, "schema_version = 2") {
+		t.Errorf("written config.toml must stamp schema_version = 2:\n%s", text)
+	}
+	// Reload must keep fable (schema already current; no re-migration needed).
+	cfg2 := LoadConfig()
+	if len(cfg2.Segments) != len(want) {
+		t.Fatalf("reload segments = %v, want %v", cfg2.Segments, want)
+	}
+	for i, id := range want {
+		if cfg2.Segments[i] != id {
+			t.Fatalf("reload segments = %v, want %v", cfg2.Segments, want)
+		}
+	}
+}
+
 func TestMigrateLegacyJSON(t *testing.T) {
 	dir := useTempConfigDir(t)
 	jsonPath := filepath.Join(dir, "config.json")

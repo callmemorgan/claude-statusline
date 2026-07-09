@@ -52,8 +52,12 @@ func migrateLegacyJSON() (Config, bool) {
 		return Config{}, false
 	}
 
+	// SchemaVersion 0 so migrateConfigSchema runs before we stamp/write.
+	// Writing with currentSchemaVersion without the v2 insert would leave
+	// legacy JSON users who had rate-limit-7d without rate-limit-fable
+	// forever (schema already "current", migration never re-runs).
 	cfg := Config{
-		SchemaVersion: currentSchemaVersion,
+		SchemaVersion: 0,
 		Reflow:        legacy.Reflow,
 		Segments:      legacy.Segments,
 		Lines:         legacy.Lines,
@@ -61,6 +65,7 @@ func migrateLegacyJSON() (Config, bool) {
 		Settings:      normalizeSettingsNumbers(legacy.Settings),
 		Plugins:       legacy.Plugins,
 	}
+	_ = migrateConfigSchema(&cfg)
 
 	tomlData, err := MarshalConfigTOML(cfg)
 	if err != nil {
