@@ -7,6 +7,11 @@ much larger values (e.g. 99999) to force top placement. Bullets without a
 marker default to importance 0.
 -->
 
+## v1.8.2 — 2026-07-09
+- [5] **OAuth quota shim.** New opt-in `[quota_shim]` config table lights up the `rate-limit-fable` / `rate-limit-sonnet` / `rate-limit-opus` bars today: a detached background worker fetches Claude's OAuth usage endpoint (the data behind `claude /usage`) and the render path fills `rate_limits.model_scoped` when the statusline payload lacks the model-class windows. Payload data always wins once Claude Code ships the fields. Only percentages and reset times are cached — never the OAuth token.
+- [3] New `claude-statusline quota` subcommand: verifies the shim end-to-end (cache state + live fetch of the model-class weekly windows).
+- [1] Rate-limit bars omit the reset countdown instead of rendering `(?)` when `resets_at` is absent (common for inactive shim windows).
+
 ## v1.8.1 — 2026-07-09
 - [5] **Fable / Sonnet / Opus weekly quota bars.** New segments `rate-limit-fable`, `rate-limit-sonnet`, and `rate-limit-opus` mirror the existing 5h/7d bars (countdown, burn-rate projection, flyout stress-test). They parse `seven_day_overage_included` (Fable 5 included weekly), `seven_day_sonnet`, `seven_day_opus`, and optional `model_scoped[]` when Claude Code sends them — and self-hide until those fields appear on the statusline wire.
 - [4] **Auto-enable Fable next to the 7d bar.** Schema v2 inserts `rate-limit-fable` after `rate-limit-7d` for existing configs (line + bar settings copied). The same upgrade runs for pre-1.0 `config.json` migrations before the TOML is written, so legacy users aren't left stamped at schema 2 without the Fable segment.
