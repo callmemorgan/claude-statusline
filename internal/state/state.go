@@ -46,13 +46,16 @@ func (s StateConfig) retention() time.Duration {
 
 // sample is one observation of the session's counters.
 type Sample struct {
-	T      int64    `json:"t"` // unix seconds
-	Cost   float64  `json:"cost,omitempty"`
-	CtxPct float64  `json:"ctx,omitempty"` // context window used %
-	InTok  int64    `json:"in,omitempty"`
-	OutTok int64    `json:"out,omitempty"`
-	RL5h   *float64 `json:"rl5h,omitempty"` // rate-limit used %
-	RL7d   *float64 `json:"rl7d,omitempty"`
+	T        int64    `json:"t"` // unix seconds
+	Cost     float64  `json:"cost,omitempty"`
+	CtxPct   float64  `json:"ctx,omitempty"` // context window used %
+	InTok    int64    `json:"in,omitempty"`
+	OutTok   int64    `json:"out,omitempty"`
+	RL5h     *float64 `json:"rl5h,omitempty"` // rate-limit used %
+	RL7d     *float64 `json:"rl7d,omitempty"`
+	RLFable  *float64 `json:"rl_fable,omitempty"`
+	RLSonnet *float64 `json:"rl_sonnet,omitempty"`
+	RLOpus   *float64 `json:"rl_opus,omitempty"`
 }
 
 type SessionState struct {
@@ -159,6 +162,18 @@ func (st *SessionState) Record(p payload.Payload, now time.Time) {
 		f := *v
 		s.RL7d = &f
 	}
+	if v := p.RateLimits.Fable().UsedPercentage; v != nil {
+		f := *v
+		s.RLFable = &f
+	}
+	if v := p.RateLimits.Sonnet().UsedPercentage; v != nil {
+		f := *v
+		s.RLSonnet = &f
+	}
+	if v := p.RateLimits.Opus().UsedPercentage; v != nil {
+		f := *v
+		s.RLOpus = &f
+	}
 	st.Samples = append(st.Samples, s)
 	st.dirty = true
 }
@@ -230,7 +245,8 @@ type Point struct {
 type Series []Point
 
 // Series extracts one field's history. Field names: cost, ctx, in, out,
-// rl5h, rl7d. Pointer fields skip samples where the value was absent.
+// rl5h, rl7d, rl_fable, rl_sonnet, rl_opus. Pointer fields skip samples
+// where the value was absent.
 func (st *SessionState) Series(field string) Series {
 	if st == nil {
 		return nil
@@ -253,6 +269,18 @@ func (st *SessionState) Series(field string) Series {
 		case "rl7d":
 			if s.RL7d != nil {
 				out = append(out, Point{s.T, *s.RL7d})
+			}
+		case "rl_fable":
+			if s.RLFable != nil {
+				out = append(out, Point{s.T, *s.RLFable})
+			}
+		case "rl_sonnet":
+			if s.RLSonnet != nil {
+				out = append(out, Point{s.T, *s.RLSonnet})
+			}
+		case "rl_opus":
+			if s.RLOpus != nil {
+				out = append(out, Point{s.T, *s.RLOpus})
 			}
 		}
 	}

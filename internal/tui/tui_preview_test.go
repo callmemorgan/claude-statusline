@@ -67,6 +67,12 @@ func TestPreviewStateRendersStateFeatures(t *testing.T) {
 	if !strings.Contains(out, "→") {
 		t.Errorf("rate-limit-7d with previewState = %q, want a projection", out)
 	}
+	for _, id := range []string{"rate-limit-fable", "rate-limit-sonnet", "rate-limit-opus"} {
+		out = renderWithState(t, id, p, st, now, nil)
+		if !strings.Contains(out, "→") {
+			t.Errorf("%s with previewState = %q, want a projection", id, out)
+		}
+	}
 
 	out = renderWithState(t, "context-window", p, st, now, nil)
 	if !strings.Contains(out, "↗") {
@@ -84,6 +90,9 @@ func TestSamplePayloadShowsNewSegments(t *testing.T) {
 		{"output-style", "Explanatory"},
 		{"added-dirs", "+1 dir"},
 		{"email", "you@…"},
+		{"rate-limit-fable", "Fable"},
+		{"rate-limit-sonnet", "Sonnet"},
+		{"rate-limit-opus", "Opus"},
 	} {
 		seg, ok := segments.ByID(tc.id)
 		if !ok {
@@ -116,6 +125,15 @@ func TestDemoPreviewPayload(t *testing.T) {
 	}
 	if got := *p.RateLimits.FiveHour.ResetsAt - now.Unix(); got != 1800 {
 		t.Errorf("5h reset winds down with the bar: in %ds, want 1800s (10%% of 5h)", got)
+	}
+	if p.RateLimits.SevenDayOverageIncluded.UsedPercentage == nil || *p.RateLimits.SevenDayOverageIncluded.UsedPercentage != 90 {
+		t.Errorf("fable pct = %v, want 90", p.RateLimits.SevenDayOverageIncluded.UsedPercentage)
+	}
+	if p.RateLimits.SevenDaySonnet.UsedPercentage == nil || *p.RateLimits.SevenDaySonnet.UsedPercentage != 90 {
+		t.Errorf("sonnet pct = %v, want 90", p.RateLimits.SevenDaySonnet.UsedPercentage)
+	}
+	if p.RateLimits.SevenDayOpus.UsedPercentage == nil || *p.RateLimits.SevenDayOpus.UsedPercentage != 90 {
+		t.Errorf("opus pct = %v, want 90", p.RateLimits.SevenDayOpus.UsedPercentage)
 	}
 	if p.Cost.TotalCostUSD != 2.25 {
 		t.Errorf("cost = %v, want 2.25 (90%% of $2.50)", p.Cost.TotalCostUSD)

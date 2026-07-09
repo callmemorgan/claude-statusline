@@ -126,7 +126,7 @@ func TestPresetConfigKey(t *testing.T) {
 	dir := useTempConfigDir(t)
 	writeConfigFile(t, dir, `preset = "quota-watch"`)
 	cfg := LoadConfig()
-	if len(cfg.Segments) != 4 || cfg.Segments[0] != "model" {
+	if len(cfg.Segments) != 7 || cfg.Segments[0] != "model" {
 		t.Errorf("preset segments not applied: %v", cfg.Segments)
 	}
 	if cfg.Theme != "tokyo-night" {

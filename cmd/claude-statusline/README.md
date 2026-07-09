@@ -224,7 +224,10 @@ Segments that receive no data from the active tool hide themselves automatically
 | `prompt-id` | 2 | Claude Code | Prompt ID, UUIDs truncated to 8 chars |
 | `context-window` | 3 | all three | Usage bar with color-coded %, growth trend arrow, and time-to-compact estimate (`↗ ~35m`) |
 | `rate-limit-5h` | 3 | Claude Code | 5-hour rate limit bar with countdown and burn-rate projection (`→58%`) (Pro/Max only) |
-| `rate-limit-7d` | 3 | Claude Code | 7-day rate limit bar with countdown and burn-rate projection (Pro/Max only) |
+| `rate-limit-7d` | 3 | Claude Code | 7-day weekly rate limit bar with countdown and burn-rate projection (Pro/Max only) |
+| `rate-limit-fable` | 3 | Claude Code | Fable 5 weekly included-quota bar (`seven_day_overage_included`) — self-hides until Claude Code sends the field. On upgrade, configs that already list `rate-limit-7d` get this segment inserted after it (schema v2) |
+| `rate-limit-sonnet` | 3 | Claude Code | Sonnet weekly quota bar (`seven_day_sonnet`) — self-hides until Claude Code sends the field |
+| `rate-limit-opus` | 3 | Claude Code | Opus weekly quota bar (`seven_day_opus`) — self-hides until Claude Code sends the field |
 
 ### Harness support
 
@@ -262,8 +265,13 @@ No segment is gated by tool name — each one renders when the active harness se
 | `context-window` | ✓ | ✓ | ✓ |
 | `rate-limit-5h` | ✓ | ✗ | ✗ |
 | `rate-limit-7d` | ✓ | ✗ | ✗ |
+| `rate-limit-fable` | ✓¹ | ✗ | ✗ |
+| `rate-limit-sonnet` | ✓¹ | ✗ | ✗ |
+| `rate-limit-opus` | ✓¹ | ✗ | ✗ |
 
 ✓ renders · ✗ no data, stays hidden.
+
+¹ Claude Code's statusline currently pipes `five_hour` and `seven_day` only. The Fable/Sonnet/Opus segments parse `seven_day_overage_included`, `seven_day_sonnet`, `seven_day_opus`, and optional `model_scoped[]` when present, and stay hidden otherwise (Claude Code 2.1.205 does not emit them yet).
 
 ### Burn rates, projections, and trends
 
@@ -584,7 +592,10 @@ Claude Code sends this JSON structure via stdin:
   "thinking": { "enabled": true },
   "rate_limits": {
     "five_hour": { "used_percentage": 23.5, "resets_at": 1738425600 },
-    "seven_day": { "used_percentage": 41.2, "resets_at": 1738857600 }
+    "seven_day": { "used_percentage": 41.2, "resets_at": 1738857600 },
+    "seven_day_sonnet": { "used_percentage": 18.0, "resets_at": 1738857600 },
+    "seven_day_opus": { "used_percentage": 9.0, "resets_at": 1738857600 },
+    "seven_day_overage_included": { "used_percentage": 55.0, "resets_at": 1738857600 }
   },
   "vim": { "mode": "NORMAL" },
   "agent": { "name": "security-reviewer" },
@@ -616,6 +627,8 @@ Claude Code sends this JSON structure via stdin:
 - `pr` — only while an open PR is found for the current branch
 - `worktree` — only during `--worktree` sessions
 - `rate_limits` — only for Claude Pro/Max subscribers after the first API response
+- `rate_limits.seven_day_sonnet` / `seven_day_opus` / `seven_day_overage_included` — model-class weekly windows (Fable uses `seven_day_overage_included`); not yet emitted by Claude Code 2.1.205's statusline builder, but parsed when present
+- `rate_limits.model_scoped` — optional per-model buckets (`display_name`, `used_percentage` or `utilization`, `resets_at`); used as a fallback when the named windows above are absent
 
 **Fields that may be `null`:**
 - `context_window.current_usage` — before the first API call and after `/compact`
@@ -731,6 +744,7 @@ Source builds (`version = "dev"`) short-circuit the whole feature: no check, no 
 - Check `debug` output to see if the fields are present in the payload
 - Remember: zero values hide `cost`, `duration`, `lines-changed`, `tokens`, etc.
 - `rate_limits` only appears for Claude Pro/Max after the first API call
+- `rate-limit-fable` / `rate-limit-sonnet` / `rate-limit-opus` need the matching model-class keys in the payload (not sent by Claude Code 2.1.205 statusline yet — they hide until they are)
 - Burn rates, projections, and trends need ~5 minutes of session history
 - `agent-name` only appears when running with `--agent`; `vim-mode` only with vim mode on
 

@@ -55,7 +55,8 @@ func filterSegments(all []segments.Info, query string) []segments.Info {
 // (cost-rate, rate-limit projections, the context trend) render in the TUI
 // preview and their settings visibly change the output. Rates: $0.42/h cost,
 // 24%/h context growth (↗ ~37m to the default 80% compact threshold), 16%/h
-// on the 5h quota, 0.4%/h on the 7d quota.
+// on the 5h quota, 0.4%/h on the 7d quota, and matching ramps for Fable/
+// Sonnet/Opus weekly windows.
 func previewState(now time.Time) *state.SessionState {
 	st := &state.SessionState{SessionID: "tui-preview", Retention: 48 * time.Hour}
 	const n = 13 // a sample every 5 minutes over the last hour
@@ -63,14 +64,20 @@ func previewState(now time.Time) *state.SessionState {
 		frac := float64(i) / float64(n-1)
 		rl5h := 34 + 16*frac
 		rl7d := 29.6 + 0.4*frac
+		rlFable := 39.6 + 0.4*frac
+		rlSonnet := 19.6 + 0.4*frac
+		rlOpus := 14.6 + 0.4*frac
 		st.Samples = append(st.Samples, state.Sample{
-			T:      now.Add(-time.Duration(float64(time.Hour) * (1 - frac))).Unix(),
-			Cost:   0.42 * frac,
-			CtxPct: 41 + 24*frac,
-			InTok:  int64(45678 * frac),
-			OutTok: int64(1234 * frac),
-			RL5h:   &rl5h,
-			RL7d:   &rl7d,
+			T:        now.Add(-time.Duration(float64(time.Hour) * (1 - frac))).Unix(),
+			Cost:     0.42 * frac,
+			CtxPct:   41 + 24*frac,
+			InTok:    int64(45678 * frac),
+			OutTok:   int64(1234 * frac),
+			RL5h:     &rl5h,
+			RL7d:     &rl7d,
+			RLFable:  &rlFable,
+			RLSonnet: &rlSonnet,
+			RLOpus:   &rlOpus,
 		})
 	}
 	return st

@@ -164,8 +164,8 @@ func TestFilterSegments(t *testing.T) {
 			t.Errorf("unexpected match %q", s.ID)
 		}
 	}
-	if len(got) < 3 { // rate-limit-5h, rate-limit-7d, cost-rate
-		t.Errorf("expected at least 3 'rate' matches, got %d", len(got))
+	if len(got) < 6 { // rate-limit-5h/7d/fable/sonnet/opus + cost-rate
+		t.Errorf("expected at least 6 'rate' matches, got %d", len(got))
 	}
 	if got := Filter(all, "GIT"); len(got) == 0 {
 		t.Error("filter should be case-insensitive")

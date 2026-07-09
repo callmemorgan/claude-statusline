@@ -10,7 +10,13 @@
   "context_window": {"total_input_tokens": 1234567, "total_output_tokens": 89012, "context_window_size": 200000, "used_percentage": 72.5, "current_usage": {"input_tokens": 1200000, "output_tokens": 89012, "cache_creation_input_tokens": 10000, "cache_read_input_tokens": 50000}},
   "effort": {"level": "high"},
   "thinking": {"enabled": true},
-  "rate_limits": {"five_hour": {"used_percentage": 45, "resets_at": 1750009000}, "seven_day": {"used_percentage": 12, "resets_at": 1750273600}},
+  "rate_limits": {
+    "five_hour": {"used_percentage": 45, "resets_at": 1750009000},
+    "seven_day": {"used_percentage": 12, "resets_at": 1750273600},
+    "seven_day_sonnet": {"used_percentage": 22, "resets_at": 1750273600},
+    "seven_day_opus": {"used_percentage": 8, "resets_at": 1750273600},
+    "seven_day_overage_included": {"used_percentage": 67, "resets_at": 1750273600}
+  },
   "agent": {"name": "ReviewBot"},
   "pr": {"number": 42, "url": "https://github.com/callmemorgan/claude-statusline/pull/42", "review_state": "pending"},
   "worktree": {"name": "my-project", "branch": "feature/test", "path": "/Users/me/code/my-project", "original_cwd": "/Users/me/code", "original_branch": "main"},
