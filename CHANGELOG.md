@@ -7,6 +7,11 @@ much larger values (e.g. 99999) to force top placement. Bullets without a
 marker default to importance 0.
 -->
 
+## v1.8.1 — 2026-07-09
+- [5] **Fable / Sonnet / Opus weekly quota bars.** New segments `rate-limit-fable`, `rate-limit-sonnet`, and `rate-limit-opus` mirror the existing 5h/7d bars (countdown, burn-rate projection, flyout stress-test). They parse `seven_day_overage_included` (Fable 5 included weekly), `seven_day_sonnet`, `seven_day_opus`, and optional `model_scoped[]` when Claude Code sends them — and self-hide until those fields appear on the statusline wire.
+- [4] **Auto-enable Fable next to the 7d bar.** Schema v2 inserts `rate-limit-fable` after `rate-limit-7d` for existing configs (line + bar settings copied). The same upgrade runs for pre-1.0 `config.json` migrations before the TOML is written, so legacy users aren't left stamped at schema 2 without the Fable segment.
+- [2] Defaults and quota-focused presets include the three model-class bars alongside `rate-limit-5h` / `rate-limit-7d`.
+
 ## v1.8.0 — 2026-07-04
 - [5] **Claude Code statusline integration v2.** The payload now accepts Claude Code's newer statusline fields — `prompt_id`, `pr`, `repo`, `worktree`, `thinking`, and the `statusLine` / `subagentStatusLine` install options — and exposes them as new built-in segments.
 - [4] **New built-in segments:** `prompt-id`, `pr`, `repo`, and `thinking` join the segment list, plus the `dir` segment now renders a `worktree` suffix when one is present in the payload.
