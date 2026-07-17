@@ -7,6 +7,12 @@ much larger values (e.g. 99999) to force top placement. Bullets without a
 marker default to importance 0.
 -->
 
+## v1.8.4 — 2026-07-16
+- [5] **Quota shim reads the right account on multi-profile machines.** Claude Code namespaces its macOS keychain item per `CLAUDE_CONFIG_DIR` (`Claude Code-credentials-<sha256[:8]>`; unsuffixed for the default `~/.claude` profile), but the shim always read the unsuffixed entry — so with two logins on one machine it reported the *default* profile's account (possibly a different account entirely), regardless of which profile was running Claude Code. The shim now resolves the profile (`[quota_shim].claude_config_dir` → `$CLAUDE_CONFIG_DIR` → default) and reads that profile's scoped keychain service and `.credentials.json`.
+- [4] New `[quota_shim]` option `claude_config_dir`: point the shim at a specific Claude Code profile (same value you'd export as `CLAUDE_CONFIG_DIR`, `~/` expands); wins over the inherited env. Unset keeps today's behavior.
+- [3] **Per-profile shim cache.** The quota cache and lock files are keyed by the resolved profile (default profile keeps the legacy `quota-shim.json`/`quota-shim.lock` names; scoped profiles append the same 8-hex suffix as the keychain service), so concurrent sessions on different profiles no longer clobber each other's windows.
+- [1] `claude-statusline quota` now prints the resolved profile and keychain service name so you can confirm the shim is reading the right account.
+
 ## v1.8.3 — 2026-07-09
 - [4] **Model-class windows are shim-only now.** Removed the speculative statusline-payload parsing of `seven_day_overage_included` / `seven_day_sonnet` / `seven_day_opus` / `model_scoped` — Claude Code does not send these fields to the statusline, so the binary no longer pretends to read them from the wire. The Fable/Sonnet/Opus bars are fed exclusively by the opt-in `[quota_shim]` OAuth bridge; if Claude Code ever ships the fields, wire parsing will return against the real schema.
 
