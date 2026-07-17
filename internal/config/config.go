@@ -85,6 +85,13 @@ type Config struct {
 type QuotaShimConfig struct {
 	Enabled        bool `toml:"enabled,omitempty"`
 	RefreshMinutes *int `toml:"refresh_minutes,omitempty"` // 1..1440, default 5
+	// ClaudeConfigDir points the shim at a specific Claude Code profile (the
+	// same value you'd export as CLAUDE_CONFIG_DIR for that profile, e.g.
+	// "~/.claude-personal") instead of the default ~/.claude profile. Claude
+	// Code namespaces its keychain item per config dir; this tells the shim
+	// which one to read. Empty means the default profile (unchanged
+	// behavior).
+	ClaudeConfigDir string `toml:"claude_config_dir,omitempty"`
 }
 
 func (q QuotaShimConfig) RefreshEvery() time.Duration {

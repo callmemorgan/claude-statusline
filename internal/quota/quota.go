@@ -10,6 +10,8 @@
 package quota
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,8 +55,18 @@ type cacheFile struct {
 	ModelScoped []cacheEntry `json:"model_scoped"`
 }
 
-func cachePath() string { return filepath.Join(state.StateBaseDir(), "quota-shim.json") }
-func lockPath() string  { return filepath.Join(state.StateBaseDir(), "quota-shim.lock") }
+// cachePath and lockPath are keyed by the resolved Claude Code profile so
+// concurrent sessions on different profiles never clobber each other's cache
+// or serialize behind each other's lock. The default profile keeps the legacy
+// unsuffixed filenames for backward compatibility; a scoped profile appends
+// the same 8-hex sha256 suffix Claude Code uses for its keychain service.
+func cachePath(configDir string) string {
+	return filepath.Join(state.StateBaseDir(), "quota-shim"+profileSuffix(configDir)+".json")
+}
+
+func lockPath(configDir string) string {
+	return filepath.Join(state.StateBaseDir(), "quota-shim"+profileSuffix(configDir)+".lock")
+}
 
 // ─── Render-Path Injection ───────────────────────────────────────────
 
@@ -84,9 +96,12 @@ func MaybeInject(p *payload.Payload, cfg config.QuotaShimConfig, now time.Time) 
 	if !cfg.Enabled {
 		return
 	}
-	entries, mtime := loadCache()
+	// Resolving the profile here is env read + in-process sha256 only —
+	// never a subprocess — so the render path stays cheap.
+	configDir := resolveClaudeConfigDir(cfg)
+	entries, mtime := loadCache(configDir)
 	if needsRefresh(mtime, now, cfg.RefreshEvery()) {
-		trySpawnRefresh()
+		trySpawnRefresh(configDir)
 	}
 	if len(entries) == 0 || len(p.RateLimits.ModelScoped) > 0 {
 		return
@@ -102,8 +117,8 @@ func MaybeInject(p *payload.Payload, cfg config.QuotaShimConfig, now time.Time) 
 	p.RateLimits.ModelScoped = scoped
 }
 
-func loadCache() ([]cacheEntry, time.Time) {
-	path := cachePath()
+func loadCache(configDir string) ([]cacheEntry, time.Time) {
+	path := cachePath(configDir)
 	var mtime time.Time
 	if info, err := os.Stat(path); err == nil {
 		mtime = info.ModTime()
@@ -126,13 +141,13 @@ func needsRefresh(mtime time.Time, now time.Time, refresh time.Duration) bool {
 	return now.Sub(mtime) >= refresh
 }
 
-func trySpawnRefresh() {
+func trySpawnRefresh(configDir string) {
 	if err := os.MkdirAll(state.StateBaseDir(), 0o755); err != nil {
 		return
 	}
-	if sys.TryAcquireLock(lockPath(), staleLockTolerance) {
+	if sys.TryAcquireLock(lockPath(configDir), staleLockTolerance) {
 		if err := spawnRefresh(); err != nil {
-			_ = os.Remove(lockPath())
+			_ = os.Remove(lockPath(configDir))
 		}
 	}
 }
@@ -142,15 +157,20 @@ func trySpawnRefresh() {
 // RunRefresh executes the hidden "quota-refresh" subcommand: fetch the usage
 // endpoint, rewrite the cache atomically, release the lock. Fetch failures
 // touch the cache mtime instead so the render path backs off rather than
-// respawning every turn.
+// respawning every turn. The worker is a separate process, so it re-resolves
+// the profile from config + the CLAUDE_CONFIG_DIR env it inherited from the
+// spawning session — the same inputs MaybeInject resolved from — landing on
+// the same cache/lock key without any positional hand-off.
 func RunRefresh() error {
-	defer func() { _ = os.Remove(lockPath()) }()
+	full, _ := config.LoadConfigWarn()
+	configDir := resolveClaudeConfigDir(full.QuotaShim)
+	defer func() { _ = os.Remove(lockPath(configDir)) }()
 	if err := os.MkdirAll(state.StateBaseDir(), 0o755); err != nil {
 		return err
 	}
 
-	entries, err := fetchUsage()
-	path := cachePath()
+	entries, err := fetchUsage(configDir)
+	path := cachePath(configDir)
 	now := time.Now()
 	if err != nil {
 		if _, statErr := os.Stat(path); statErr == nil {
@@ -173,8 +193,8 @@ func RunRefresh() error {
 	return nil
 }
 
-func fetchUsage() ([]cacheEntry, error) {
-	token, err := loadToken()
+func fetchUsage(configDir string) ([]cacheEntry, error) {
+	token, err := loadToken(configDir)
 	if err != nil {
 		return nil, err
 	}
@@ -289,14 +309,21 @@ func RunStatus(w io.Writer) error {
 		fmt.Fprintln(w, "quota shim: disabled — enable with [quota_shim] enabled = true in config.toml")
 	}
 
-	if entries, mtime := loadCache(); !mtime.IsZero() {
+	configDir := resolveClaudeConfigDir(cfg)
+	profile := configDir
+	if profile == "" {
+		profile = "default (~/.claude)"
+	}
+	fmt.Fprintf(w, "profile: %s (keychain service %q)\n", profile, keychainServiceName(configDir))
+
+	if entries, mtime := loadCache(configDir); !mtime.IsZero() {
 		fmt.Fprintf(w, "cache: %s (updated %s ago, %d window(s))\n",
-			cachePath(), time.Since(mtime).Round(time.Second), len(entries))
+			cachePath(configDir), time.Since(mtime).Round(time.Second), len(entries))
 	} else {
-		fmt.Fprintf(w, "cache: %s (absent)\n", cachePath())
+		fmt.Fprintf(w, "cache: %s (absent)\n", cachePath(configDir))
 	}
 
-	entries, err := fetchUsage()
+	entries, err := fetchUsage(configDir)
 	if err != nil {
 		return fmt.Errorf("live fetch failed: %w", err)
 	}
@@ -317,34 +344,85 @@ func RunStatus(w io.Writer) error {
 	return nil
 }
 
+// ─── Profile Resolution ──────────────────────────────────────────────
+
+// resolveClaudeConfigDir picks the Claude Code profile the shim should read:
+// the explicit [quota_shim].claude_config_dir config value (expanded for a
+// leading "~/"), else the CLAUDE_CONFIG_DIR the process inherited, else ""
+// (the default ~/.claude profile).
+func resolveClaudeConfigDir(cfg config.QuotaShimConfig) string {
+	if cfg.ClaudeConfigDir != "" {
+		return expandHome(cfg.ClaudeConfigDir)
+	}
+	return os.Getenv("CLAUDE_CONFIG_DIR")
+}
+
+func expandHome(path string) string {
+	if !strings.HasPrefix(path, "~/") && path != "~" {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return path
+	}
+	if path == "~" {
+		return home
+	}
+	return filepath.Join(home, path[2:])
+}
+
+// profileSuffix is the per-profile key shared by the keychain service name
+// and the shim's cache/lock filenames: empty for the default profile, else
+// "-" + the first 8 hex chars of sha256(configDir) — the exact literal
+// config dir string Claude Code itself hashes, no trailing-slash or other
+// normalization.
+func profileSuffix(configDir string) string {
+	if configDir == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(configDir))
+	return "-" + hex.EncodeToString(sum[:])[:8]
+}
+
+// keychainServiceName mirrors Claude Code's own keychain namespacing: the
+// default profile uses "Claude Code-credentials" unsuffixed, while any
+// CLAUDE_CONFIG_DIR-scoped profile gets the sha256[:8] suffix.
+func keychainServiceName(configDir string) string {
+	return "Claude Code-credentials" + profileSuffix(configDir)
+}
+
 // ─── Token Discovery ─────────────────────────────────────────────────
 
-// loadToken finds the Claude Code OAuth access token without ever persisting
-// it: $CLAUDE_CODE_OAUTH_TOKEN, then the macOS keychain, then the
-// credentials file Claude Code writes on Linux/Windows.
-func loadToken() (string, error) {
+// loadToken finds the Claude Code OAuth access token for the given profile
+// (configDir; "" means the default profile) without ever persisting it:
+// $CLAUDE_CODE_OAUTH_TOKEN, then the macOS keychain (profile-scoped service),
+// then the credentials file Claude Code writes on Linux/Windows.
+func loadToken(configDir string) (string, error) {
 	if t := os.Getenv("CLAUDE_CODE_OAUTH_TOKEN"); t != "" {
 		return t, nil
 	}
 	if runtime.GOOS == "darwin" {
-		if t, err := keychainToken(); err == nil && t != "" {
+		if t, err := keychainToken(configDir); err == nil && t != "" {
 			return t, nil
 		}
 	}
-	return credentialsFileToken()
+	return credentialsFileToken(configDir)
 }
 
-func keychainToken() (string, error) {
+func keychainToken(configDir string) (string, error) {
 	out, err := exec.Command("security", "find-generic-password",
-		"-s", "Claude Code-credentials", "-w").Output()
+		"-s", keychainServiceName(configDir), "-w").Output()
 	if err != nil {
 		return "", err
 	}
 	return accessTokenFromCredentials(out)
 }
 
-func credentialsFileToken() (string, error) {
+func credentialsFileToken(configDir string) (string, error) {
 	var candidates []string
+	if configDir != "" {
+		candidates = append(candidates, filepath.Join(configDir, ".credentials.json"))
+	}
 	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
 		candidates = append(candidates, filepath.Join(dir, ".credentials.json"))
 	}

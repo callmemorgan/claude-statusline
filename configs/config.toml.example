@@ -27,6 +27,8 @@ theme = "classic"
 #preset = "cost-tracker"
 
 # Which segments to show, in order. Omit the key for the default set
+# Foreign subscription cache segments are opt-in: usage-codex, usage-grok,
+# usage-agy, and usage-kimi. Refresh their cache with `claude-all-usage`.
 # (plugins are auto-appended); use [] to hide everything.
 segments = [
   "vim-mode",
@@ -191,3 +193,10 @@ timeout_ms = 200
 # [quota_shim]
 # enabled = true
 # refresh_minutes = 5   # 1-1440
+# Running multiple Claude Code profiles side by side (e.g. via a shell
+# function that sets CLAUDE_CONFIG_DIR)? Claude Code keys its keychain item
+# by config dir, so point the shim at the profile you want tracked. When
+# this is unset, the shim follows the session's own CLAUDE_CONFIG_DIR (each
+# profile tracks its own account), falling back to the default ~/.claude
+# profile when that is unset too.
+# claude_config_dir = "~/.claude-personal"
